@@ -1,10 +1,10 @@
 # sched-v2
 
-DB-first rewrite of a restaurant scheduling MVP with a pure scheduling engine and a thin API boundary.
+DB-first rewrite of a restaurant scheduling MVP with a pure scheduling engine, a thin API boundary, and a Django-first runtime direction.
 
 ## Current Scope
 
-This bootstrap step creates the initial Python project skeleton, basic package layout, and lightweight architecture documentation only.
+The current scaffold includes persistence models, repository and service boundaries, API schemas, framework-neutral route translation, and a thin Django-first runtime adapter skeleton.
 
 ## Architecture Direction
 
@@ -13,6 +13,6 @@ This bootstrap step creates the initial Python project skeleton, basic package l
 - `services`: application-level workflows such as preview, apply, save, export, and refine
 - `infra`: persistence-facing models and repository abstractions
 - `ai`: pluggable AI interfaces and future natural-language refinement integration
-- `api`: thin transport layer for schemas and routes
+- `api`: thin transport layer for schemas, framework-neutral route translation, and Django-first runtime adapters
 
-Business rules, API behavior, database migrations, scheduling logic, and LangGraph flows are intentionally deferred.
+Business rules, repository-backed runtime wiring, database migrations, scheduling logic, and LangGraph flows are intentionally deferred.

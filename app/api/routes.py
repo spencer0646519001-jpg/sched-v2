@@ -2,9 +2,9 @@
 
 This module stays intentionally framework-neutral. Route handlers accept API
 schema objects, translate them into service-layer dataclasses, delegate to
-injected services, and translate responses back into API schemas. A future web
-adapter can register the returned route definitions in FastAPI, Flask, or
-another framework without moving business logic into the transport layer.
+injected services, and translate responses back into API schemas. The primary
+runtime for V2 is Django, and the Django adapter should register these route
+definitions without moving business logic into the transport layer.
 """
 
 from __future__ import annotations
@@ -72,11 +72,11 @@ _MONTHLY_SCHEDULE_BASE_PATH = "/v2/monthly-schedules"
 
 @dataclass(frozen=True, slots=True)
 class RouteDefinition:
-    """Minimal route metadata for a future HTTP adapter.
+    """Minimal route metadata for the Django-first HTTP adapter layer.
 
     Method and path values are placeholders that make the transport boundary
-    explicit without committing the project to a specific framework or startup
-    style yet.
+    explicit while keeping request/response translation reusable outside Django
+    when needed for tests or internal callers.
     """
 
     name: str
@@ -89,7 +89,7 @@ class RouteDefinition:
 
 @dataclass(slots=True)
 class MonthlyScheduleRoutes:
-    """Framework-neutral route bundle for the V2 monthly scheduling service."""
+    """Framework-neutral route bundle consumed by the Django-first runtime."""
 
     preview_service: PreviewMonthScheduleService
     apply_service: ApplyMonthScheduleService
@@ -98,7 +98,7 @@ class MonthlyScheduleRoutes:
     export_service: ExportMonthScheduleService
 
     def route_definitions(self) -> tuple[RouteDefinition, ...]:
-        """Return the minimal route table a future web adapter can register."""
+        """Return the minimal route table the Django adapter can register."""
 
         return (
             RouteDefinition(
@@ -207,7 +207,7 @@ def build_month_schedule_routes(
     refine_service: RefineMonthScheduleService,
     export_service: ExportMonthScheduleService,
 ) -> MonthlyScheduleRoutes:
-    """Create the route bundle without introducing app startup or DI wiring."""
+    """Create the route bundle without introducing Django startup wiring."""
 
     return MonthlyScheduleRoutes(
         preview_service=preview_service,

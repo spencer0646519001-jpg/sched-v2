@@ -26,7 +26,7 @@ Home for pluggable AI interfaces and adapter implementations. This keeps future 
 
 ### `api`
 
-Home for thin transport adapters such as request/response schemas and route wiring. This layer should stay lightweight and delegate real work to services.
+Home for thin transport adapters such as request/response schemas, route translators, and Django runtime wiring. V2 is Django-first at runtime: the framework-neutral route layer remains reusable, while Django views and URL registration become the practical entry path. This layer should stay lightweight and delegate real work to services.
 
 ## Persistence Model Notes
 
@@ -53,7 +53,8 @@ Home for thin transport adapters such as request/response schemas and route wiri
 ## Intentional Deferrals
 
 - No scheduling business logic yet
-- No API implementation yet
+- No repository-backed Django runtime wiring yet
+- No full Django project/settings integration yet
 - No migration framework yet
 - No LangGraph flow yet
 - No import workflow yet
