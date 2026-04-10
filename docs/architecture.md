@@ -14,7 +14,7 @@ Home for the pure scheduling engine. It should accept explicit inputs, return de
 
 ### `services`
 
-Home for application workflows that coordinate domain, engine, infra, and AI capabilities. This is where preview/apply/save/export/refine use cases can be assembled later.
+Home for application workflows that coordinate domain, engine, infra, and AI capabilities. Preview/apply/save/export/refine use cases belong here, while API and file-response concerns stay outside this layer.
 
 ### `infra`
 
@@ -56,4 +56,5 @@ Home for thin transport adapters such as request/response schemas and route wiri
 - No API implementation yet
 - No migration framework yet
 - No LangGraph flow yet
-- No import/export behavior yet
+- No import workflow yet
+- No API/file download export behavior yet
