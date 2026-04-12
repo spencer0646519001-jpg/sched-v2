@@ -94,13 +94,13 @@ class MonthlyScheduleRoutes:
     preview_service: PreviewMonthScheduleService
     apply_service: ApplyMonthScheduleService
     save_service: SaveMonthScheduleService
-    refine_service: RefineMonthScheduleService
-    export_service: ExportMonthScheduleService
+    refine_service: RefineMonthScheduleService | None = None
+    export_service: ExportMonthScheduleService | None = None
 
     def route_definitions(self) -> tuple[RouteDefinition, ...]:
         """Return the minimal route table the Django adapter can register."""
 
-        return (
+        route_definitions: list[RouteDefinition] = [
             RouteDefinition(
                 name="preview_month_schedule",
                 method="POST",
@@ -125,23 +125,30 @@ class MonthlyScheduleRoutes:
                 response_schema=SaveMonthScheduleResponseSchema,
                 handler=self.save_month_schedule,
             ),
-            RouteDefinition(
-                name="refine_month_schedule",
-                method="POST",
-                path=f"{_MONTHLY_SCHEDULE_BASE_PATH}/refine",
-                request_schema=RefineMonthScheduleRequestSchema,
-                response_schema=RefineMonthScheduleResponseSchema,
-                handler=self.refine_month_schedule,
-            ),
-            RouteDefinition(
-                name="export_month_schedule",
-                method="POST",
-                path=f"{_MONTHLY_SCHEDULE_BASE_PATH}/export",
-                request_schema=ExportMonthScheduleRequestSchema,
-                response_schema=ExportMonthScheduleResponseSchema,
-                handler=self.export_month_schedule,
-            ),
-        )
+        ]
+        if self.refine_service is not None:
+            route_definitions.append(
+                RouteDefinition(
+                    name="refine_month_schedule",
+                    method="POST",
+                    path=f"{_MONTHLY_SCHEDULE_BASE_PATH}/refine",
+                    request_schema=RefineMonthScheduleRequestSchema,
+                    response_schema=RefineMonthScheduleResponseSchema,
+                    handler=self.refine_month_schedule,
+                )
+            )
+        if self.export_service is not None:
+            route_definitions.append(
+                RouteDefinition(
+                    name="export_month_schedule",
+                    method="POST",
+                    path=f"{_MONTHLY_SCHEDULE_BASE_PATH}/export",
+                    request_schema=ExportMonthScheduleRequestSchema,
+                    response_schema=ExportMonthScheduleResponseSchema,
+                    handler=self.export_month_schedule,
+                )
+            )
+        return tuple(route_definitions)
 
     def preview_month_schedule(
         self,
@@ -182,6 +189,8 @@ class MonthlyScheduleRoutes:
     ) -> RefineMonthScheduleResponseSchema:
         """Translate refine transport input into one service call."""
 
+        if self.refine_service is None:
+            raise RuntimeError("Refine month schedule route is not wired.")
         service_response = self.refine_service.refine_month_schedule(
             _map_refine_request_to_service(request)
         )
@@ -193,6 +202,8 @@ class MonthlyScheduleRoutes:
     ) -> ExportMonthScheduleResponseSchema:
         """Translate export transport input into one service call."""
 
+        if self.export_service is None:
+            raise RuntimeError("Export month schedule route is not wired.")
         service_response = self.export_service.export_month_schedule(
             _map_export_request_to_service(request)
         )
@@ -204,10 +215,14 @@ def build_month_schedule_routes(
     preview_service: PreviewMonthScheduleService,
     apply_service: ApplyMonthScheduleService,
     save_service: SaveMonthScheduleService,
-    refine_service: RefineMonthScheduleService,
-    export_service: ExportMonthScheduleService,
+    refine_service: RefineMonthScheduleService | None = None,
+    export_service: ExportMonthScheduleService | None = None,
 ) -> MonthlyScheduleRoutes:
-    """Create the route bundle without introducing Django startup wiring."""
+    """Create the route bundle without introducing Django startup wiring.
+
+    The Django-first runtime can wire a partial vertical slice by omitting
+    services whose endpoints remain deferred for a later PR.
+    """
 
     return MonthlyScheduleRoutes(
         preview_service=preview_service,
