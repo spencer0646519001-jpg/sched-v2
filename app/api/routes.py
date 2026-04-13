@@ -22,6 +22,7 @@ from app.api.schemas import (
     ExportMonthScheduleResponseSchema,
     ExportMonthScheduleRowSchema,
     MonthPlanningAssignmentSchema,
+    MonthPlanningEvaluationSchema,
     MonthPlanningMetadataSchema,
     MonthPlanningResultSchema,
     MonthPlanningSummarySchema,
@@ -35,6 +36,7 @@ from app.api.schemas import (
 )
 from app.engine.contracts import (
     AssignmentOutput,
+    MonthPlanningEvaluation,
     MonthPlanningMetadata,
     MonthPlanningResult,
     MonthPlanningSummary,
@@ -421,6 +423,36 @@ def _map_month_planning_result_to_contract(
             refinement_applied=result.metadata.refinement_applied,
             notes=list(result.metadata.notes) if result.metadata.notes else None,
         ),
+        evaluation=(
+            MonthPlanningEvaluation(
+                duplicate_assignment_conflicts=(
+                    result.evaluation.duplicate_assignment_conflicts
+                ),
+                workspace_state_integrity_violations=(
+                    result.evaluation.workspace_state_integrity_violations
+                ),
+                understaffed_station_days=result.evaluation.understaffed_station_days,
+                workers_below_min_days_off=(
+                    result.evaluation.workers_below_min_days_off
+                ),
+                total_warnings=result.evaluation.total_warnings,
+                warnings_by_type=dict(result.evaluation.warnings_by_type),
+                assignments_by_worker=dict(result.evaluation.assignments_by_worker),
+                paid_hours_by_worker=dict(result.evaluation.paid_hours_by_worker),
+                max_minus_min_assignment_gap=(
+                    result.evaluation.max_minus_min_assignment_gap
+                ),
+                max_minus_min_paid_hours_gap=(
+                    result.evaluation.max_minus_min_paid_hours_gap
+                ),
+                covered_station_days=result.evaluation.covered_station_days,
+                hard_constraints_passed=result.evaluation.hard_constraints_passed,
+                soft_warnings_present=result.evaluation.soft_warnings_present,
+                schedule_quality_label=result.evaluation.schedule_quality_label,
+            )
+            if result.evaluation is not None
+            else None
+        ),
     )
 
 
@@ -463,6 +495,36 @@ def _map_month_planning_result_to_schema(
             source_type=result.metadata.source_type,
             refinement_applied=result.metadata.refinement_applied,
             notes=list(result.metadata.notes) if result.metadata.notes else None,
+        ),
+        evaluation=(
+            MonthPlanningEvaluationSchema(
+                duplicate_assignment_conflicts=(
+                    result.evaluation.duplicate_assignment_conflicts
+                ),
+                workspace_state_integrity_violations=(
+                    result.evaluation.workspace_state_integrity_violations
+                ),
+                understaffed_station_days=result.evaluation.understaffed_station_days,
+                workers_below_min_days_off=(
+                    result.evaluation.workers_below_min_days_off
+                ),
+                total_warnings=result.evaluation.total_warnings,
+                warnings_by_type=dict(result.evaluation.warnings_by_type),
+                assignments_by_worker=dict(result.evaluation.assignments_by_worker),
+                paid_hours_by_worker=dict(result.evaluation.paid_hours_by_worker),
+                max_minus_min_assignment_gap=(
+                    result.evaluation.max_minus_min_assignment_gap
+                ),
+                max_minus_min_paid_hours_gap=(
+                    result.evaluation.max_minus_min_paid_hours_gap
+                ),
+                covered_station_days=result.evaluation.covered_station_days,
+                hard_constraints_passed=result.evaluation.hard_constraints_passed,
+                soft_warnings_present=result.evaluation.soft_warnings_present,
+                schedule_quality_label=result.evaluation.schedule_quality_label,
+            )
+            if result.evaluation is not None
+            else None
         ),
     )
 

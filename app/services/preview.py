@@ -18,6 +18,7 @@ from app.engine.contracts import (
     StationInput,
     WorkerInput,
 )
+from app.engine.evaluation import attach_month_planning_evaluation
 from app.infra.models import RecordId, Station, Tenant, Worker
 from app.infra.repositories import (
     ConstraintConfigRepository,
@@ -88,7 +89,9 @@ class PreviewMonthScheduleService:
             month=request.month,
         )
         planning_input = _translate_persistence_bundle_to_engine_input(bundle)
-        preview_result = self.engine_runner(planning_input)
+        preview_result = attach_month_planning_evaluation(
+            self.engine_runner(planning_input)
+        )
 
         return PreviewMonthScheduleResponse(request=request, result=preview_result)
 

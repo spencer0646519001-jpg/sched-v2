@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import datetime as dt
 from decimal import Decimal
-from typing import Any, TypeAlias
+from typing import Any, Literal, TypeAlias
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -79,6 +79,25 @@ class MonthPlanningMetadataSchema(ApiSchema):
     notes: list[str] | None = None
 
 
+class MonthPlanningEvaluationSchema(ApiSchema):
+    """Minimal reviewer-facing evaluation envelope for one candidate schedule."""
+
+    duplicate_assignment_conflicts: int = Field(ge=0)
+    workspace_state_integrity_violations: int = Field(ge=0)
+    understaffed_station_days: int = Field(ge=0)
+    workers_below_min_days_off: int = Field(ge=0)
+    total_warnings: int = Field(ge=0)
+    warnings_by_type: dict[str, int] = Field(default_factory=dict)
+    assignments_by_worker: dict[str, int] = Field(default_factory=dict)
+    paid_hours_by_worker: dict[str, Decimal] = Field(default_factory=dict)
+    max_minus_min_assignment_gap: int = Field(ge=0)
+    max_minus_min_paid_hours_gap: Decimal = Field(ge=0)
+    covered_station_days: int = Field(ge=0)
+    hard_constraints_passed: bool
+    soft_warnings_present: bool
+    schedule_quality_label: Literal["good", "needs_review", "invalid"]
+
+
 class MonthPlanningResultSchema(ApiSchema):
     """Reusable month-planning result envelope for preview/apply/refine flows."""
 
@@ -86,6 +105,7 @@ class MonthPlanningResultSchema(ApiSchema):
     warnings: list[MonthPlanningWarningSchema] = Field(default_factory=list)
     summary: MonthPlanningSummarySchema
     metadata: MonthPlanningMetadataSchema
+    evaluation: MonthPlanningEvaluationSchema | None = None
 
 
 class PreviewMonthScheduleRequestSchema(TenantMonthScopeSchema):
@@ -192,6 +212,7 @@ __all__ = [
     "ExportMonthScheduleResponseSchema",
     "ExportMonthScheduleRowSchema",
     "MonthPlanningAssignmentSchema",
+    "MonthPlanningEvaluationSchema",
     "MonthPlanningMetadataSchema",
     "MonthPlanningResultSchema",
     "MonthPlanningSummarySchema",

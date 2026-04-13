@@ -115,7 +115,11 @@ def test_preview_service_smoke_flow_returns_engine_result() -> None:
     )
 
     assert response.request.tenant_slug == ctx.tenant.slug
-    assert response.result == engine.result
+    assert response.result.assignments == engine.result.assignments
+    assert response.result.summary == engine.result.summary
+    assert response.result.metadata == engine.result.metadata
+    assert response.result.evaluation is not None
+    assert response.result.evaluation.schedule_quality_label == "good"
     assert engine.requests[0].tenant_code == ctx.tenant.slug
     assert engine.requests[0].workers[0].worker_code == ctx.worker.code
 

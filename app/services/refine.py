@@ -13,9 +13,11 @@ from typing import Protocol
 
 from app.engine.contracts import (
     AssignmentPatchInput,
+    MonthPlanningEvaluation,
     MonthPlanningInput,
     MonthPlanningResult,
 )
+from app.engine.evaluation import attach_month_planning_evaluation
 from app.infra.models import JsonObject, RecordId, RefineRequest, Tenant
 from app.infra.repositories import (
     ConstraintConfigRepository,
@@ -188,7 +190,9 @@ class RefineMonthScheduleService:
             base_planning_input,
             parser_result,
         )
-        candidate_result = self.engine_runner(refined_planning_input)
+        candidate_result = attach_month_planning_evaluation(
+            self.engine_runner(refined_planning_input)
+        )
         result_preview_json = _serialize_month_planning_result(candidate_result)
         completed_refine_request = self.refine_request_repository.update_parsed_preview(
             refine_request_id,
@@ -367,6 +371,41 @@ def _serialize_month_planning_result(result: MonthPlanningResult) -> JsonObject:
             "refinement_applied": result.metadata.refinement_applied,
             "notes": list(result.metadata.notes) if result.metadata.notes else None,
         },
+        "evaluation": (
+            _serialize_month_planning_evaluation(result.evaluation)
+            if result.evaluation is not None
+            else None
+        ),
+    }
+
+
+def _serialize_month_planning_evaluation(
+    evaluation: MonthPlanningEvaluation,
+) -> JsonObject:
+    """Serialize the v0.1 evaluation envelope for refine preview storage."""
+
+    return {
+        "duplicate_assignment_conflicts": evaluation.duplicate_assignment_conflicts,
+        "workspace_state_integrity_violations": (
+            evaluation.workspace_state_integrity_violations
+        ),
+        "understaffed_station_days": evaluation.understaffed_station_days,
+        "workers_below_min_days_off": evaluation.workers_below_min_days_off,
+        "total_warnings": evaluation.total_warnings,
+        "warnings_by_type": dict(evaluation.warnings_by_type),
+        "assignments_by_worker": dict(evaluation.assignments_by_worker),
+        "paid_hours_by_worker": {
+            worker_code: str(hours)
+            for worker_code, hours in evaluation.paid_hours_by_worker.items()
+        },
+        "max_minus_min_assignment_gap": evaluation.max_minus_min_assignment_gap,
+        "max_minus_min_paid_hours_gap": str(
+            evaluation.max_minus_min_paid_hours_gap
+        ),
+        "covered_station_days": evaluation.covered_station_days,
+        "hard_constraints_passed": evaluation.hard_constraints_passed,
+        "soft_warnings_present": evaluation.soft_warnings_present,
+        "schedule_quality_label": evaluation.schedule_quality_label,
     }
 
 

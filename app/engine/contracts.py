@@ -11,12 +11,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date, datetime, time
 from decimal import Decimal
-from typing import Any, TypeAlias
+from typing import Any, Literal, TypeAlias
 
 WorkerCode: TypeAlias = str
 StationCode: TypeAlias = str
 ShiftCode: TypeAlias = str
 JsonObject: TypeAlias = dict[str, Any]
+ScheduleQualityLabel: TypeAlias = Literal["good", "needs_review", "invalid"]
 
 
 @dataclass(slots=True)
@@ -126,6 +127,26 @@ class MonthPlanningSummary:
 
 
 @dataclass(slots=True)
+class MonthPlanningEvaluation:
+    """Minimal reviewer-facing evaluation summary for one candidate schedule."""
+
+    duplicate_assignment_conflicts: int
+    workspace_state_integrity_violations: int
+    understaffed_station_days: int
+    workers_below_min_days_off: int
+    total_warnings: int
+    warnings_by_type: dict[str, int]
+    assignments_by_worker: dict[WorkerCode, int]
+    paid_hours_by_worker: dict[WorkerCode, Decimal]
+    max_minus_min_assignment_gap: int
+    max_minus_min_paid_hours_gap: Decimal
+    covered_station_days: int
+    hard_constraints_passed: bool
+    soft_warnings_present: bool
+    schedule_quality_label: ScheduleQualityLabel
+
+
+@dataclass(slots=True)
 class MonthPlanningMetadata:
     """Execution metadata describing how the result payload was produced."""
 
@@ -143,6 +164,7 @@ class MonthPlanningResult:
     warnings: list[WarningOutput]
     summary: MonthPlanningSummary
     metadata: MonthPlanningMetadata
+    evaluation: MonthPlanningEvaluation | None = None
 
 
 __all__ = [
@@ -151,9 +173,11 @@ __all__ = [
     "JsonObject",
     "LeaveRequestInput",
     "MonthPlanningInput",
+    "MonthPlanningEvaluation",
     "MonthPlanningMetadata",
     "MonthPlanningResult",
     "MonthPlanningSummary",
+    "ScheduleQualityLabel",
     "ShiftCode",
     "ShiftInput",
     "StationCode",
