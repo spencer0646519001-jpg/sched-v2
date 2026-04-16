@@ -14,6 +14,8 @@ from django.db import transaction
 from django.db.models import Max
 
 from app.infra.django_app.models import (
+    ConstraintConfig as DjangoConstraintConfig,
+    LeaveRequest as DjangoLeaveRequest,
     MonthlyAssignment as DjangoMonthlyAssignment,
     MonthlyPlanVersion as DjangoMonthlyPlanVersion,
     MonthlyWorkspace as DjangoMonthlyWorkspace,
@@ -23,6 +25,8 @@ from app.infra.django_app.models import (
     Worker as DjangoWorker,
 )
 from app.infra.models import (
+    ConstraintConfig,
+    LeaveRequest,
     MonthlyAssignment,
     MonthlyPlanVersion,
     MonthlyWorkspace,
@@ -34,6 +38,15 @@ from app.infra.models import (
     WorkerStationSkill,
 )
 from app.infra.repositories import CurrentWorkspaceState
+
+_SUPPORTED_CONSTRAINT_CONFIG_KEYS = (
+    "stations",
+    "min_staff_weekday",
+    "min_staff_weekend",
+    "max_staff_per_day",
+    "min_rest_days_per_month",
+    "max_consecutive_days",
+)
 
 
 def _serialize_record_id(value: object) -> RecordId:
@@ -100,6 +113,31 @@ def _shift_from_model(model: DjangoShiftDefinition) -> ShiftDefinition:
     )
 
 
+def _leave_request_from_model(model: DjangoLeaveRequest) -> LeaveRequest:
+    return LeaveRequest(
+        id=_serialize_record_id(model.pk),
+        tenant_id=_serialize_record_id(model.tenant_id),
+        worker_id=_serialize_record_id(model.worker_id),
+        leave_date=model.leave_date,
+        reason=model.reason,
+        created_at=model.created_at,
+        updated_at=model.updated_at,
+    )
+
+
+def _constraint_config_from_model(model: DjangoConstraintConfig) -> ConstraintConfig:
+    return ConstraintConfig(
+        id=_serialize_record_id(model.pk),
+        tenant_id=_serialize_record_id(model.tenant_id),
+        scope_type=model.scope_type,
+        year=model.year,
+        month=model.month,
+        config_json=_normalize_constraint_config_json(model.config_json),
+        created_at=model.created_at,
+        updated_at=model.updated_at,
+    )
+
+
 def _workspace_from_model(model: DjangoMonthlyWorkspace) -> MonthlyWorkspace:
     return MonthlyWorkspace(
         id=_serialize_record_id(model.pk),
@@ -158,6 +196,23 @@ def _derive_workspace_source_type(workspace: MonthlyWorkspace) -> str:
     return "preview"
 
 
+def _normalize_constraint_config_json(config_json: object) -> dict[str, object]:
+    """Project persisted config JSON down to the planner-supported subset only."""
+
+    if not isinstance(config_json, dict):
+        raise ValueError("Constraint config JSON must be a JSON object.")
+
+    normalized: dict[str, object] = {}
+    for key in _SUPPORTED_CONSTRAINT_CONFIG_KEYS:
+        if key not in config_json:
+            continue
+        value = deepcopy(config_json[key])
+        if key == "stations" and not isinstance(value, dict):
+            continue
+        normalized[key] = value
+    return normalized
+
+
 class DjangoTenantRepository:
     """Django-backed tenant lookups for service entry points."""
 
@@ -208,6 +263,63 @@ class DjangoShiftRepository:
             tenant_id=_parse_record_id(tenant_id, label="tenant_id")
         ).order_by("code", "id")
         return [_shift_from_model(shift) for shift in shifts]
+
+
+class DjangoLeaveRequestRepository:
+    """Django-backed approved leave reads for one tenant/month preview run."""
+
+    def list_for_month(
+        self,
+        tenant_id: RecordId,
+        year: int,
+        month: int,
+    ) -> list[LeaveRequest]:
+        leave_requests = (
+            DjangoLeaveRequest.objects.filter(
+                tenant_id=_parse_record_id(tenant_id, label="tenant_id"),
+                leave_date__year=year,
+                leave_date__month=month,
+            )
+            .select_related("worker")
+            .order_by("leave_date", "worker__code", "worker_id", "id")
+        )
+        return [_leave_request_from_model(row) for row in leave_requests]
+
+
+class DjangoConstraintConfigRepository:
+    """Resolve one effective planner config for a tenant and target month."""
+
+    def get_resolved_for_month(
+        self,
+        tenant_id: RecordId,
+        year: int,
+        month: int,
+    ) -> ConstraintConfig | None:
+        tenant_pk = _parse_record_id(tenant_id, label="tenant_id")
+        monthly_config = (
+            DjangoConstraintConfig.objects.filter(
+                tenant_id=tenant_pk,
+                scope_type="monthly",
+                year=year,
+                month=month,
+            )
+            .order_by("id")
+            .first()
+        )
+        if monthly_config is not None:
+            return _constraint_config_from_model(monthly_config)
+
+        default_config = (
+            DjangoConstraintConfig.objects.filter(
+                tenant_id=tenant_pk,
+                scope_type="default",
+            )
+            .order_by("id")
+            .first()
+        )
+        if default_config is None:
+            return None
+        return _constraint_config_from_model(default_config)
 
 
 class DjangoWorkspaceRepository:
@@ -372,6 +484,8 @@ class DjangoPlanVersionRepository:
 
 
 __all__ = [
+    "DjangoConstraintConfigRepository",
+    "DjangoLeaveRequestRepository",
     "DjangoPlanVersionRepository",
     "DjangoShiftRepository",
     "DjangoStationRepository",

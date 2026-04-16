@@ -18,6 +18,8 @@ from app.api.django_urls import build_monthly_schedule_urlpatterns
 from app.api.routes import MonthlyScheduleRoutes, build_month_schedule_routes
 from app.engine.monthly import generate_month_plan
 from app.infra.django_repositories import (
+    DjangoConstraintConfigRepository,
+    DjangoLeaveRequestRepository,
     DjangoPlanVersionRepository,
     DjangoShiftRepository,
     DjangoStationRepository,
@@ -25,7 +27,6 @@ from app.infra.django_repositories import (
     DjangoWorkerRepository,
     DjangoWorkspaceRepository,
 )
-from app.infra.models import ConstraintConfig
 from app.services.apply import ApplyMonthScheduleService
 from app.services.preview import (
     MonthlySchedulePreviewEngine,
@@ -44,6 +45,8 @@ def build_django_monthly_schedule_routes(
     worker_repository = DjangoWorkerRepository()
     station_repository = DjangoStationRepository()
     shift_repository = DjangoShiftRepository()
+    leave_request_repository = DjangoLeaveRequestRepository()
+    constraint_config_repository = DjangoConstraintConfigRepository()
     workspace_repository = DjangoWorkspaceRepository()
 
     return build_month_schedule_routes(
@@ -52,8 +55,8 @@ def build_django_monthly_schedule_routes(
             worker_repository=worker_repository,
             station_repository=station_repository,
             shift_repository=shift_repository,
-            leave_request_repository=_NoOpLeaveRequestRepository(),
-            constraint_config_repository=_FixedConstraintConfigRepository(),
+            leave_request_repository=leave_request_repository,
+            constraint_config_repository=constraint_config_repository,
             engine_runner=(
                 preview_engine
                 if preview_engine is not None
@@ -84,37 +87,6 @@ def build_django_monthly_schedule_urlpatterns(
     return build_monthly_schedule_urlpatterns(
         build_django_monthly_schedule_routes(preview_engine=preview_engine)
     )
-
-
-class _NoOpLeaveRequestRepository:
-    """Temporary runtime adapter until Django leave persistence exists."""
-
-    def list_for_month(
-        self,
-        tenant_id: str,
-        year: int,
-        month: int,
-    ) -> list[object]:
-        del tenant_id, year, month
-        return []
-
-
-class _FixedConstraintConfigRepository:
-    """Temporary runtime adapter until constraint persistence is implemented."""
-
-    def get_resolved_for_month(
-        self,
-        tenant_id: str,
-        year: int,
-        month: int,
-    ) -> ConstraintConfig:
-        return ConstraintConfig(
-            tenant_id=tenant_id,
-            scope_type="monthly",
-            year=year,
-            month=month,
-            config_json={"max_weekly_hours": 40},
-        )
 
 
 __all__ = [

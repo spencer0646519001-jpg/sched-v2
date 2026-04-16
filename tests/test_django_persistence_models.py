@@ -7,6 +7,8 @@ import pytest
 from django.db import IntegrityError, connection, transaction
 
 from app.infra.django_app.models import (
+    ConstraintConfig,
+    LeaveRequest,
     MonthlyAssignment,
     MonthlyPlanVersion,
     MonthlyWorkspace,
@@ -19,6 +21,8 @@ from app.infra.django_app.models import (
 
 @pytest.fixture(autouse=True)
 def _clear_scheduler_tables() -> None:
+    LeaveRequest.objects.all().delete()
+    ConstraintConfig.objects.all().delete()
     MonthlyAssignment.objects.all().delete()
     MonthlyPlanVersion.objects.all().delete()
     MonthlyWorkspace.objects.all().delete()
@@ -36,6 +40,8 @@ def test_initial_migration_creates_expected_tables() -> None:
         "scheduler_infra_worker",
         "scheduler_infra_station",
         "scheduler_infra_shiftdefinition",
+        "scheduler_infra_leaverequest",
+        "scheduler_infra_constraintconfig",
         "scheduler_infra_monthlyworkspace",
         "scheduler_infra_monthlyassignment",
         "scheduler_infra_monthlyplanversion",
@@ -67,6 +73,24 @@ def test_monthly_persistence_models_support_apply_and_save_shape() -> None:
         name="Day",
         paid_hours=Decimal("8.00"),
         is_off_shift=False,
+    )
+    leave_request = LeaveRequest.objects.create(
+        tenant=tenant,
+        worker=worker,
+        leave_date=dt.date(2026, 4, 2),
+        reason="vacation",
+    )
+    constraint_config = ConstraintConfig.objects.create(
+        tenant=tenant,
+        scope_type="default",
+        config_json={
+            "stations": {"GRILL": 1},
+            "min_staff_weekday": 1,
+            "min_staff_weekend": 1,
+            "max_staff_per_day": 1,
+            "min_rest_days_per_month": 0,
+            "max_consecutive_days": 31,
+        },
     )
     workspace = MonthlyWorkspace.objects.create(
         tenant=tenant,
@@ -100,6 +124,8 @@ def test_monthly_persistence_models_support_apply_and_save_shape() -> None:
     workspace.save()
     workspace.refresh_from_db()
 
+    assert tenant.leave_requests.get().id == leave_request.id
+    assert tenant.constraint_configs.get().id == constraint_config.id
     assert workspace.source_version_id == plan_version.id
     assert workspace.assignments.get().id == assignment.id
     assert workspace.plan_versions.get().id == plan_version.id
@@ -144,6 +170,18 @@ def test_unique_constraints_are_enforced_for_core_slice() -> None:
         paid_hours=Decimal("8.00"),
         is_off_shift=False,
     )
+    ConstraintConfig.objects.create(
+        tenant=tenant,
+        scope_type="default",
+        config_json={"min_staff_weekday": 1},
+    )
+    ConstraintConfig.objects.create(
+        tenant=tenant,
+        scope_type="monthly",
+        year=2026,
+        month=4,
+        config_json={"min_staff_weekday": 2},
+    )
     workspace = MonthlyWorkspace.objects.create(
         tenant=tenant,
         year=2026,
@@ -161,6 +199,12 @@ def test_unique_constraints_are_enforced_for_core_slice() -> None:
     worker = Worker.objects.get(tenant=tenant, code="W1")
     station = Station.objects.get(tenant=tenant, code="GRILL")
     shift = ShiftDefinition.objects.get(tenant=tenant, code="DAY")
+    LeaveRequest.objects.create(
+        tenant=tenant,
+        worker=worker,
+        leave_date=dt.date(2026, 4, 1),
+        reason="vacation",
+    )
 
     MonthlyAssignment.objects.create(
         workspace=workspace,
@@ -214,6 +258,30 @@ def test_unique_constraints_are_enforced_for_core_slice() -> None:
             name="Duplicate Shift",
             paid_hours=Decimal("8.00"),
             is_off_shift=False,
+        )
+    )
+    _assert_integrity_error(
+        lambda: LeaveRequest.objects.create(
+            tenant=tenant,
+            worker=worker,
+            leave_date=dt.date(2026, 4, 1),
+            reason="Duplicate leave",
+        )
+    )
+    _assert_integrity_error(
+        lambda: ConstraintConfig.objects.create(
+            tenant=tenant,
+            scope_type="default",
+            config_json={"min_staff_weekday": 1},
+        )
+    )
+    _assert_integrity_error(
+        lambda: ConstraintConfig.objects.create(
+            tenant=tenant,
+            scope_type="monthly",
+            year=2026,
+            month=4,
+            config_json={"min_staff_weekday": 3},
         )
     )
     _assert_integrity_error(
@@ -275,6 +343,37 @@ def test_check_constraints_guard_basic_numeric_invariants() -> None:
             month=13,
             status="draft",
             source_type="preview",
+        )
+    )
+    _assert_integrity_error(
+        lambda: ConstraintConfig.objects.create(
+            tenant=tenant,
+            scope_type="default",
+            year=2026,
+            config_json={"min_staff_weekday": 1},
+        )
+    )
+    _assert_integrity_error(
+        lambda: ConstraintConfig.objects.create(
+            tenant=tenant,
+            scope_type="monthly",
+            config_json={"min_staff_weekday": 1},
+        )
+    )
+    _assert_integrity_error(
+        lambda: ConstraintConfig.objects.create(
+            tenant=tenant,
+            scope_type="monthly",
+            year=2026,
+            month=13,
+            config_json={"min_staff_weekday": 1},
+        )
+    )
+    _assert_integrity_error(
+        lambda: ConstraintConfig.objects.create(
+            tenant=tenant,
+            scope_type="tenant",
+            config_json={"min_staff_weekday": 1},
         )
     )
     _assert_integrity_error(

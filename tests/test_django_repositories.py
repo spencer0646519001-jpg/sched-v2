@@ -8,6 +8,8 @@ import pytest
 
 from app.infra import models as infra_models
 from app.infra.django_app.models import (
+    ConstraintConfig as DjangoConstraintConfig,
+    LeaveRequest as DjangoLeaveRequest,
     MonthlyAssignment as DjangoMonthlyAssignment,
     MonthlyPlanVersion as DjangoMonthlyPlanVersion,
     MonthlyWorkspace as DjangoMonthlyWorkspace,
@@ -17,6 +19,8 @@ from app.infra.django_app.models import (
     Worker as DjangoWorker,
 )
 from app.infra.django_repositories import (
+    DjangoConstraintConfigRepository,
+    DjangoLeaveRequestRepository,
     DjangoPlanVersionRepository,
     DjangoShiftRepository,
     DjangoStationRepository,
@@ -28,6 +32,8 @@ from app.infra.django_repositories import (
 
 @pytest.fixture(autouse=True)
 def _clear_scheduler_tables() -> None:
+    DjangoLeaveRequest.objects.all().delete()
+    DjangoConstraintConfig.objects.all().delete()
     DjangoMonthlyAssignment.objects.all().delete()
     DjangoMonthlyPlanVersion.objects.all().delete()
     DjangoMonthlyWorkspace.objects.all().delete()
@@ -124,6 +130,217 @@ def test_master_data_repositories_return_framework_neutral_dataclasses() -> None
             is_active=True,
         )
     ]
+
+
+def test_leave_request_repository_returns_framework_neutral_month_rows() -> None:
+    tenant = DjangoTenant.objects.create(
+        slug="tenant-a",
+        name="Tenant A",
+        default_locale="en-US",
+    )
+    other_tenant = DjangoTenant.objects.create(
+        slug="tenant-b",
+        name="Tenant B",
+        default_locale="en-US",
+    )
+    alex = DjangoWorker.objects.create(
+        tenant=tenant,
+        code="W1",
+        name="Alex",
+        role="cook",
+        is_active=True,
+    )
+    blair = DjangoWorker.objects.create(
+        tenant=tenant,
+        code="W2",
+        name="Blair",
+        role="cook",
+        is_active=True,
+    )
+    other_worker = DjangoWorker.objects.create(
+        tenant=other_tenant,
+        code="W1",
+        name="Jordan",
+        role="cashier",
+        is_active=True,
+    )
+    first_leave = DjangoLeaveRequest.objects.create(
+        tenant=tenant,
+        worker=alex,
+        leave_date=dt.date(2026, 4, 2),
+        reason="vacation",
+    )
+    second_leave = DjangoLeaveRequest.objects.create(
+        tenant=tenant,
+        worker=blair,
+        leave_date=dt.date(2026, 4, 5),
+        reason=None,
+    )
+    DjangoLeaveRequest.objects.create(
+        tenant=tenant,
+        worker=alex,
+        leave_date=dt.date(2026, 5, 1),
+        reason="next-month",
+    )
+    DjangoLeaveRequest.objects.create(
+        tenant=other_tenant,
+        worker=other_worker,
+        leave_date=dt.date(2026, 4, 2),
+        reason="other-tenant",
+    )
+
+    repository = DjangoLeaveRequestRepository()
+
+    assert repository.list_for_month(str(tenant.id), 2026, 4) == [
+        infra_models.LeaveRequest(
+            id=str(first_leave.id),
+            tenant_id=str(tenant.id),
+            worker_id=str(alex.id),
+            leave_date=dt.date(2026, 4, 2),
+            reason="vacation",
+            created_at=first_leave.created_at,
+            updated_at=first_leave.updated_at,
+        ),
+        infra_models.LeaveRequest(
+            id=str(second_leave.id),
+            tenant_id=str(tenant.id),
+            worker_id=str(blair.id),
+            leave_date=dt.date(2026, 4, 5),
+            reason=None,
+            created_at=second_leave.created_at,
+            updated_at=second_leave.updated_at,
+        ),
+    ]
+
+
+def test_constraint_config_repository_resolves_monthly_before_default() -> None:
+    tenant = DjangoTenant.objects.create(
+        slug="tenant-a",
+        name="Tenant A",
+        default_locale="en-US",
+    )
+    other_tenant = DjangoTenant.objects.create(
+        slug="tenant-b",
+        name="Tenant B",
+        default_locale="en-US",
+    )
+    default_config = DjangoConstraintConfig.objects.create(
+        tenant=tenant,
+        scope_type="default",
+        config_json={
+            "stations": {"GRILL": 1},
+            "min_staff_weekday": 1,
+            "min_staff_weekend": 1,
+            "max_staff_per_day": 1,
+            "min_rest_days_per_month": 0,
+            "max_consecutive_days": 31,
+            "max_weekly_hours": 40,
+        },
+    )
+    monthly_config = DjangoConstraintConfig.objects.create(
+        tenant=tenant,
+        scope_type="monthly",
+        year=2026,
+        month=4,
+        config_json={
+            "stations": {"GRILL": 2},
+            "min_staff_weekday": 2,
+            "min_staff_weekend": 2,
+            "max_staff_per_day": 2,
+            "min_rest_days_per_month": 4,
+            "max_consecutive_days": 5,
+            "unsupported_key": "ignored",
+        },
+    )
+    DjangoConstraintConfig.objects.create(
+        tenant=other_tenant,
+        scope_type="default",
+        config_json={"min_staff_weekday": 9},
+    )
+
+    repository = DjangoConstraintConfigRepository()
+
+    assert repository.get_resolved_for_month(str(tenant.id), 2026, 4) == (
+        infra_models.ConstraintConfig(
+            id=str(monthly_config.id),
+            tenant_id=str(tenant.id),
+            scope_type="monthly",
+            year=2026,
+            month=4,
+            config_json={
+                "stations": {"GRILL": 2},
+                "min_staff_weekday": 2,
+                "min_staff_weekend": 2,
+                "max_staff_per_day": 2,
+                "min_rest_days_per_month": 4,
+                "max_consecutive_days": 5,
+            },
+            created_at=monthly_config.created_at,
+            updated_at=monthly_config.updated_at,
+        )
+    )
+    assert repository.get_resolved_for_month(str(tenant.id), 2026, 5) == (
+        infra_models.ConstraintConfig(
+            id=str(default_config.id),
+            tenant_id=str(tenant.id),
+            scope_type="default",
+            year=None,
+            month=None,
+            config_json={
+                "stations": {"GRILL": 1},
+                "min_staff_weekday": 1,
+                "min_staff_weekend": 1,
+                "max_staff_per_day": 1,
+                "min_rest_days_per_month": 0,
+                "max_consecutive_days": 31,
+            },
+            created_at=default_config.created_at,
+            updated_at=default_config.updated_at,
+        )
+    )
+    assert repository.get_resolved_for_month(str(other_tenant.id), 2026, 4) == (
+        infra_models.ConstraintConfig(
+            id=str(
+                DjangoConstraintConfig.objects.get(
+                    tenant=other_tenant,
+                    scope_type="default",
+                ).id
+            ),
+            tenant_id=str(other_tenant.id),
+            scope_type="default",
+            year=None,
+            month=None,
+            config_json={"min_staff_weekday": 9},
+            created_at=DjangoConstraintConfig.objects.get(
+                tenant=other_tenant,
+                scope_type="default",
+            ).created_at,
+            updated_at=DjangoConstraintConfig.objects.get(
+                tenant=other_tenant,
+                scope_type="default",
+            ).updated_at,
+        )
+    )
+    assert repository.get_resolved_for_month(str(tenant.id), 2027, 1) == (
+        infra_models.ConstraintConfig(
+            id=str(default_config.id),
+            tenant_id=str(tenant.id),
+            scope_type="default",
+            year=None,
+            month=None,
+            config_json={
+                "stations": {"GRILL": 1},
+                "min_staff_weekday": 1,
+                "min_staff_weekend": 1,
+                "max_staff_per_day": 1,
+                "min_rest_days_per_month": 0,
+                "max_consecutive_days": 31,
+            },
+            created_at=default_config.created_at,
+            updated_at=default_config.updated_at,
+        )
+    )
+    assert repository.get_resolved_for_month("999", 2026, 4) is None
 
 
 def test_workspace_repository_upserts_single_current_workspace() -> None:

@@ -85,6 +85,85 @@ class ShiftDefinition(models.Model):
         ]
 
 
+class LeaveRequest(models.Model):
+    """Approved single-day worker leave used as month-planning input."""
+
+    tenant = models.ForeignKey(
+        Tenant,
+        on_delete=models.CASCADE,
+        related_name="leave_requests",
+    )
+    worker = models.ForeignKey(
+        Worker,
+        on_delete=models.CASCADE,
+        related_name="leave_requests",
+    )
+    leave_date = models.DateField()
+    reason = models.CharField(max_length=255, null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=("tenant", "worker", "leave_date"),
+                name="sched_leave_request_tenant_worker_date_uniq",
+            ),
+        ]
+
+
+class ConstraintConfig(models.Model):
+    """Resolved full planner config stored by scope for one tenant."""
+
+    tenant = models.ForeignKey(
+        Tenant,
+        on_delete=models.CASCADE,
+        related_name="constraint_configs",
+    )
+    scope_type = models.CharField(max_length=32)
+    year = models.PositiveIntegerField(null=True, blank=True)
+    month = models.PositiveSmallIntegerField(null=True, blank=True)
+    config_json = models.JSONField()
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=("tenant", "scope_type"),
+                condition=Q(scope_type="default"),
+                name="sched_constraint_config_default_scope_uniq",
+            ),
+            models.UniqueConstraint(
+                fields=("tenant", "scope_type", "year", "month"),
+                condition=Q(scope_type="monthly"),
+                name="sched_constraint_config_monthly_scope_uniq",
+            ),
+            models.CheckConstraint(
+                condition=Q(scope_type__in=("default", "monthly")),
+                name="sched_constraint_config_scope_valid",
+            ),
+            models.CheckConstraint(
+                condition=(
+                    Q(
+                        scope_type="default",
+                        year__isnull=True,
+                        month__isnull=True,
+                    )
+                    | Q(
+                        scope_type="monthly",
+                        year__isnull=False,
+                        year__gte=1,
+                        month__isnull=False,
+                        month__gte=1,
+                        month__lte=12,
+                    )
+                ),
+                name="sched_constraint_config_scope_shape_valid",
+            ),
+        ]
+
+
 class MonthlyWorkspace(models.Model):
     """The single mutable planning container for one tenant and month."""
 
@@ -194,4 +273,3 @@ class MonthlyPlanVersion(models.Model):
                 name="sched_plan_version_number_gte_1",
             ),
         ]
-

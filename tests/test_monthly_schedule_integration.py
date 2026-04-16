@@ -14,7 +14,10 @@ from app.engine.contracts import (
     MonthPlanningResult,
     MonthPlanningSummary,
 )
+from app.engine.monthly import generate_month_plan
 from app.infra.django_app.models import (
+    ConstraintConfig as DjangoConstraintConfig,
+    LeaveRequest as DjangoLeaveRequest,
     MonthlyAssignment as DjangoMonthlyAssignment,
     MonthlyPlanVersion as DjangoMonthlyPlanVersion,
     MonthlyWorkspace as DjangoMonthlyWorkspace,
@@ -24,6 +27,8 @@ from app.infra.django_app.models import (
     Worker as DjangoWorker,
 )
 from app.infra.django_repositories import (
+    DjangoConstraintConfigRepository,
+    DjangoLeaveRequestRepository,
     DjangoPlanVersionRepository,
     DjangoShiftRepository,
     DjangoStationRepository,
@@ -31,7 +36,6 @@ from app.infra.django_repositories import (
     DjangoWorkerRepository,
     DjangoWorkspaceRepository,
 )
-from app.infra.models import ConstraintConfig
 from app.services.apply import ApplyMonthScheduleRequest, ApplyMonthScheduleService
 from app.services.preview import PreviewMonthScheduleRequest, PreviewMonthScheduleService
 from app.services.save import SaveMonthScheduleRequest, SaveMonthScheduleService
@@ -39,6 +43,8 @@ from app.services.save import SaveMonthScheduleRequest, SaveMonthScheduleService
 
 @pytest.fixture(autouse=True)
 def _clear_scheduler_tables() -> None:
+    DjangoLeaveRequest.objects.all().delete()
+    DjangoConstraintConfig.objects.all().delete()
     DjangoMonthlyAssignment.objects.all().delete()
     DjangoMonthlyPlanVersion.objects.all().delete()
     DjangoMonthlyWorkspace.objects.all().delete()
@@ -59,6 +65,30 @@ def test_preview_flow_returns_candidate_result_without_writing_workspace() -> No
     assert response.result.assignments
     assert response.result.summary.total_assignments == 1
     assert response.result.metadata.source_type == "preview"
+    assert DjangoMonthlyWorkspace.objects.count() == 0
+    assert DjangoMonthlyAssignment.objects.count() == 0
+
+
+def test_preview_flow_with_real_engine_respects_persisted_leave() -> None:
+    ctx = _seed_month_context()
+    DjangoLeaveRequest.objects.create(
+        tenant=ctx.tenant,
+        worker=ctx.worker,
+        leave_date=dt.date(2026, 4, 1),
+        reason="vacation",
+    )
+
+    response = _preview_month_with_real_engine(ctx)
+
+    assert response.result.summary.total_assignments == 29
+    assert response.result.summary.total_warnings == 1
+    assert response.result.metadata.source_type == "monthly_planner"
+    assert response.result.evaluation is not None
+    assert response.result.evaluation.understaffed_station_days == 1
+    assert all(
+        assignment.date != dt.date(2026, 4, 1)
+        for assignment in response.result.assignments
+    )
     assert DjangoMonthlyWorkspace.objects.count() == 0
     assert DjangoMonthlyAssignment.objects.count() == 0
 
@@ -276,6 +306,18 @@ def _seed_month_context() -> _SeedContext:
         paid_hours=Decimal("8.00"),
         is_off_shift=False,
     )
+    DjangoConstraintConfig.objects.create(
+        tenant=tenant,
+        scope_type="default",
+        config_json={
+            "stations": {"GRILL": 1},
+            "min_staff_weekday": 1,
+            "min_staff_weekend": 1,
+            "max_staff_per_day": 1,
+            "min_rest_days_per_month": 0,
+            "max_consecutive_days": 31,
+        },
+    )
     return _SeedContext(
         tenant=tenant,
         worker=worker,
@@ -293,9 +335,28 @@ def _preview_month(
         worker_repository=DjangoWorkerRepository(),
         station_repository=DjangoStationRepository(),
         shift_repository=DjangoShiftRepository(),
-        leave_request_repository=_NoOpLeaveRequestRepository(),
-        constraint_config_repository=_FixedConstraintConfigRepository(),
+        leave_request_repository=DjangoLeaveRequestRepository(),
+        constraint_config_repository=DjangoConstraintConfigRepository(),
         engine_runner=_FixedEngine(engine_result),
+    )
+    return service.preview_month_schedule(
+        PreviewMonthScheduleRequest(
+            tenant_slug=ctx.tenant.slug,
+            year=2026,
+            month=4,
+        )
+    )
+
+
+def _preview_month_with_real_engine(ctx: _SeedContext):
+    service = PreviewMonthScheduleService(
+        tenant_repository=DjangoTenantRepository(),
+        worker_repository=DjangoWorkerRepository(),
+        station_repository=DjangoStationRepository(),
+        shift_repository=DjangoShiftRepository(),
+        leave_request_repository=DjangoLeaveRequestRepository(),
+        constraint_config_repository=DjangoConstraintConfigRepository(),
+        engine_runner=generate_month_plan,
     )
     return service.preview_month_schedule(
         PreviewMonthScheduleRequest(
@@ -392,30 +453,3 @@ class _FixedEngine:
     def __call__(self, planning_input) -> MonthPlanningResult:
         del planning_input
         return self.result
-
-
-class _NoOpLeaveRequestRepository:
-    def list_for_month(
-        self,
-        tenant_id: str,
-        year: int,
-        month: int,
-    ) -> list[object]:
-        del tenant_id, year, month
-        return []
-
-
-class _FixedConstraintConfigRepository:
-    def get_resolved_for_month(
-        self,
-        tenant_id: str,
-        year: int,
-        month: int,
-    ) -> ConstraintConfig:
-        return ConstraintConfig(
-            tenant_id=tenant_id,
-            scope_type="monthly",
-            year=year,
-            month=month,
-            config_json={"max_weekly_hours": 40},
-        )
