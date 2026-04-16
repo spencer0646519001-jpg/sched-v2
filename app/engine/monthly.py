@@ -36,19 +36,31 @@ _DEFAULT_STATION_NOTE = "default_station_coverage"
 _INACTIVE_PATCH_NOTE = "inactive_worker_patch_ignored"
 _UNSUPPORTED_PATCH_NOTE = "unsupported_adjustment_patch_ignored"
 _MISSING_SHIFT_PATCH_NOTE = "adjustment_patch_missing_shift_ignored"
+_REQUIRED_CHEF_NOTE = "required_chef"
 
 _PATCH_SET_OPERATIONS = frozenset({"set", "replace"})
 _PATCH_REMOVE_OPERATIONS = frozenset({"remove", "delete", "unset"})
 
 
 @dataclass(frozen=True, slots=True)
+class _RequiredStationSlot:
+    station_code: str
+    requires_morning: bool
+
+
+@dataclass(frozen=True, slots=True)
 class _PlannerSettings:
     station_minimums: dict[str, int]
+    morning_shift_codes: tuple[str, ...]
+    morning_station_requirements: dict[str, int]
     min_staff_weekday: int | None
     min_staff_weekend: int | None
     max_staff_per_day: int | None
     min_rest_days_per_month: int | None
     max_consecutive_days: int | None
+    require_one_chef: bool
+    count_chefs_in_headcount: bool
+    chefs_have_no_shift: bool
 
 
 def generate_month_plan(planning_input: MonthPlanningInput) -> MonthPlanningResult:
@@ -78,10 +90,19 @@ def generate_month_plan(planning_input: MonthPlanningInput) -> MonthPlanningResu
     settings = _build_planner_settings(
         planning_input.constraint_config,
         active_station_codes=active_station_codes,
+        available_shift_codes=[shift.shift_code for shift in working_shifts],
+    )
+    morning_shift = _resolve_morning_shift(
+        settings.morning_shift_codes,
+        shifts_by_code=shifts_by_code,
     )
 
     notes = {_BASELINE_NOTE}
-    if not settings.station_minimums and active_station_codes:
+    if (
+        not settings.station_minimums
+        and not settings.morning_station_requirements
+        and active_station_codes
+    ):
         notes.add(_DEFAULT_STATION_NOTE)
 
     assignments, warnings = _build_baseline_assignments(
@@ -89,6 +110,7 @@ def generate_month_plan(planning_input: MonthPlanningInput) -> MonthPlanningResu
         active_workers=active_workers,
         active_station_codes=active_station_codes,
         primary_shift=primary_shift,
+        morning_shift=morning_shift,
         leave_dates_by_worker=leave_dates_by_worker,
         settings=settings,
     )
@@ -150,10 +172,19 @@ def _build_planner_settings(
     constraint_config: dict[str, object],
     *,
     active_station_codes: list[str],
+    available_shift_codes: list[str],
 ) -> _PlannerSettings:
     return _PlannerSettings(
         station_minimums=_resolve_station_minimums(
             constraint_config.get("stations"),
+            active_station_codes=active_station_codes,
+        ),
+        morning_shift_codes=_resolve_morning_shift_codes(
+            constraint_config.get("morning_shifts"),
+            available_shift_codes=available_shift_codes,
+        ),
+        morning_station_requirements=_resolve_morning_station_requirements(
+            constraint_config.get("stations_require_morning"),
             active_station_codes=active_station_codes,
         ),
         min_staff_weekday=_coerce_non_negative_int(
@@ -171,6 +202,15 @@ def _build_planner_settings(
         max_consecutive_days=_coerce_non_negative_int(
             constraint_config.get("max_consecutive_days")
         ),
+        require_one_chef=_coerce_bool(
+            constraint_config.get("require_one_chef")
+        ),
+        count_chefs_in_headcount=_coerce_bool(
+            constraint_config.get("count_chefs_in_headcount")
+        ),
+        chefs_have_no_shift=_coerce_bool(
+            constraint_config.get("chefs_have_no_shift")
+        ),
     )
 
 
@@ -180,11 +220,16 @@ def _build_baseline_assignments(
     active_workers: list[WorkerInput],
     active_station_codes: list[str],
     primary_shift: ShiftInput | None,
+    morning_shift: ShiftInput | None,
     leave_dates_by_worker: dict[str, set[dt.date]],
     settings: _PlannerSettings,
 ) -> tuple[list[AssignmentOutput], list[WarningOutput]]:
     assignments: list[AssignmentOutput] = []
     warnings: list[WarningOutput] = []
+    chef_workers = [
+        worker for worker in active_workers if _is_chef_worker(worker)
+    ]
+    morning_shift_codes = set(settings.morning_shift_codes)
 
     assignment_counts = {
         worker.worker_code: 0 for worker in active_workers
@@ -194,56 +239,150 @@ def _build_baseline_assignments(
     }
 
     for assignment_date in _iter_month_dates(planning_input.year, planning_input.month):
-        required_station_slots = _build_required_station_slots(
-            assignment_date,
-            active_station_codes=active_station_codes,
-            settings=settings,
-        )
-        fillable_station_slots = list(required_station_slots)
-        if settings.max_staff_per_day is not None:
-            fillable_station_slots = fillable_station_slots[
-                : settings.max_staff_per_day
-            ]
-        if primary_shift is None or not active_station_codes:
-            fillable_station_slots = []
-
         assigned_today: set[str] = set()
         assigned_station_counts: Counter[str] = Counter()
+        assigned_morning_station_counts: Counter[str] = Counter()
+        chef_assignment_counted_in_headcount = 0
 
-        for station_code in fillable_station_slots:
-            worker = _select_worker_for_station_slot(
+        if settings.require_one_chef and settings.chefs_have_no_shift:
+            chef_worker = _select_worker(
                 assignment_date,
-                station_code=station_code,
-                active_workers=active_workers,
+                candidate_workers=chef_workers,
                 assigned_today=assigned_today,
                 assignment_counts=assignment_counts,
                 assigned_dates_by_worker=assigned_dates_by_worker,
                 leave_dates_by_worker=leave_dates_by_worker,
                 max_consecutive_days=settings.max_consecutive_days,
             )
-            if worker is None or primary_shift is None:
+            if chef_worker is None or primary_shift is None:
+                warnings.append(
+                    _build_missing_required_chef_warning(assignment_date)
+                )
+            else:
+                _append_assignment(
+                    assignments,
+                    assignment_date=assignment_date,
+                    worker=chef_worker,
+                    shift=primary_shift,
+                    station_code=None,
+                    note=_REQUIRED_CHEF_NOTE,
+                    assigned_today=assigned_today,
+                    assigned_station_counts=assigned_station_counts,
+                    assigned_morning_station_counts=assigned_morning_station_counts,
+                    assignment_counts=assignment_counts,
+                    assigned_dates_by_worker=assigned_dates_by_worker,
+                    morning_shift_codes=morning_shift_codes,
+                )
+                if settings.count_chefs_in_headcount:
+                    chef_assignment_counted_in_headcount = 1
+
+        required_station_slots = _build_required_station_slots(
+            assignment_date,
+            active_station_codes=active_station_codes,
+            settings=settings,
+            headcount_credit=chef_assignment_counted_in_headcount,
+        )
+        fillable_station_slots = list(required_station_slots)
+        effective_max_staff = _resolve_effective_max_staff(
+            settings.max_staff_per_day,
+            headcount_credit=chef_assignment_counted_in_headcount,
+        )
+        if effective_max_staff is not None:
+            fillable_station_slots = fillable_station_slots[:effective_max_staff]
+        if primary_shift is None or not active_station_codes:
+            fillable_station_slots = []
+
+        remaining_station_slots = fillable_station_slots
+
+        if settings.require_one_chef and not settings.chefs_have_no_shift:
+            if fillable_station_slots:
+                chef_slot = fillable_station_slots[0]
+                chef_shift = _resolve_station_slot_shift(
+                    chef_slot,
+                    primary_shift=primary_shift,
+                    morning_shift=morning_shift,
+                )
+                chef_worker = _select_worker(
+                    assignment_date,
+                    candidate_workers=chef_workers,
+                    assigned_today=assigned_today,
+                    assignment_counts=assignment_counts,
+                    assigned_dates_by_worker=assigned_dates_by_worker,
+                    leave_dates_by_worker=leave_dates_by_worker,
+                    max_consecutive_days=settings.max_consecutive_days,
+                    station_code=chef_slot.station_code,
+                )
+                if chef_worker is None or chef_shift is None:
+                    warnings.append(
+                        _build_missing_required_chef_warning(assignment_date)
+                    )
+                else:
+                    _append_assignment(
+                        assignments,
+                        assignment_date=assignment_date,
+                        worker=chef_worker,
+                        shift=chef_shift,
+                        station_code=chef_slot.station_code,
+                        note=None,
+                        assigned_today=assigned_today,
+                        assigned_station_counts=assigned_station_counts,
+                        assigned_morning_station_counts=assigned_morning_station_counts,
+                        assignment_counts=assignment_counts,
+                        assigned_dates_by_worker=assigned_dates_by_worker,
+                        morning_shift_codes=morning_shift_codes,
+                    )
+                    remaining_station_slots = fillable_station_slots[1:]
+            else:
+                warnings.append(
+                    _build_missing_required_chef_warning(assignment_date)
+                )
+
+        for station_slot in remaining_station_slots:
+            shift = _resolve_station_slot_shift(
+                station_slot,
+                primary_shift=primary_shift,
+                morning_shift=morning_shift,
+            )
+            worker = _select_worker(
+                assignment_date,
+                candidate_workers=active_workers,
+                assigned_today=assigned_today,
+                assignment_counts=assignment_counts,
+                assigned_dates_by_worker=assigned_dates_by_worker,
+                leave_dates_by_worker=leave_dates_by_worker,
+                max_consecutive_days=settings.max_consecutive_days,
+                station_code=station_slot.station_code,
+            )
+            if worker is None or shift is None:
                 continue
 
-            assignments.append(
-                AssignmentOutput(
-                    date=assignment_date,
-                    worker_code=worker.worker_code,
-                    shift_code=primary_shift.shift_code,
-                    source=_SOURCE_TYPE,
-                    station_code=station_code,
-                    note=None,
-                )
+            _append_assignment(
+                assignments,
+                assignment_date=assignment_date,
+                worker=worker,
+                shift=shift,
+                station_code=station_slot.station_code,
+                note=None,
+                assigned_today=assigned_today,
+                assigned_station_counts=assigned_station_counts,
+                assigned_morning_station_counts=assigned_morning_station_counts,
+                assignment_counts=assignment_counts,
+                assigned_dates_by_worker=assigned_dates_by_worker,
+                morning_shift_codes=morning_shift_codes,
             )
-            assigned_today.add(worker.worker_code)
-            assigned_station_counts[station_code] += 1
-            assignment_counts[worker.worker_code] += 1
-            assigned_dates_by_worker[worker.worker_code].add(assignment_date)
 
         warnings.extend(
             _build_understaffed_station_warnings(
                 assignment_date,
                 required_station_slots=required_station_slots,
                 assigned_station_counts=assigned_station_counts,
+            )
+        )
+        warnings.extend(
+            _build_missing_morning_station_warnings(
+                assignment_date,
+                morning_station_requirements=settings.morning_station_requirements,
+                assigned_morning_station_counts=assigned_morning_station_counts,
             )
         )
 
@@ -255,35 +394,68 @@ def _build_required_station_slots(
     *,
     active_station_codes: list[str],
     settings: _PlannerSettings,
-) -> list[str]:
+    headcount_credit: int = 0,
+) -> list[_RequiredStationSlot]:
     if not active_station_codes:
         return []
 
-    target_headcount = _resolve_daily_minimum_staff(
-        assignment_date,
-        min_staff_weekday=settings.min_staff_weekday,
-        min_staff_weekend=settings.min_staff_weekend,
+    target_headcount = max(
+        _resolve_daily_minimum_staff(
+            assignment_date,
+            min_staff_weekday=settings.min_staff_weekday,
+            min_staff_weekend=settings.min_staff_weekend,
+        )
+        - headcount_credit,
+        0,
     )
 
-    if settings.station_minimums:
-        station_slots = [
-            station_code
-            for station_code in active_station_codes
-            for _ in range(settings.station_minimums.get(station_code, 0))
-        ]
+    if settings.station_minimums or settings.morning_station_requirements:
+        morning_slots: list[_RequiredStationSlot] = []
+        ordinary_slots: list[_RequiredStationSlot] = []
+        for station_code in active_station_codes:
+            morning_requirement = settings.morning_station_requirements.get(
+                station_code, 0
+            )
+            station_minimum = settings.station_minimums.get(station_code, 0)
+            total_station_slots = max(station_minimum, morning_requirement)
+            morning_slots.extend(
+                _RequiredStationSlot(
+                    station_code=station_code,
+                    requires_morning=True,
+                )
+                for _ in range(morning_requirement)
+            )
+            ordinary_slots.extend(
+                _RequiredStationSlot(
+                    station_code=station_code,
+                    requires_morning=False,
+                )
+                for _ in range(max(total_station_slots - morning_requirement, 0))
+            )
+
+        station_slots = morning_slots + ordinary_slots
         if target_headcount > len(station_slots):
             station_index = 0
             while len(station_slots) < target_headcount:
                 station_slots.append(
-                    active_station_codes[
-                        station_index % len(active_station_codes)
-                    ]
+                    _RequiredStationSlot(
+                        station_code=active_station_codes[
+                            station_index % len(active_station_codes)
+                        ],
+                        requires_morning=False,
+                    )
                 )
                 station_index += 1
         return station_slots
 
     default_target = target_headcount if target_headcount > 0 else 1
-    return [active_station_codes[0]] * default_target
+    return [
+        _RequiredStationSlot(
+            station_code=active_station_codes[0],
+            requires_morning=False,
+        )
+        for _ in range(default_target)
+    ]
 
 
 def _resolve_daily_minimum_staff(
@@ -297,20 +469,31 @@ def _resolve_daily_minimum_staff(
     return min_staff_weekday or 0
 
 
-def _select_worker_for_station_slot(
+def _resolve_station_slot_shift(
+    station_slot: _RequiredStationSlot,
+    *,
+    primary_shift: ShiftInput | None,
+    morning_shift: ShiftInput | None,
+) -> ShiftInput | None:
+    if station_slot.requires_morning and morning_shift is not None:
+        return morning_shift
+    return primary_shift
+
+
+def _select_worker(
     assignment_date: dt.date,
     *,
-    station_code: str,
-    active_workers: list[WorkerInput],
+    candidate_workers: list[WorkerInput],
     assigned_today: set[str],
     assignment_counts: dict[str, int],
     assigned_dates_by_worker: dict[str, set[dt.date]],
     leave_dates_by_worker: dict[str, set[dt.date]],
     max_consecutive_days: int | None,
+    station_code: str | None = None,
 ) -> WorkerInput | None:
     candidates = [
         worker
-        for worker in active_workers
+        for worker in candidate_workers
         if worker.worker_code not in assigned_today
         and assignment_date
         not in leave_dates_by_worker.get(worker.worker_code, set())
@@ -325,7 +508,9 @@ def _select_worker_for_station_slot(
 
     candidates.sort(
         key=lambda worker: (
-            0 if station_code in worker.station_skills else 1,
+            0
+            if station_code is None or station_code in worker.station_skills
+            else 1,
             assignment_counts[worker.worker_code],
             _current_consecutive_streak(
                 assignment_date,
@@ -335,6 +520,111 @@ def _select_worker_for_station_slot(
         )
     )
     return candidates[0]
+
+
+def _append_assignment(
+    assignments: list[AssignmentOutput],
+    *,
+    assignment_date: dt.date,
+    worker: WorkerInput,
+    shift: ShiftInput,
+    station_code: str | None,
+    note: str | None,
+    assigned_today: set[str],
+    assigned_station_counts: Counter[str],
+    assigned_morning_station_counts: Counter[str],
+    assignment_counts: dict[str, int],
+    assigned_dates_by_worker: dict[str, set[dt.date]],
+    morning_shift_codes: set[str],
+) -> None:
+    assignments.append(
+        AssignmentOutput(
+            date=assignment_date,
+            worker_code=worker.worker_code,
+            shift_code=shift.shift_code,
+            source=_SOURCE_TYPE,
+            station_code=station_code,
+            note=note,
+        )
+    )
+    assigned_today.add(worker.worker_code)
+    assignment_counts[worker.worker_code] += 1
+    assigned_dates_by_worker[worker.worker_code].add(assignment_date)
+
+    if station_code is None:
+        return
+
+    assigned_station_counts[station_code] += 1
+    if shift.shift_code in morning_shift_codes:
+        assigned_morning_station_counts[station_code] += 1
+
+
+def _resolve_effective_max_staff(
+    max_staff_per_day: int | None,
+    *,
+    headcount_credit: int,
+) -> int | None:
+    if max_staff_per_day is None:
+        return None
+    return max(max_staff_per_day - headcount_credit, 0)
+
+
+def _build_missing_required_chef_warning(
+    assignment_date: dt.date,
+) -> WarningOutput:
+    return WarningOutput(
+        type="missing_required_chef",
+        message_key="missing_required_chef",
+        worker_code=None,
+        date=assignment_date,
+        details={"required_role": "chef"},
+    )
+
+
+def _build_missing_morning_station_warnings(
+    assignment_date: dt.date,
+    *,
+    morning_station_requirements: dict[str, int],
+    assigned_morning_station_counts: Counter[str],
+) -> list[WarningOutput]:
+    warnings: list[WarningOutput] = []
+    for station_code in sorted(morning_station_requirements):
+        required_staff = morning_station_requirements[station_code]
+        assigned_staff = assigned_morning_station_counts.get(station_code, 0)
+        if assigned_staff >= required_staff:
+            continue
+        warnings.append(
+            WarningOutput(
+                type="missing_morning_station_coverage",
+                message_key="missing_morning_station_coverage",
+                worker_code=None,
+                date=assignment_date,
+                details={
+                    "station_code": station_code,
+                    "required_morning_staff": required_staff,
+                    "assigned_morning_staff": assigned_staff,
+                    "missing_morning_staff": required_staff - assigned_staff,
+                },
+            )
+        )
+    return warnings
+
+
+def _resolve_morning_shift(
+    morning_shift_codes: tuple[str, ...],
+    *,
+    shifts_by_code: dict[str, ShiftInput],
+) -> ShiftInput | None:
+    for shift_code in morning_shift_codes:
+        shift = shifts_by_code.get(shift_code)
+        if shift is not None and not shift.is_off_shift:
+            return shift
+    return None
+
+
+def _is_chef_worker(worker: WorkerInput) -> bool:
+    # Keep chef-role detection narrow and explicit for this engine slice.
+    return worker.role.strip().casefold() == "chef"
 
 
 def _has_reached_consecutive_limit(
@@ -366,11 +656,13 @@ def _current_consecutive_streak(
 def _build_understaffed_station_warnings(
     assignment_date: dt.date,
     *,
-    required_station_slots: list[str],
+    required_station_slots: list[_RequiredStationSlot],
     assigned_station_counts: Counter[str],
 ) -> list[WarningOutput]:
     warnings: list[WarningOutput] = []
-    required_station_counts = Counter(required_station_slots)
+    required_station_counts = Counter(
+        station_slot.station_code for station_slot in required_station_slots
+    )
     for station_code in sorted(required_station_counts):
         required_staff = required_station_counts[station_code]
         assigned_staff = assigned_station_counts.get(station_code, 0)
@@ -658,6 +950,49 @@ def _resolve_station_minimums(
     return station_minimums
 
 
+def _resolve_morning_shift_codes(
+    raw_morning_shifts: object,
+    *,
+    available_shift_codes: list[str],
+) -> tuple[str, ...]:
+    if not isinstance(raw_morning_shifts, list):
+        return ()
+
+    allowed_shift_codes = set(available_shift_codes)
+    seen_shift_codes: set[str] = set()
+    morning_shift_codes: list[str] = []
+    for raw_shift_code in raw_morning_shifts:
+        if not isinstance(raw_shift_code, str):
+            continue
+        shift_code = raw_shift_code.strip()
+        if not shift_code or shift_code in seen_shift_codes:
+            continue
+        if shift_code not in allowed_shift_codes:
+            continue
+        seen_shift_codes.add(shift_code)
+        morning_shift_codes.append(shift_code)
+    return tuple(morning_shift_codes)
+
+
+def _resolve_morning_station_requirements(
+    raw_station_config: object,
+    *,
+    active_station_codes: list[str],
+) -> dict[str, int]:
+    if not isinstance(raw_station_config, dict):
+        return {}
+
+    morning_station_requirements: dict[str, int] = {}
+    for station_code in active_station_codes:
+        morning_requirement = _coerce_non_negative_int(
+            raw_station_config.get(station_code)
+        )
+        if morning_requirement is None or morning_requirement <= 0:
+            continue
+        morning_station_requirements[station_code] = morning_requirement
+    return morning_station_requirements
+
+
 def _coerce_non_negative_int(raw_value: object) -> int | None:
     if raw_value is None or isinstance(raw_value, bool):
         return None
@@ -666,6 +1001,10 @@ def _coerce_non_negative_int(raw_value: object) -> int | None:
     if isinstance(raw_value, float) and raw_value.is_integer():
         return int(raw_value) if raw_value >= 0 else None
     return None
+
+
+def _coerce_bool(raw_value: object) -> bool:
+    return raw_value if isinstance(raw_value, bool) else False
 
 
 def _iter_month_dates(year: int, month: int) -> list[dt.date]:
