@@ -14,6 +14,7 @@ from __future__ import annotations
 
 from django.urls import URLPattern
 
+from app.api.django_workspace import build_django_monthly_workspace_urlpatterns
 from app.api.django_urls import build_monthly_schedule_urlpatterns
 from app.api.routes import MonthlyScheduleRoutes, build_month_schedule_routes
 from app.engine.monthly import generate_month_plan
@@ -89,7 +90,19 @@ def build_django_monthly_schedule_urlpatterns(
     )
 
 
+def build_django_monthly_workspace_page_urlpatterns(
+    *,
+    preview_engine: MonthlySchedulePreviewEngine | None = None,
+) -> list[URLPattern]:
+    """Build Django URL patterns for the reviewer-visible monthly workspace page."""
+
+    return build_django_monthly_workspace_urlpatterns(
+        preview_engine=preview_engine
+    )
+
+
 __all__ = [
     "build_django_monthly_schedule_routes",
     "build_django_monthly_schedule_urlpatterns",
+    "build_django_monthly_workspace_page_urlpatterns",
 ]

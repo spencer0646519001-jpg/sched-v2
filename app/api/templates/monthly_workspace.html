@@ -1,0 +1,899 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Monthly Scheduling Workspace</title>
+  <style>
+    :root {
+      --bg-top: #f4f7fb;
+      --bg-mid: #f7f4ef;
+      --bg-bottom: #fbfcfe;
+      --panel: rgba(255, 255, 255, 0.82);
+      --panel-border: rgba(60, 79, 102, 0.12);
+      --shadow: 0 18px 40px rgba(53, 73, 96, 0.08);
+      --text-main: #203044;
+      --text-muted: #5d6b79;
+      --text-soft: #7e8a96;
+      --accent: #2c6a82;
+      --accent-soft: #dcecf2;
+      --accent-strong: #1d5468;
+      --warn-bg: #fff7e8;
+      --warn-border: #efd6a0;
+      --good-bg: #eef8f1;
+      --good-border: #b9dec4;
+      --error-bg: #fdf0ef;
+      --error-border: #e8bfba;
+      --grid-head: #f6f8fb;
+      --grid-border: rgba(89, 106, 126, 0.16);
+      --empty-cell: #8f98a2;
+      --font-body: "Aptos", "Segoe UI", "Trebuchet MS", sans-serif;
+      --font-heading: "Iowan Old Style", "Palatino Linotype", "Book Antiqua", serif;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: var(--font-body);
+      color: var(--text-main);
+      background:
+        radial-gradient(circle at top left, rgba(203, 226, 234, 0.48), transparent 34%),
+        radial-gradient(circle at top right, rgba(244, 228, 210, 0.45), transparent 30%),
+        linear-gradient(180deg, var(--bg-top) 0%, var(--bg-mid) 46%, var(--bg-bottom) 100%);
+    }
+
+    .page-shell {
+      max-width: 1260px;
+      margin: 0 auto;
+      padding: 28px 20px 40px;
+      width: 100%;
+      min-width: 0;
+    }
+
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--panel-border);
+      border-radius: 20px;
+      box-shadow: var(--shadow);
+      backdrop-filter: blur(12px);
+      padding: 22px;
+      min-width: 0;
+    }
+
+    .workspace {
+      display: grid;
+      gap: 18px;
+      min-width: 0;
+    }
+
+    .hero {
+      padding: 28px;
+    }
+
+    .eyebrow {
+      margin: 0 0 10px;
+      font-size: 0.78rem;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--accent);
+      font-weight: 700;
+    }
+
+    .hero-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1.6fr) minmax(260px, 1fr);
+      gap: 20px;
+      align-items: start;
+    }
+
+    .hero-grid > * {
+      min-width: 0;
+    }
+
+    h1,
+    h2 {
+      font-family: var(--font-heading);
+      letter-spacing: 0.01em;
+      margin: 0;
+    }
+
+    h1 {
+      font-size: clamp(2rem, 3vw, 2.65rem);
+      line-height: 1.08;
+      margin-bottom: 10px;
+    }
+
+    h2 {
+      font-size: 1.45rem;
+      line-height: 1.15;
+      margin-bottom: 6px;
+    }
+
+    p {
+      margin: 0;
+      color: var(--text-muted);
+      line-height: 1.55;
+    }
+
+    .workflow-list {
+      display: grid;
+      gap: 8px;
+      margin: 0;
+      padding: 0;
+      list-style: none;
+    }
+
+    .workflow-chip {
+      display: block;
+      padding: 10px 12px;
+      border-radius: 14px;
+      background: rgba(255, 255, 255, 0.66);
+      border: 1px solid rgba(44, 106, 130, 0.12);
+      color: var(--text-main);
+      font-size: 0.94rem;
+      font-weight: 600;
+    }
+
+    .messages {
+      display: grid;
+      gap: 10px;
+    }
+
+    .message {
+      border-radius: 14px;
+      padding: 12px 14px;
+      border: 1px solid transparent;
+      font-size: 0.95rem;
+      color: var(--text-main);
+    }
+
+    .message-success {
+      background: var(--good-bg);
+      border-color: var(--good-border);
+    }
+
+    .message-info {
+      background: #edf5f9;
+      border-color: #c8dce8;
+    }
+
+    .message-error {
+      background: var(--error-bg);
+      border-color: var(--error-border);
+    }
+
+    .section-head {
+      display: flex;
+      align-items: start;
+      justify-content: space-between;
+      gap: 14px;
+      margin-bottom: 18px;
+    }
+
+    .section-kicker {
+      font-size: 0.84rem;
+      font-weight: 700;
+      color: var(--accent);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      margin-bottom: 5px;
+    }
+
+    .muted-note {
+      color: var(--text-soft);
+      font-size: 0.93rem;
+    }
+
+    .scope-form,
+    .leave-form,
+    .preview-form,
+    .apply-form,
+    .save-form {
+      display: grid;
+      gap: 14px;
+    }
+
+    .scope-grid,
+    .leave-grid,
+    .action-grid {
+      display: grid;
+      gap: 14px;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+
+    label {
+      display: grid;
+      gap: 7px;
+      font-size: 0.92rem;
+      font-weight: 600;
+      color: var(--text-main);
+    }
+
+    input,
+    select,
+    textarea,
+    button {
+      font: inherit;
+    }
+
+    input,
+    select,
+    textarea {
+      width: 100%;
+      border-radius: 12px;
+      border: 1px solid rgba(89, 106, 126, 0.2);
+      background: rgba(255, 255, 255, 0.9);
+      padding: 11px 12px;
+      color: var(--text-main);
+    }
+
+    textarea {
+      min-height: 112px;
+      resize: vertical;
+    }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 46px;
+      border-radius: 12px;
+      border: 1px solid transparent;
+      padding: 0 16px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: transform 120ms ease, box-shadow 120ms ease, background 120ms ease;
+    }
+
+    .btn:hover:not(:disabled) {
+      transform: translateY(-1px);
+      box-shadow: 0 10px 18px rgba(39, 64, 86, 0.12);
+    }
+
+    .btn:disabled {
+      cursor: not-allowed;
+      opacity: 0.56;
+      box-shadow: none;
+    }
+
+    .btn-primary {
+      background: linear-gradient(135deg, var(--accent) 0%, var(--accent-strong) 100%);
+      color: #fff;
+    }
+
+    .btn-secondary {
+      background: rgba(255, 255, 255, 0.92);
+      border-color: rgba(44, 106, 130, 0.18);
+      color: var(--accent-strong);
+    }
+
+    .btn-soft {
+      background: var(--accent-soft);
+      color: var(--accent-strong);
+    }
+
+    .tenant-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      border-radius: 999px;
+      padding: 10px 14px;
+      background: #f1f5f7;
+      border: 1px solid rgba(89, 106, 126, 0.14);
+      color: var(--text-main);
+      font-weight: 600;
+    }
+
+    .leave-layout {
+      display: grid;
+      gap: 18px;
+      grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
+    }
+
+    .leave-layout > * {
+      min-width: 0;
+    }
+
+    .leave-summary-grid {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-bottom: 14px;
+    }
+
+    .summary-pill {
+      padding: 9px 12px;
+      border-radius: 999px;
+      background: #f8fafc;
+      border: 1px solid rgba(89, 106, 126, 0.14);
+      color: var(--text-main);
+      font-size: 0.9rem;
+      font-weight: 600;
+    }
+
+    .leave-list {
+      margin: 0;
+      padding: 0;
+      list-style: none;
+      display: grid;
+      gap: 10px;
+    }
+
+    .leave-item {
+      border-radius: 14px;
+      background: rgba(255, 255, 255, 0.72);
+      border: 1px solid rgba(89, 106, 126, 0.14);
+      padding: 12px 14px;
+    }
+
+    .leave-item strong {
+      display: block;
+      margin-bottom: 2px;
+      color: var(--text-main);
+    }
+
+    .actions-stack {
+      display: grid;
+      gap: 14px;
+    }
+
+    .action-card {
+      padding: 16px;
+      border-radius: 16px;
+      background: rgba(255, 255, 255, 0.74);
+      border: 1px solid rgba(89, 106, 126, 0.12);
+      min-width: 0;
+    }
+
+    .action-card h3 {
+      margin: 0 0 6px;
+      font-size: 1rem;
+      color: var(--text-main);
+    }
+
+    .action-card p {
+      font-size: 0.92rem;
+      margin-bottom: 14px;
+    }
+
+    .state-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 12px;
+    }
+
+    .state-card {
+      border-radius: 16px;
+      padding: 16px;
+      border: 1px solid rgba(89, 106, 126, 0.14);
+      background: rgba(255, 255, 255, 0.72);
+      min-width: 0;
+    }
+
+    .state-label {
+      display: block;
+      color: var(--text-soft);
+      font-size: 0.84rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      margin-bottom: 8px;
+    }
+
+    .state-value {
+      display: block;
+      font-size: 1.35rem;
+      font-weight: 800;
+      margin-bottom: 6px;
+      color: var(--text-main);
+    }
+
+    .tone-good {
+      background: linear-gradient(180deg, rgba(238, 248, 241, 0.95), rgba(255, 255, 255, 0.72));
+      border-color: var(--good-border);
+    }
+
+    .tone-warn {
+      background: linear-gradient(180deg, rgba(255, 247, 232, 0.95), rgba(255, 255, 255, 0.72));
+      border-color: var(--warn-border);
+    }
+
+    .tone-error {
+      background: linear-gradient(180deg, rgba(253, 240, 239, 0.95), rgba(255, 255, 255, 0.72));
+      border-color: var(--error-border);
+    }
+
+    .tone-neutral {
+      background: rgba(255, 255, 255, 0.74);
+    }
+
+    .result-meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin: 16px 0 18px;
+    }
+
+    .meta-pill {
+      padding: 8px 12px;
+      border-radius: 999px;
+      background: #f7fafc;
+      border: 1px solid rgba(89, 106, 126, 0.14);
+      font-size: 0.9rem;
+      color: var(--text-main);
+    }
+
+    .result-grid-scroll {
+      width: 100%;
+      max-width: 100%;
+      overflow-x: auto;
+      overflow-y: hidden;
+      padding-bottom: 6px;
+    }
+
+    .result-grid {
+      width: max-content;
+      min-width: 100%;
+      border-collapse: separate;
+      border-spacing: 0;
+    }
+
+    .result-grid th,
+    .result-grid td {
+      border-right: 1px solid var(--grid-border);
+      border-bottom: 1px solid var(--grid-border);
+      background: rgba(255, 255, 255, 0.84);
+      min-width: 70px;
+      text-align: center;
+      vertical-align: top;
+      padding: 9px 8px;
+    }
+
+    .result-grid thead th {
+      position: sticky;
+      top: 0;
+      background: var(--grid-head);
+      z-index: 2;
+      font-size: 0.85rem;
+      color: var(--text-muted);
+      font-weight: 800;
+    }
+
+    .result-grid thead th:first-child,
+    .result-grid tbody th {
+      left: 0;
+      position: sticky;
+      z-index: 3;
+      min-width: 210px;
+      text-align: left;
+      background: #fbfcfe;
+    }
+
+    .result-grid thead th:first-child {
+      z-index: 4;
+    }
+
+    .result-grid tr:first-child th,
+    .result-grid tr:first-child td {
+      border-top: 1px solid var(--grid-border);
+    }
+
+    .result-grid th:first-child,
+    .result-grid td:first-child {
+      border-left: 1px solid var(--grid-border);
+    }
+
+    .worker-name {
+      display: block;
+      color: var(--text-main);
+      font-weight: 700;
+      margin-bottom: 3px;
+    }
+
+    .worker-meta {
+      display: block;
+      color: var(--text-soft);
+      font-size: 0.84rem;
+      overflow-wrap: anywhere;
+    }
+
+    .cell-main {
+      display: block;
+      font-size: 0.88rem;
+      font-weight: 700;
+      color: var(--text-main);
+    }
+
+    .cell-sub {
+      display: block;
+      margin-top: 4px;
+      font-size: 0.76rem;
+      color: var(--text-soft);
+      white-space: nowrap;
+    }
+
+    td.empty .cell-main {
+      color: var(--empty-cell);
+      font-weight: 600;
+    }
+
+    .warning-list {
+      display: grid;
+      gap: 12px;
+      margin: 0;
+      padding: 0;
+      list-style: none;
+    }
+
+    .warning-item {
+      border-radius: 16px;
+      padding: 14px 16px;
+      background: var(--warn-bg);
+      border: 1px solid var(--warn-border);
+    }
+
+    .warning-title {
+      font-weight: 800;
+      color: var(--text-main);
+      margin-bottom: 4px;
+      text-transform: capitalize;
+    }
+
+    .warning-meta {
+      font-size: 0.9rem;
+      color: var(--text-muted);
+      margin-bottom: 6px;
+    }
+
+    .reserved {
+      border-style: dashed;
+    }
+
+    .reserved-box {
+      display: grid;
+      gap: 12px;
+      padding: 16px;
+      border-radius: 16px;
+      background: rgba(255, 255, 255, 0.72);
+      border: 1px dashed rgba(89, 106, 126, 0.2);
+    }
+
+    .empty-state {
+      padding: 18px;
+      border-radius: 16px;
+      background: rgba(255, 255, 255, 0.74);
+      border: 1px dashed rgba(89, 106, 126, 0.2);
+      color: var(--text-muted);
+    }
+
+    .inline-hidden {
+      display: none;
+    }
+
+    @media (max-width: 980px) {
+      .hero-grid,
+      .leave-layout,
+      .scope-grid,
+      .leave-grid,
+      .action-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .result-grid thead th:first-child,
+      .result-grid tbody th {
+        min-width: 170px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="page-shell workspace">
+    <section class="panel hero">
+      <p class="eyebrow">Monthly planning workspace</p>
+      <div class="hero-grid">
+        <div>
+          <h1>Monthly Scheduling Workspace</h1>
+          <p>Review one month at a time: add leave, preview a candidate, apply the working copy, save a version, and inspect the monthly people grid without leaving the core scheduling surface.</p>
+        </div>
+        <ul class="workflow-list">
+          {% for step in workflow_steps %}
+          <li class="workflow-chip">{{ step }}</li>
+          {% endfor %}
+        </ul>
+      </div>
+    </section>
+
+    {% if messages %}
+    <section class="messages">
+      {% for message in messages %}
+      <div class="message message-{{ message.level }}">{{ message.text }}</div>
+      {% endfor %}
+    </section>
+    {% endif %}
+
+    <section class="panel">
+      <div class="section-head">
+        <div>
+          <div class="section-kicker">Month selection</div>
+          <h2>Open the monthly workspace</h2>
+          <p>Keep the familiar month picker flow while choosing the workspace scope.</p>
+        </div>
+      </div>
+      <form method="get" class="scope-form">
+        <div class="scope-grid">
+          {% if tenant_options|length > 1 %}
+          <label>
+            Workspace
+            <select name="tenant_slug">
+              {% for tenant in tenant_options %}
+              <option value="{{ tenant.slug }}"{% if tenant.selected %} selected{% endif %}>{{ tenant.name }}</option>
+              {% endfor %}
+            </select>
+          </label>
+          {% elif selected_tenant %}
+          <label>
+            Workspace
+            <span class="tenant-pill">{{ selected_tenant.name }}</span>
+            <input type="hidden" name="tenant_slug" value="{{ selected_tenant.slug }}">
+          </label>
+          {% else %}
+          <label>
+            Workspace
+            <span class="tenant-pill">No tenant data available</span>
+          </label>
+          {% endif %}
+
+          <label>
+            Month
+            <input type="month" name="month_scope" value="{{ month_value }}">
+          </label>
+
+          <label>
+            &nbsp;
+            <button type="submit" class="btn btn-secondary">Open month</button>
+          </label>
+        </div>
+      </form>
+    </section>
+
+    <section class="panel">
+      <div class="section-head">
+        <div>
+          <div class="section-kicker">Leave requests</div>
+          <h2>Keep leave visible in the workflow</h2>
+          <p>Use the same reviewer-facing leave flow before previewing the month.</p>
+        </div>
+      </div>
+      <div class="leave-layout">
+        <form method="post" class="leave-form">
+          <input type="hidden" name="form_action" value="add_leave">
+          {% if selected_tenant %}
+          <input type="hidden" name="tenant_slug" value="{{ selected_tenant.slug }}">
+          {% endif %}
+          <input type="hidden" name="month_scope" value="{{ month_value }}">
+          <div class="leave-grid">
+            <label>
+              Person
+              <select name="worker_id">
+                <option value="">Select employee</option>
+                {% for worker in worker_options %}
+                <option value="{{ worker.id }}"{% if worker.selected %} selected{% endif %}>{{ worker.label }}</option>
+                {% endfor %}
+              </select>
+            </label>
+
+            <label>
+              Leave date
+              <input type="date" name="leave_date" value="{{ leave_date_value }}">
+            </label>
+
+            <label>
+              &nbsp;
+              <button type="submit" class="btn btn-soft">Add leave</button>
+            </label>
+          </div>
+        </form>
+
+        <div>
+          <p class="muted-note">Current leave summary for {{ month_label }}</p>
+          {% if leave_summary %}
+          <div class="leave-summary-grid">
+            {% for item in leave_summary %}
+            <span class="summary-pill">{{ item.label }}: {{ item.count }}</span>
+            {% endfor %}
+          </div>
+          {% endif %}
+
+          {% if leave_rows %}
+          <ul class="leave-list">
+            {% for leave in leave_rows %}
+            <li class="leave-item">
+              <strong>{{ leave.worker_name }} ({{ leave.worker_code }})</strong>
+              <span class="muted-note">{{ leave.date }}</span>
+            </li>
+            {% endfor %}
+          </ul>
+          {% else %}
+          <div class="empty-state">No leave requests have been added for {{ month_label }}.</div>
+          {% endif %}
+        </div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="section-head">
+        <div>
+          <div class="section-kicker">Primary actions</div>
+          <h2>Preview, apply, and save</h2>
+          <p>Keep the main workflow tight and readable, with secondary details kept out of the way.</p>
+        </div>
+      </div>
+      <div class="actions-stack">
+        <div class="action-grid">
+          <form method="post" class="action-card preview-form">
+            <input type="hidden" name="form_action" value="preview">
+            {% if selected_tenant %}
+            <input type="hidden" name="tenant_slug" value="{{ selected_tenant.slug }}">
+            {% endif %}
+            <input type="hidden" name="month_scope" value="{{ month_value }}">
+            <div>
+              <h3>Preview</h3>
+              <p>Build a fresh candidate from the selected month and leave inputs.</p>
+            </div>
+            <button type="submit" class="btn btn-primary">Preview month</button>
+          </form>
+
+          <form method="post" class="action-card apply-form">
+            <input type="hidden" name="form_action" value="apply">
+            {% if selected_tenant %}
+            <input type="hidden" name="tenant_slug" value="{{ selected_tenant.slug }}">
+            {% endif %}
+            <input type="hidden" name="month_scope" value="{{ month_value }}">
+            <input type="hidden" name="candidate_result_json" value="{{ candidate_result_json }}">
+            <div>
+              <h3>Apply</h3>
+              <p>Promote the visible candidate preview into the current mutable workspace.</p>
+            </div>
+            <button type="submit" class="btn btn-primary"{% if apply_disabled %} disabled{% endif %}>Apply preview</button>
+          </form>
+
+          <form method="post" class="action-card save-form">
+            <input type="hidden" name="form_action" value="save">
+            {% if selected_tenant %}
+            <input type="hidden" name="tenant_slug" value="{{ selected_tenant.slug }}">
+            {% endif %}
+            <input type="hidden" name="month_scope" value="{{ month_value }}">
+            <input type="hidden" name="candidate_result_json" value="{{ candidate_result_json }}">
+            <div>
+              <h3>Save</h3>
+              <p>Snapshot the current workspace as an immutable saved version.</p>
+            </div>
+            <label>
+              Version label
+              <input type="text" name="save_label" value="{{ save_label_value }}" placeholder="Optional reviewer-facing label">
+            </label>
+            <button type="submit" class="btn btn-secondary"{% if save_disabled %} disabled{% endif %}>Save version</button>
+          </form>
+        </div>
+        <p class="muted-note">Preview is read-only. Apply updates the current workspace. Save creates immutable history for the selected month.</p>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="section-head">
+        <div>
+          <div class="section-kicker">Workspace state</div>
+          <h2>Keep the current system state obvious</h2>
+          <p>A light summary helps reviewers understand what exists in this workspace without exposing planner config toggles.</p>
+        </div>
+      </div>
+      <div class="state-grid">
+        {% for card in state_cards %}
+        <article class="state-card {{ card.tone }}">
+          <span class="state-label">{{ card.label }}</span>
+          <span class="state-value">{{ card.value }}</span>
+          <p>{{ card.note }}</p>
+        </article>
+        {% endfor %}
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="section-head">
+        <div>
+          <div class="section-kicker">Monthly schedule result</div>
+          <h2>Review the people grid</h2>
+          <p>Keep the month grid readable on narrow screens by favoring horizontal scrolling over compressed cells.</p>
+        </div>
+      </div>
+
+      {% if display_surface %}
+      <div class="summary-pill">{{ display_surface.badge }}</div>
+      <div class="result-meta">
+        {% for item in display_surface.meta %}
+        <span class="meta-pill">{{ item.label }}: {{ item.value }}</span>
+        {% endfor %}
+      </div>
+      <p class="muted-note">{{ display_surface.description }}</p>
+
+      <div class="result-grid-scroll">
+        <table class="result-grid">
+          <thead>
+            <tr>
+              <th scope="col">Person</th>
+              {% for day in display_surface.days %}
+              <th scope="col">{{ day }}</th>
+              {% endfor %}
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in display_surface.rows %}
+            <tr>
+              <th scope="row">
+                <span class="worker-name">{{ row.worker_name }}</span>
+                <span class="worker-meta">{{ row.worker_code }}{% if row.worker_role %} / {{ row.worker_role }}{% endif %}</span>
+              </th>
+              {% for cell in row.cells %}
+              <td class="{% if cell.assigned %}assigned{% else %}empty{% endif %}">
+                <span class="cell-main">{{ cell.value }}</span>
+                {% if cell.subvalue %}
+                <span class="cell-sub">{{ cell.subvalue }}</span>
+                {% endif %}
+              </td>
+              {% endfor %}
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+      <div class="empty-state">No candidate preview or current workspace is visible for {{ month_label }} yet.</div>
+      {% endif %}
+    </section>
+
+    <section class="panel">
+      <div class="section-head">
+        <div>
+          <div class="section-kicker">Warnings</div>
+          <h2>Keep reviewer-facing warnings readable</h2>
+          <p>Preview warnings remain visible here without claiming anything more advanced than the current backend supports.</p>
+        </div>
+      </div>
+
+      {% if warnings %}
+      <ul class="warning-list">
+        {% for warning in warnings %}
+        <li class="warning-item">
+          <div class="warning-title">{{ warning.title }}</div>
+          <div class="warning-meta">Date: {{ warning.date }} / Worker: {{ warning.worker }}</div>
+          <p><strong>{{ warning.message }}</strong></p>
+          <p>{{ warning.details }}</p>
+        </li>
+        {% endfor %}
+      </ul>
+      {% else %}
+      <div class="empty-state">{{ warnings_note }}</div>
+      {% endif %}
+    </section>
+
+    <section class="panel reserved">
+      <div class="section-head">
+        <div>
+          <div class="section-kicker">Refine / explain</div>
+          <h2>Reserved for a later phase</h2>
+          <p>Keep the space visible without pretending the natural-language adjustment flow is finished in this PR.</p>
+        </div>
+      </div>
+      <div class="reserved-box">
+        <p>Natural-language refine and explain are intentionally left as an honest placeholder here. This page reserves the workspace area, but it does not fake a completed implementation.</p>
+        <textarea disabled placeholder="Reserved: natural-language adjustment and explanation will land in a later phase."></textarea>
+        <button type="button" class="btn btn-secondary" disabled>Reserved for later phase</button>
+      </div>
+    </section>
+  </main>
+</body>
+</html>
