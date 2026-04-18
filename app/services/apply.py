@@ -38,7 +38,7 @@ from app.infra.repositories import (
 
 
 class MonthPlanningResultPayload(Protocol):
-    """Structural result shape accepted by the apply service boundary."""
+    """Structural candidate result shape accepted by the apply boundary."""
 
     assignments: Sequence[AssignmentOutput]
     warnings: Sequence[WarningOutput]
@@ -48,7 +48,11 @@ class MonthPlanningResultPayload(Protocol):
 
 @dataclass(slots=True)
 class ApplyMonthScheduleRequest:
-    """Service-layer request for applying one preview into current workspace."""
+    """Service-layer request for promoting one candidate result into current workspace.
+
+    The `result` field intentionally accepts either the concrete engine result
+    dataclass or a structural lookalike payload from an upstream preview seam.
+    """
 
     tenant_slug: str
     year: int
@@ -58,7 +62,7 @@ class ApplyMonthScheduleRequest:
 
 @dataclass(slots=True)
 class ApplyMonthScheduleResponse:
-    """Small apply result returned after current workspace state is updated."""
+    """Small apply result describing the updated current workspace state."""
 
     tenant_slug: str
     year: int
@@ -68,6 +72,12 @@ class ApplyMonthScheduleResponse:
     assignment_count: int
     warning_count: int
     workspace_created: bool
+
+    @property
+    def current_workspace_id(self) -> RecordId:
+        """Expose the apply target with explicit current-workspace semantics."""
+
+        return self.workspace_id
 
 
 @dataclass(slots=True)

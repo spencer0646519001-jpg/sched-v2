@@ -38,7 +38,7 @@ class SaveMonthScheduleRequest:
 
 @dataclass(slots=True)
 class SaveMonthScheduleResponse:
-    """Small save result returned after a version snapshot is persisted."""
+    """Small save result describing one immutable saved version snapshot."""
 
     tenant_slug: str
     year: int
@@ -47,6 +47,12 @@ class SaveMonthScheduleResponse:
     version_number: int
     workspace_id: RecordId
     assignment_count: int
+
+    @property
+    def saved_version_id(self) -> RecordId:
+        """Expose the saved snapshot identifier with explicit version semantics."""
+
+        return self.version_id
 
 
 @dataclass(slots=True)

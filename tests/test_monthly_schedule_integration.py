@@ -62,9 +62,9 @@ def test_preview_flow_returns_candidate_result_without_writing_workspace() -> No
         _build_month_result(ctx, [dt.date(2026, 4, 1)]),
     )
 
-    assert response.result.assignments
-    assert response.result.summary.total_assignments == 1
-    assert response.result.metadata.source_type == "preview"
+    assert response.candidate_result.assignments
+    assert response.candidate_result.summary.total_assignments == 1
+    assert response.candidate_result.metadata.source_type == "preview"
     assert DjangoMonthlyWorkspace.objects.count() == 0
     assert DjangoMonthlyAssignment.objects.count() == 0
 
@@ -80,14 +80,14 @@ def test_preview_flow_with_real_engine_respects_persisted_leave() -> None:
 
     response = _preview_month_with_real_engine(ctx)
 
-    assert response.result.summary.total_assignments == 29
-    assert response.result.summary.total_warnings == 1
-    assert response.result.metadata.source_type == "monthly_planner"
-    assert response.result.evaluation is not None
-    assert response.result.evaluation.understaffed_station_days == 1
+    assert response.candidate_result.summary.total_assignments == 29
+    assert response.candidate_result.summary.total_warnings == 1
+    assert response.candidate_result.metadata.source_type == "monthly_planner"
+    assert response.candidate_result.evaluation is not None
+    assert response.candidate_result.evaluation.understaffed_station_days == 1
     assert all(
         assignment.date != dt.date(2026, 4, 1)
-        for assignment in response.result.assignments
+        for assignment in response.candidate_result.assignments
     )
     assert DjangoMonthlyWorkspace.objects.count() == 0
     assert DjangoMonthlyAssignment.objects.count() == 0
@@ -106,13 +106,9 @@ def test_apply_flow_creates_current_workspace_from_preview_result() -> None:
         ),
     )
 
-    response = _apply_month(ctx, preview_response.result)
+    response = _apply_month(ctx, preview_response.candidate_result)
 
-    workspace = DjangoMonthlyWorkspace.objects.get(
-        tenant=ctx.tenant,
-        year=2026,
-        month=4,
-    )
+    workspace = DjangoMonthlyWorkspace.objects.get(pk=int(response.current_workspace_id))
     assignments = list(
         DjangoMonthlyAssignment.objects.filter(workspace=workspace).order_by(
             "assignment_date",
@@ -151,7 +147,7 @@ def test_apply_flow_replaces_assignments_instead_of_appending() -> None:
             ],
         ),
     )
-    first_apply = _apply_month(ctx, first_preview.result)
+    first_apply = _apply_month(ctx, first_preview.candidate_result)
     first_assignment_ids = set(
         DjangoMonthlyAssignment.objects.values_list("id", flat=True)
     )
@@ -160,9 +156,11 @@ def test_apply_flow_replaces_assignments_instead_of_appending() -> None:
         ctx,
         _build_month_result(ctx, [dt.date(2026, 4, 3)]),
     )
-    second_apply = _apply_month(ctx, second_preview.result)
+    second_apply = _apply_month(ctx, second_preview.candidate_result)
 
-    workspace = DjangoMonthlyWorkspace.objects.get(pk=int(second_apply.workspace_id))
+    workspace = DjangoMonthlyWorkspace.objects.get(
+        pk=int(second_apply.current_workspace_id)
+    )
     remaining_assignments = list(
         DjangoMonthlyAssignment.objects.filter(workspace=workspace).order_by(
             "assignment_date",
@@ -171,7 +169,7 @@ def test_apply_flow_replaces_assignments_instead_of_appending() -> None:
         )
     )
 
-    assert first_apply.workspace_id == second_apply.workspace_id
+    assert first_apply.current_workspace_id == second_apply.current_workspace_id
     assert second_apply.workspace_created is False
     assert DjangoMonthlyWorkspace.objects.filter(
         tenant=ctx.tenant,
@@ -191,9 +189,11 @@ def test_save_flow_creates_immutable_version_snapshots() -> None:
         ctx,
         _build_month_result(ctx, [dt.date(2026, 4, 1)]),
     )
-    first_apply = _apply_month(ctx, first_preview.result)
+    first_apply = _apply_month(ctx, first_preview.candidate_result)
     first_save = _save_month(ctx, label="Baseline")
-    first_version = DjangoMonthlyPlanVersion.objects.get(pk=int(first_save.version_id))
+    first_version = DjangoMonthlyPlanVersion.objects.get(
+        pk=int(first_save.saved_version_id)
+    )
     first_snapshot = deepcopy(first_version.snapshot_json)
 
     second_preview = _preview_month(
@@ -206,19 +206,19 @@ def test_save_flow_creates_immutable_version_snapshots() -> None:
             ],
         ),
     )
-    second_apply = _apply_month(ctx, second_preview.result)
+    second_apply = _apply_month(ctx, second_preview.candidate_result)
     second_save = _save_month(ctx, note="Updated current workspace")
 
     versions = list(
         DjangoMonthlyPlanVersion.objects.filter(
-            workspace_id=int(first_apply.workspace_id)
+            workspace_id=int(first_apply.current_workspace_id)
         ).order_by("version_number", "id")
     )
     first_version.refresh_from_db()
 
     assert first_save.version_number == 1
     assert second_save.version_number == 2
-    assert first_apply.workspace_id == second_apply.workspace_id
+    assert first_apply.current_workspace_id == second_apply.current_workspace_id
     assert [version.version_number for version in versions] == [1, 2]
     assert first_version.snapshot_json == first_snapshot
     assert [
@@ -245,13 +245,13 @@ def test_workspace_state_story_keeps_candidate_current_and_saved_state_distinct(
         _build_month_result(ctx, [dt.date(2026, 4, 1)]),
     )
 
-    assert _assignment_dates_from_result(baseline_preview.result) == [
+    assert _assignment_dates_from_result(baseline_preview.candidate_result) == [
         "2026-04-01",
     ]
     assert workspace_repository.load_current(tenant_id, 2026, 4) is None
     assert version_repository.list_for_month(tenant_id, 2026, 4) == []
 
-    baseline_apply = _apply_month(ctx, baseline_preview.result)
+    baseline_apply = _apply_month(ctx, baseline_preview.candidate_result)
     current_after_baseline_apply = workspace_repository.load_current(
         tenant_id,
         2026,
@@ -259,13 +259,16 @@ def test_workspace_state_story_keeps_candidate_current_and_saved_state_distinct(
     )
 
     assert current_after_baseline_apply is not None
-    assert baseline_apply.workspace_id == current_after_baseline_apply.workspace.id
+    assert (
+        baseline_apply.current_workspace_id
+        == current_after_baseline_apply.workspace.id
+    )
     assert _assignment_dates_from_current_state(current_after_baseline_apply) == [
         "2026-04-01",
     ]
 
     baseline_save = _save_month(ctx, label="Baseline")
-    saved_baseline = version_repository.get_by_id(baseline_save.version_id)
+    saved_baseline = version_repository.get_by_id(baseline_save.saved_version_id)
 
     assert saved_baseline is not None
     assert baseline_save.workspace_id == current_after_baseline_apply.workspace.id
@@ -288,9 +291,11 @@ def test_workspace_state_story_keeps_candidate_current_and_saved_state_distinct(
         2026,
         4,
     )
-    reloaded_saved_baseline = version_repository.get_by_id(baseline_save.version_id)
+    reloaded_saved_baseline = version_repository.get_by_id(
+        baseline_save.saved_version_id
+    )
 
-    assert _assignment_dates_from_result(candidate_preview.result) == [
+    assert _assignment_dates_from_result(candidate_preview.candidate_result) == [
         "2026-04-02",
         "2026-04-03",
     ]
@@ -308,18 +313,18 @@ def test_workspace_state_story_keeps_candidate_current_and_saved_state_distinct(
         4,
     )] == [1]
 
-    candidate_apply = _apply_month(ctx, candidate_preview.result)
+    candidate_apply = _apply_month(ctx, candidate_preview.candidate_result)
     current_after_candidate_apply = workspace_repository.load_current(
         tenant_id,
         2026,
         4,
     )
     saved_baseline_after_candidate_apply = version_repository.get_by_id(
-        baseline_save.version_id
+        baseline_save.saved_version_id
     )
 
     assert current_after_candidate_apply is not None
-    assert candidate_apply.workspace_id == baseline_apply.workspace_id
+    assert candidate_apply.current_workspace_id == baseline_apply.current_workspace_id
     assert _assignment_dates_from_current_state(current_after_candidate_apply) == [
         "2026-04-02",
         "2026-04-03",
@@ -480,7 +485,7 @@ def _preview_month_with_real_engine(ctx: _SeedContext):
 
 def _apply_month(
     ctx: _SeedContext,
-    result: MonthPlanningResult,
+    candidate_result: MonthPlanningResult,
 ):
     service = ApplyMonthScheduleService(
         tenant_repository=DjangoTenantRepository(),
@@ -494,7 +499,7 @@ def _apply_month(
             tenant_slug=ctx.tenant.slug,
             year=2026,
             month=4,
-            result=result,
+            result=candidate_result,
         )
     )
 

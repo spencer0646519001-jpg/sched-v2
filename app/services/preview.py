@@ -49,10 +49,21 @@ class PreviewMonthScheduleRequest:
 
 @dataclass(slots=True)
 class PreviewMonthScheduleResponse:
-    """Preview payload returned by the service layer."""
+    """Preview payload returned by the service layer.
+
+    The persisted contract field remains `result`, but the preview semantics
+    are explicitly candidate-oriented because preview does not mutate current
+    workspace state.
+    """
 
     request: PreviewMonthScheduleRequest
     result: MonthPlanningResult
+
+    @property
+    def candidate_result(self) -> MonthPlanningResult:
+        """Expose the preview payload with explicit candidate semantics."""
+
+        return self.result
 
 
 @dataclass(slots=True)
@@ -75,7 +86,7 @@ class PreviewMonthScheduleService:
         self,
         request: PreviewMonthScheduleRequest,
     ) -> PreviewMonthScheduleResponse:
-        """Load monthly inputs, invoke the engine, and return a preview."""
+        """Load monthly inputs, invoke the engine, and return a candidate preview."""
 
         _validate_request(request)
 

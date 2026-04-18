@@ -33,6 +33,7 @@ from app.infra.models import (
 from app.infra.repositories import CurrentWorkspaceState
 from app.services.apply import (
     ApplyMonthScheduleRequest,
+    ApplyMonthScheduleResponse,
     ApplyMonthScheduleService,
     apply_month_schedule,
 )
@@ -43,6 +44,7 @@ from app.services.export import (
 )
 from app.services.preview import (
     PreviewMonthScheduleRequest,
+    PreviewMonthScheduleResponse,
     PreviewMonthScheduleService,
 )
 from app.services.refine import (
@@ -52,6 +54,7 @@ from app.services.refine import (
 )
 from app.services.save import (
     SaveMonthScheduleRequest,
+    SaveMonthScheduleResponse,
     SaveMonthScheduleService,
     save_month_schedule,
 )
@@ -95,6 +98,46 @@ def test_service_modules_are_importable_and_framework_neutral(
     assert disallowed_imports == []
 
 
+def test_monthly_service_contract_aliases_expose_candidate_current_and_saved_scopes() -> None:
+    preview_request = PreviewMonthScheduleRequest(
+        tenant_slug="tenant-a",
+        year=2026,
+        month=4,
+    )
+    candidate_result = _sample_result(
+        source_type="preview",
+        refinement_applied=False,
+    )
+    preview_response = PreviewMonthScheduleResponse(
+        request=preview_request,
+        result=candidate_result,
+    )
+    apply_response = ApplyMonthScheduleResponse(
+        tenant_slug="tenant-a",
+        year=2026,
+        month=4,
+        workspace_id="workspace-1",
+        workspace_status="draft",
+        assignment_count=1,
+        warning_count=0,
+        workspace_created=True,
+    )
+    save_response = SaveMonthScheduleResponse(
+        tenant_slug="tenant-a",
+        year=2026,
+        month=4,
+        version_id="version-1",
+        version_number=1,
+        workspace_id="workspace-1",
+        assignment_count=1,
+    )
+
+    assert preview_response.candidate_result is preview_response.result
+    assert preview_response.candidate_result.metadata.source_type == "preview"
+    assert apply_response.current_workspace_id == apply_response.workspace_id
+    assert save_response.saved_version_id == save_response.version_id
+
+
 def test_preview_service_smoke_flow_returns_engine_result() -> None:
     ctx = _sample_context()
     engine = _RecordingCallable(
@@ -115,23 +158,23 @@ def test_preview_service_smoke_flow_returns_engine_result() -> None:
     )
 
     assert response.request.tenant_slug == ctx.tenant.slug
-    assert response.result.assignments == engine.result.assignments
-    assert response.result.summary == engine.result.summary
-    assert response.result.metadata == engine.result.metadata
-    assert response.result.evaluation is not None
-    assert response.result.evaluation.schedule_quality_label == "good"
+    assert response.candidate_result.assignments == engine.result.assignments
+    assert response.candidate_result.summary == engine.result.summary
+    assert response.candidate_result.metadata == engine.result.metadata
+    assert response.candidate_result.evaluation is not None
+    assert response.candidate_result.evaluation.schedule_quality_label == "good"
     assert engine.requests[0].tenant_code == ctx.tenant.slug
     assert engine.requests[0].workers[0].worker_code == ctx.worker.code
 
 
 def test_apply_service_smoke_flow_accepts_structural_result_payload() -> None:
     ctx = _sample_context()
-    result = _sample_result(source_type="preview", refinement_applied=False)
-    payload = SimpleNamespace(
-        assignments=list(result.assignments),
-        warnings=list(result.warnings),
-        summary=result.summary,
-        metadata=result.metadata,
+    candidate_result = _sample_result(source_type="preview", refinement_applied=False)
+    candidate_payload = SimpleNamespace(
+        assignments=list(candidate_result.assignments),
+        warnings=list(candidate_result.warnings),
+        summary=candidate_result.summary,
+        metadata=candidate_result.metadata,
     )
     workspace_repository = _workspace_repo(current_state=None)
     service = ApplyMonthScheduleService(
@@ -147,7 +190,7 @@ def test_apply_service_smoke_flow_accepts_structural_result_payload() -> None:
             tenant_slug=ctx.tenant.slug,
             year=2026,
             month=4,
-            result=payload,
+            result=candidate_payload,
         ),
         service=service,
     )
@@ -155,8 +198,9 @@ def test_apply_service_smoke_flow_accepts_structural_result_payload() -> None:
     assert response.workspace_created is True
     assert response.assignment_count == 1
     assert response.warning_count == 0
-    assert workspace_repository.replaced_assignments[response.workspace_id][0].worker_id == (
-        ctx.worker.id
+    assert (
+        workspace_repository.replaced_assignments[response.current_workspace_id][0].worker_id
+        == ctx.worker.id
     )
 
 
@@ -189,6 +233,7 @@ def test_save_service_smoke_flow_persists_snapshot() -> None:
     assert response.version_number == 3
     assert response.assignment_count == 1
     assert len(plan_version_repository.saved_versions) == 1
+    assert response.saved_version_id == response.version_id
     assert (
         plan_version_repository.saved_versions[0].snapshot_json["workspace"]["id"]
         == ctx.workspace.id
