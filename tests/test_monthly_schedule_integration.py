@@ -234,6 +234,117 @@ def test_save_flow_creates_immutable_version_snapshots() -> None:
     ]
 
 
+def test_workspace_state_story_keeps_candidate_current_and_saved_state_distinct() -> None:
+    ctx = _seed_month_context()
+    tenant_id = str(ctx.tenant.id)
+    workspace_repository = DjangoWorkspaceRepository()
+    version_repository = DjangoPlanVersionRepository()
+
+    baseline_preview = _preview_month(
+        ctx,
+        _build_month_result(ctx, [dt.date(2026, 4, 1)]),
+    )
+
+    assert _assignment_dates_from_result(baseline_preview.result) == [
+        "2026-04-01",
+    ]
+    assert workspace_repository.load_current(tenant_id, 2026, 4) is None
+    assert version_repository.list_for_month(tenant_id, 2026, 4) == []
+
+    baseline_apply = _apply_month(ctx, baseline_preview.result)
+    current_after_baseline_apply = workspace_repository.load_current(
+        tenant_id,
+        2026,
+        4,
+    )
+
+    assert current_after_baseline_apply is not None
+    assert baseline_apply.workspace_id == current_after_baseline_apply.workspace.id
+    assert _assignment_dates_from_current_state(current_after_baseline_apply) == [
+        "2026-04-01",
+    ]
+
+    baseline_save = _save_month(ctx, label="Baseline")
+    saved_baseline = version_repository.get_by_id(baseline_save.version_id)
+
+    assert saved_baseline is not None
+    assert baseline_save.workspace_id == current_after_baseline_apply.workspace.id
+    assert _assignment_dates_from_snapshot(saved_baseline.snapshot_json) == [
+        "2026-04-01",
+    ]
+
+    candidate_preview = _preview_month(
+        ctx,
+        _build_month_result(
+            ctx,
+            [
+                dt.date(2026, 4, 2),
+                dt.date(2026, 4, 3),
+            ],
+        ),
+    )
+    current_after_candidate_preview = workspace_repository.load_current(
+        tenant_id,
+        2026,
+        4,
+    )
+    reloaded_saved_baseline = version_repository.get_by_id(baseline_save.version_id)
+
+    assert _assignment_dates_from_result(candidate_preview.result) == [
+        "2026-04-02",
+        "2026-04-03",
+    ]
+    assert current_after_candidate_preview is not None
+    assert _assignment_dates_from_current_state(current_after_candidate_preview) == [
+        "2026-04-01",
+    ]
+    assert reloaded_saved_baseline is not None
+    assert _assignment_dates_from_snapshot(reloaded_saved_baseline.snapshot_json) == [
+        "2026-04-01",
+    ]
+    assert [version.version_number for version in version_repository.list_for_month(
+        tenant_id,
+        2026,
+        4,
+    )] == [1]
+
+    candidate_apply = _apply_month(ctx, candidate_preview.result)
+    current_after_candidate_apply = workspace_repository.load_current(
+        tenant_id,
+        2026,
+        4,
+    )
+    saved_baseline_after_candidate_apply = version_repository.get_by_id(
+        baseline_save.version_id
+    )
+
+    assert current_after_candidate_apply is not None
+    assert candidate_apply.workspace_id == baseline_apply.workspace_id
+    assert _assignment_dates_from_current_state(current_after_candidate_apply) == [
+        "2026-04-02",
+        "2026-04-03",
+    ]
+    assert saved_baseline_after_candidate_apply is not None
+    assert _assignment_dates_from_snapshot(
+        saved_baseline_after_candidate_apply.snapshot_json
+    ) == [
+        "2026-04-01",
+    ]
+
+    candidate_save = _save_month(ctx, note="Candidate promoted to current")
+    saved_versions = version_repository.list_for_month(tenant_id, 2026, 4)
+
+    assert candidate_save.version_number == 2
+    assert [version.version_number for version in saved_versions] == [1, 2]
+    assert _assignment_dates_from_snapshot(saved_versions[0].snapshot_json) == [
+        "2026-04-01",
+    ]
+    assert _assignment_dates_from_snapshot(saved_versions[1].snapshot_json) == [
+        "2026-04-02",
+        "2026-04-03",
+    ]
+
+
 def test_save_flow_requires_current_workspace_to_exist() -> None:
     ctx = _seed_month_context()
 
@@ -453,3 +564,20 @@ class _FixedEngine:
     def __call__(self, planning_input) -> MonthPlanningResult:
         del planning_input
         return self.result
+
+
+def _assignment_dates_from_result(result: MonthPlanningResult) -> list[str]:
+    return [assignment.date.isoformat() for assignment in result.assignments]
+
+
+def _assignment_dates_from_current_state(current_state) -> list[str]:
+    return [
+        assignment.assignment_date.isoformat()
+        for assignment in current_state.assignments
+    ]
+
+
+def _assignment_dates_from_snapshot(snapshot_json: dict[str, object]) -> list[str]:
+    assignments = snapshot_json["assignments"]
+    assert isinstance(assignments, list)
+    return [str(row["assignment_date"]) for row in assignments]
