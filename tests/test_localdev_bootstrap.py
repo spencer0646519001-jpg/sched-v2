@@ -5,6 +5,13 @@ from io import StringIO
 import pytest
 from django.core.management import call_command
 
+from app.monthly_workspace_demo_data import (
+    DEMO_MONTH_SCOPE,
+    DEMO_SHIFTS,
+    DEMO_STATIONS,
+    DEMO_TENANT_SLUG,
+    DEMO_WORKERS,
+)
 from app.infra.django_app.models import (
     ConstraintConfig as DjangoConstraintConfig,
     LeaveRequest as DjangoLeaveRequest,
@@ -44,21 +51,71 @@ def test_seed_monthly_workspace_demo_is_idempotent_and_reviewable() -> None:
     call_command("seed_monthly_workspace_demo", stdout=stdout)
     call_command("seed_monthly_workspace_demo", stdout=stdout)
 
-    assert DjangoTenant.objects.filter(slug="demo-restaurant").count() == 1
-    assert DjangoWorker.objects.filter(tenant__slug="demo-restaurant").count() == 3
-    assert DjangoStation.objects.filter(
-        tenant__slug="demo-restaurant",
-        code="GRILL",
-    ).count() == 1
-    assert DjangoShiftDefinition.objects.filter(
-        tenant__slug="demo-restaurant",
-        code="DAY",
-    ).count() == 1
+    assert DjangoTenant.objects.filter(slug=DEMO_TENANT_SLUG).count() == 1
+    seeded_workers = {
+        row["code"]: row
+        for row in DjangoWorker.objects.filter(tenant__slug=DEMO_TENANT_SLUG).values(
+            "code",
+            "name",
+            "role",
+            "is_active",
+        )
+    }
+    seeded_stations = {
+        row["code"]: row
+        for row in DjangoStation.objects.filter(tenant__slug=DEMO_TENANT_SLUG).values(
+            "code",
+            "name",
+            "is_active",
+        )
+    }
+    seeded_shifts = {
+        row["code"]: row
+        for row in DjangoShiftDefinition.objects.filter(
+            tenant__slug=DEMO_TENANT_SLUG
+        ).values(
+            "code",
+            "name",
+            "paid_hours",
+            "start_time",
+            "end_time",
+            "is_off_shift",
+        )
+    }
+
+    assert seeded_workers == {
+        worker.code: {
+            "code": worker.code,
+            "name": worker.name,
+            "role": worker.role,
+            "is_active": worker.is_active,
+        }
+        for worker in DEMO_WORKERS
+    }
+    assert seeded_stations == {
+        station.code: {
+            "code": station.code,
+            "name": station.name,
+            "is_active": station.is_active,
+        }
+        for station in DEMO_STATIONS
+    }
+    assert seeded_shifts == {
+        shift.code: {
+            "code": shift.code,
+            "name": shift.name,
+            "paid_hours": shift.paid_hours,
+            "start_time": shift.start_time,
+            "end_time": shift.end_time,
+            "is_off_shift": shift.is_off_shift,
+        }
+        for shift in DEMO_SHIFTS
+    }
     assert DjangoConstraintConfig.objects.filter(
-        tenant__slug="demo-restaurant",
+        tenant__slug=DEMO_TENANT_SLUG,
         scope_type="default",
     ).count() == 1
     assert (
         "http://127.0.0.1:8000/v2/monthly-workspace"
-        "?tenant_slug=demo-restaurant&month_scope=2026-04"
+        f"?tenant_slug={DEMO_TENANT_SLUG}&month_scope={DEMO_MONTH_SCOPE}"
     ) in stdout.getvalue()

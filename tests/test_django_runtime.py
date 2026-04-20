@@ -2,12 +2,19 @@ from __future__ import annotations
 
 import datetime as dt
 import json
-from decimal import Decimal
 
 import pytest
 from django.test import RequestFactory
 
 from app.api.django_runtime import build_django_monthly_schedule_urlpatterns
+from app.monthly_workspace_demo_data import (
+    DEMO_TENANT_NAME,
+    DEMO_TENANT_SLUG,
+    PRIMARY_DEMO_SHIFT,
+    PRIMARY_DEMO_STATION,
+    PRIMARY_DEMO_WORKER,
+    SECONDARY_DEMO_WORKER,
+)
 from app.infra.django_app.models import (
     ConstraintConfig as DjangoConstraintConfig,
     LeaveRequest as DjangoLeaveRequest,
@@ -80,18 +87,18 @@ def test_django_runtime_preview_apply_save_flow_uses_real_persistence() -> None:
     assert len(preview_payload["result"]["assignments"]) == 30
     assert preview_payload["result"]["assignments"][0] == {
         "date": "2026-04-01",
-        "worker_code": "W1",
-        "shift_code": "DAY",
+        "worker_code": PRIMARY_DEMO_WORKER.code,
+        "shift_code": PRIMARY_DEMO_SHIFT.code,
         "source": "monthly_planner",
-        "station_code": "GRILL",
+        "station_code": PRIMARY_DEMO_STATION.code,
         "note": None,
     }
     assert preview_payload["result"]["assignments"][-1] == {
         "date": "2026-04-30",
-        "worker_code": "W1",
-        "shift_code": "DAY",
+        "worker_code": PRIMARY_DEMO_WORKER.code,
+        "shift_code": PRIMARY_DEMO_SHIFT.code,
         "source": "monthly_planner",
-        "station_code": "GRILL",
+        "station_code": PRIMARY_DEMO_STATION.code,
         "note": None,
     }
     assert DjangoMonthlyWorkspace.objects.count() == 0
@@ -136,10 +143,18 @@ def test_django_runtime_preview_apply_save_flow_uses_real_persistence() -> None:
     assert assignments[0].assignment_date.isoformat() == "2026-04-01"
     assert assignments[-1].assignment_date.isoformat() == "2026-04-30"
     assert all(assignment.assignment_source == "apply" for assignment in assignments)
-    assert all(assignment.worker.code == "W1" for assignment in assignments)
-    assert all(assignment.shift_definition.code == "DAY" for assignment in assignments)
+    assert all(
+        assignment.worker.code == PRIMARY_DEMO_WORKER.code for assignment in assignments
+    )
+    assert all(
+        assignment.shift_definition.code == PRIMARY_DEMO_SHIFT.code
+        for assignment in assignments
+    )
     assert all(assignment.station is not None for assignment in assignments)
-    assert all(assignment.station.code == "GRILL" for assignment in assignments)
+    assert all(
+        assignment.station.code == PRIMARY_DEMO_STATION.code
+        for assignment in assignments
+    )
 
     save_payload = _post_json(
         views["save_month_schedule"],
@@ -205,7 +220,7 @@ def test_django_runtime_preview_returns_planner_warnings_without_persisting() ->
         "worker_code": None,
         "date": "2026-04-01",
         "details": {
-            "station_code": "GRILL",
+            "station_code": PRIMARY_DEMO_STATION.code,
             "required_staff": 1,
             "assigned_staff": 0,
             "missing_staff": 1,
@@ -223,7 +238,7 @@ def test_django_runtime_preview_returns_planner_warnings_without_persisting() ->
 
 def test_django_runtime_preview_respects_persisted_leave_requests() -> None:
     tenant = _seed_month_context()
-    worker = DjangoWorker.objects.get(tenant=tenant, code="W1")
+    worker = DjangoWorker.objects.get(tenant=tenant, code=PRIMARY_DEMO_WORKER.code)
     DjangoLeaveRequest.objects.create(
         tenant=tenant,
         worker=worker,
@@ -254,7 +269,7 @@ def test_django_runtime_preview_respects_persisted_leave_requests() -> None:
             "worker_code": None,
             "date": "2026-04-10",
             "details": {
-                "station_code": "GRILL",
+                "station_code": PRIMARY_DEMO_STATION.code,
                 "required_staff": 1,
                 "assigned_staff": 0,
                 "missing_staff": 1,
@@ -275,9 +290,9 @@ def test_django_runtime_preview_uses_monthly_constraint_override() -> None:
     tenant = _seed_month_context()
     DjangoWorker.objects.create(
         tenant=tenant,
-        code="W2",
-        name="Blair",
-        role="cook",
+        code=SECONDARY_DEMO_WORKER.code,
+        name=SECONDARY_DEMO_WORKER.name,
+        role=SECONDARY_DEMO_WORKER.role,
         is_active=True,
     )
     DjangoConstraintConfig.objects.create(
@@ -286,7 +301,7 @@ def test_django_runtime_preview_uses_monthly_constraint_override() -> None:
         year=2026,
         month=4,
         config_json={
-            "stations": {"GRILL": 2},
+            "stations": {PRIMARY_DEMO_STATION.code: 2},
             "min_staff_weekday": 2,
             "min_staff_weekend": 2,
             "max_staff_per_day": 2,
@@ -310,24 +325,28 @@ def test_django_runtime_preview_uses_monthly_constraint_override() -> None:
     assert preview_payload["result"]["summary"]["total_assignments"] == 60
     assert preview_payload["result"]["summary"]["total_warnings"] == 0
     assert preview_payload["result"]["summary"]["assignments_by_worker"] == {
-        "W1": 30,
-        "W2": 30,
+        PRIMARY_DEMO_WORKER.code: 30,
+        SECONDARY_DEMO_WORKER.code: 30,
     }
+    ordered_workers = sorted(
+        (PRIMARY_DEMO_WORKER, SECONDARY_DEMO_WORKER),
+        key=lambda worker: worker.code,
+    )
     assert preview_payload["result"]["assignments"][:2] == [
         {
             "date": "2026-04-01",
-            "worker_code": "W1",
-            "shift_code": "DAY",
+            "worker_code": ordered_workers[0].code,
+            "shift_code": PRIMARY_DEMO_SHIFT.code,
             "source": "monthly_planner",
-            "station_code": "GRILL",
+            "station_code": PRIMARY_DEMO_STATION.code,
             "note": None,
         },
         {
             "date": "2026-04-01",
-            "worker_code": "W2",
-            "shift_code": "DAY",
+            "worker_code": ordered_workers[1].code,
+            "shift_code": PRIMARY_DEMO_SHIFT.code,
             "source": "monthly_planner",
-            "station_code": "GRILL",
+            "station_code": PRIMARY_DEMO_STATION.code,
             "note": None,
         },
     ]
@@ -339,35 +358,37 @@ def test_django_runtime_preview_uses_monthly_constraint_override() -> None:
 
 def _seed_month_context(*, worker_is_active: bool = True) -> DjangoTenant:
     tenant = DjangoTenant.objects.create(
-        slug="tenant-a",
-        name="Tenant A",
+        slug=DEMO_TENANT_SLUG,
+        name=DEMO_TENANT_NAME,
         default_locale="en-US",
     )
     DjangoWorker.objects.create(
         tenant=tenant,
-        code="W1",
-        name="Alex",
-        role="cook",
+        code=PRIMARY_DEMO_WORKER.code,
+        name=PRIMARY_DEMO_WORKER.name,
+        role=PRIMARY_DEMO_WORKER.role,
         is_active=worker_is_active,
     )
     DjangoStation.objects.create(
         tenant=tenant,
-        code="GRILL",
-        name="Grill",
+        code=PRIMARY_DEMO_STATION.code,
+        name=PRIMARY_DEMO_STATION.name,
         is_active=True,
     )
     DjangoShiftDefinition.objects.create(
         tenant=tenant,
-        code="DAY",
-        name="Day",
-        paid_hours=Decimal("8.00"),
+        code=PRIMARY_DEMO_SHIFT.code,
+        name=PRIMARY_DEMO_SHIFT.name,
+        paid_hours=PRIMARY_DEMO_SHIFT.paid_hours,
+        start_time=PRIMARY_DEMO_SHIFT.start_time,
+        end_time=PRIMARY_DEMO_SHIFT.end_time,
         is_off_shift=False,
     )
     DjangoConstraintConfig.objects.create(
         tenant=tenant,
         scope_type="default",
         config_json={
-            "stations": {"GRILL": 1},
+            "stations": {PRIMARY_DEMO_STATION.code: 1},
             "min_staff_weekday": 1,
             "min_staff_weekend": 1,
             "max_staff_per_day": 1,

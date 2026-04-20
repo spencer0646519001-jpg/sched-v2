@@ -2,12 +2,18 @@ from __future__ import annotations
 
 import html
 import re
-from decimal import Decimal
 
 import pytest
 from django.test import RequestFactory
 
 from app.api.django_runtime import build_django_monthly_workspace_page_urlpatterns
+from app.monthly_workspace_demo_data import (
+    DEMO_TENANT_NAME,
+    DEMO_TENANT_SLUG,
+    PRIMARY_DEMO_SHIFT,
+    PRIMARY_DEMO_STATION,
+    PRIMARY_DEMO_WORKER,
+)
 from app.infra.django_app.models import (
     ConstraintConfig as DjangoConstraintConfig,
     LeaveRequest as DjangoLeaveRequest,
@@ -110,7 +116,10 @@ def test_workspace_page_supports_leave_preview_apply_and_save_flow() -> None:
                 "tenant_slug": tenant.slug,
                 "month_scope": "2026-04",
                 "worker_id": str(
-                    DjangoWorker.objects.get(tenant=tenant, code="W1").pk
+                    DjangoWorker.objects.get(
+                        tenant=tenant,
+                        code=PRIMARY_DEMO_WORKER.code,
+                    ).pk
                 ),
                 "leave_date": "2026-04-10",
             },
@@ -119,8 +128,8 @@ def test_workspace_page_supports_leave_preview_apply_and_save_flow() -> None:
     add_leave_html = add_leave_response.content.decode()
 
     assert add_leave_response.status_code == 200
-    assert "Added leave for Alex on 2026-04-10." in add_leave_html
-    assert "Alex (W1)" in add_leave_html
+    assert "Added leave for Spencer on 2026-04-10." in add_leave_html
+    assert "Spencer (SPENCER)" in add_leave_html
     assert DjangoLeaveRequest.objects.count() == 1
 
     preview_response = view(
@@ -185,35 +194,37 @@ def test_workspace_page_supports_leave_preview_apply_and_save_flow() -> None:
 
 def _seed_month_context() -> DjangoTenant:
     tenant = DjangoTenant.objects.create(
-        slug="tenant-a",
-        name="Tenant A",
+        slug=DEMO_TENANT_SLUG,
+        name=DEMO_TENANT_NAME,
         default_locale="en-US",
     )
     DjangoWorker.objects.create(
         tenant=tenant,
-        code="W1",
-        name="Alex",
-        role="cook",
+        code=PRIMARY_DEMO_WORKER.code,
+        name=PRIMARY_DEMO_WORKER.name,
+        role=PRIMARY_DEMO_WORKER.role,
         is_active=True,
     )
     DjangoStation.objects.create(
         tenant=tenant,
-        code="GRILL",
-        name="Grill",
+        code=PRIMARY_DEMO_STATION.code,
+        name=PRIMARY_DEMO_STATION.name,
         is_active=True,
     )
     DjangoShiftDefinition.objects.create(
         tenant=tenant,
-        code="DAY",
-        name="Day",
-        paid_hours=Decimal("8.00"),
+        code=PRIMARY_DEMO_SHIFT.code,
+        name=PRIMARY_DEMO_SHIFT.name,
+        paid_hours=PRIMARY_DEMO_SHIFT.paid_hours,
+        start_time=PRIMARY_DEMO_SHIFT.start_time,
+        end_time=PRIMARY_DEMO_SHIFT.end_time,
         is_off_shift=False,
     )
     DjangoConstraintConfig.objects.create(
         tenant=tenant,
         scope_type="default",
         config_json={
-            "stations": {"GRILL": 1},
+            "stations": {PRIMARY_DEMO_STATION.code: 1},
             "min_staff_weekday": 1,
             "min_staff_weekend": 1,
             "max_staff_per_day": 1,

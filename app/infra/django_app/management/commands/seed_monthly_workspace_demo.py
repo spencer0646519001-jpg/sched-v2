@@ -1,11 +1,19 @@
-"""Seed a small local dataset for manually reviewing the monthly workspace."""
+"""Seed the mirrored v1 demo world for the local monthly workspace."""
 
 from __future__ import annotations
 
-from decimal import Decimal
-
 from django.core.management.base import BaseCommand
 
+from app.monthly_workspace_demo_data import (
+    DEMO_CONSTRAINT_CONFIG,
+    DEMO_DEFAULT_LOCALE,
+    DEMO_MONTH_SCOPE,
+    DEMO_SHIFTS,
+    DEMO_STATIONS,
+    DEMO_TENANT_NAME,
+    DEMO_TENANT_SLUG,
+    DEMO_WORKERS,
+)
 from app.infra.django_app.models import (
     ConstraintConfig,
     ShiftDefinition,
@@ -16,79 +24,56 @@ from app.infra.django_app.models import (
 
 
 class Command(BaseCommand):
-    help = "Seed a tiny demo tenant and staffing data for the monthly workspace page."
+    help = "Seed the mirrored demo_kitchen staffing data for the monthly workspace page."
 
     def handle(self, *args: object, **options: object) -> None:
         tenant, _created = Tenant.objects.update_or_create(
-            slug="demo-restaurant",
+            slug=DEMO_TENANT_SLUG,
             defaults={
-                "name": "Demo Restaurant",
-                "default_locale": "en-US",
+                "name": DEMO_TENANT_NAME,
+                "default_locale": DEMO_DEFAULT_LOCALE,
             },
         )
 
-        worker_rows = (
-            {
-                "code": "W1",
-                "name": "Alex",
-                "role": "cook",
-                "is_active": True,
-            },
-            {
-                "code": "W2",
-                "name": "Blair",
-                "role": "cook",
-                "is_active": True,
-            },
-            {
-                "code": "CHEF1",
-                "name": "Casey",
-                "role": "chef",
-                "is_active": True,
-            },
-        )
-        for worker_row in worker_rows:
+        for worker_row in DEMO_WORKERS:
             Worker.objects.update_or_create(
                 tenant=tenant,
-                code=worker_row["code"],
+                code=worker_row.code,
                 defaults={
-                    "name": worker_row["name"],
-                    "role": worker_row["role"],
-                    "is_active": worker_row["is_active"],
+                    "name": worker_row.name,
+                    "role": worker_row.role,
+                    "is_active": worker_row.is_active,
                 },
             )
 
-        Station.objects.update_or_create(
-            tenant=tenant,
-            code="GRILL",
-            defaults={
-                "name": "Grill",
-                "is_active": True,
-            },
-        )
-        ShiftDefinition.objects.update_or_create(
-            tenant=tenant,
-            code="DAY",
-            defaults={
-                "name": "Day",
-                "paid_hours": Decimal("8.00"),
-                "is_off_shift": False,
-            },
-        )
+        for station_row in DEMO_STATIONS:
+            Station.objects.update_or_create(
+                tenant=tenant,
+                code=station_row.code,
+                defaults={
+                    "name": station_row.name,
+                    "is_active": station_row.is_active,
+                },
+            )
+        for shift_row in DEMO_SHIFTS:
+            ShiftDefinition.objects.update_or_create(
+                tenant=tenant,
+                code=shift_row.code,
+                defaults={
+                    "name": shift_row.name,
+                    "paid_hours": shift_row.paid_hours,
+                    "is_off_shift": shift_row.is_off_shift,
+                    "start_time": shift_row.start_time,
+                    "end_time": shift_row.end_time,
+                },
+            )
         ConstraintConfig.objects.update_or_create(
             tenant=tenant,
             scope_type="default",
             defaults={
                 "year": None,
                 "month": None,
-                "config_json": {
-                    "stations": {"GRILL": 1},
-                    "min_staff_weekday": 1,
-                    "min_staff_weekend": 1,
-                    "max_staff_per_day": 1,
-                    "min_rest_days_per_month": 0,
-                    "max_consecutive_days": 31,
-                },
+                "config_json": DEMO_CONSTRAINT_CONFIG,
             },
         )
 
@@ -96,6 +81,6 @@ class Command(BaseCommand):
             self.style.SUCCESS(
                 "Seeded demo monthly workspace data.\n"
                 "Open: http://127.0.0.1:8000/v2/monthly-workspace"
-                "?tenant_slug=demo-restaurant&month_scope=2026-04"
+                f"?tenant_slug={DEMO_TENANT_SLUG}&month_scope={DEMO_MONTH_SCOPE}"
             )
         )

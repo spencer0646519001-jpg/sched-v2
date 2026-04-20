@@ -3,7 +3,6 @@ from __future__ import annotations
 import datetime as dt
 from copy import deepcopy
 from dataclasses import dataclass
-from decimal import Decimal
 
 import pytest
 from django.db import IntegrityError, transaction
@@ -15,6 +14,13 @@ from app.engine.contracts import (
     MonthPlanningSummary,
 )
 from app.engine.monthly import generate_month_plan
+from app.monthly_workspace_demo_data import (
+    DEMO_TENANT_NAME,
+    DEMO_TENANT_SLUG,
+    PRIMARY_DEMO_SHIFT,
+    PRIMARY_DEMO_STATION,
+    PRIMARY_DEMO_WORKER,
+)
 from app.infra.django_app.models import (
     ConstraintConfig as DjangoConstraintConfig,
     LeaveRequest as DjangoLeaveRequest,
@@ -355,7 +361,7 @@ def test_save_flow_requires_current_workspace_to_exist() -> None:
 
     with pytest.raises(
         LookupError,
-        match=r"No current workspace found for 'tenant-a' 2026-04\.",
+        match=rf"No current workspace found for '{DEMO_TENANT_SLUG}' 2026-04\.",
     ):
         _save_month(ctx)
 
@@ -398,35 +404,37 @@ class _SeedContext:
 
 def _seed_month_context() -> _SeedContext:
     tenant = DjangoTenant.objects.create(
-        slug="tenant-a",
-        name="Tenant A",
+        slug=DEMO_TENANT_SLUG,
+        name=DEMO_TENANT_NAME,
         default_locale="en-US",
     )
     worker = DjangoWorker.objects.create(
         tenant=tenant,
-        code="W1",
-        name="Alex",
-        role="cook",
+        code=PRIMARY_DEMO_WORKER.code,
+        name=PRIMARY_DEMO_WORKER.name,
+        role=PRIMARY_DEMO_WORKER.role,
         is_active=True,
     )
     station = DjangoStation.objects.create(
         tenant=tenant,
-        code="GRILL",
-        name="Grill",
+        code=PRIMARY_DEMO_STATION.code,
+        name=PRIMARY_DEMO_STATION.name,
         is_active=True,
     )
     shift = DjangoShiftDefinition.objects.create(
         tenant=tenant,
-        code="DAY",
-        name="Day",
-        paid_hours=Decimal("8.00"),
+        code=PRIMARY_DEMO_SHIFT.code,
+        name=PRIMARY_DEMO_SHIFT.name,
+        paid_hours=PRIMARY_DEMO_SHIFT.paid_hours,
+        start_time=PRIMARY_DEMO_SHIFT.start_time,
+        end_time=PRIMARY_DEMO_SHIFT.end_time,
         is_off_shift=False,
     )
     DjangoConstraintConfig.objects.create(
         tenant=tenant,
         scope_type="default",
         config_json={
-            "stations": {"GRILL": 1},
+            "stations": {PRIMARY_DEMO_STATION.code: 1},
             "min_staff_weekday": 1,
             "min_staff_weekend": 1,
             "max_staff_per_day": 1,
