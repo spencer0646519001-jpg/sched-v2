@@ -6,6 +6,7 @@ import pytest
 from django.core.management import call_command
 
 from app.monthly_workspace_demo_data import (
+    DEMO_CONSTRAINT_CONFIG,
     DEMO_MONTH_SCOPE,
     DEMO_SHIFTS,
     DEMO_STATIONS,
@@ -22,6 +23,7 @@ from app.infra.django_app.models import (
     Station as DjangoStation,
     Tenant as DjangoTenant,
     Worker as DjangoWorker,
+    WorkerStationSkill as DjangoWorkerStationSkill,
 )
 
 
@@ -32,6 +34,7 @@ def _clear_scheduler_tables() -> None:
     DjangoMonthlyAssignment.objects.all().delete()
     DjangoMonthlyPlanVersion.objects.all().delete()
     DjangoMonthlyWorkspace.objects.all().delete()
+    DjangoWorkerStationSkill.objects.all().delete()
     DjangoShiftDefinition.objects.all().delete()
     DjangoStation.objects.all().delete()
     DjangoWorker.objects.all().delete()
@@ -82,6 +85,14 @@ def test_seed_monthly_workspace_demo_is_idempotent_and_reviewable() -> None:
             "is_off_shift",
         )
     }
+    seeded_station_skills = {worker.code: [] for worker in DEMO_WORKERS}
+    for worker_code, station_code in DjangoWorkerStationSkill.objects.filter(
+        tenant__slug=DEMO_TENANT_SLUG
+    ).order_by("worker_id", "station__code", "station_id", "id").values_list(
+        "worker__code",
+        "station__code",
+    ):
+        seeded_station_skills[worker_code].append(station_code)
 
     assert seeded_workers == {
         worker.code: {
@@ -111,10 +122,18 @@ def test_seed_monthly_workspace_demo_is_idempotent_and_reviewable() -> None:
         }
         for shift in DEMO_SHIFTS
     }
+    assert seeded_station_skills == {
+        worker.code: sorted(worker.station_skills)
+        for worker in DEMO_WORKERS
+    }
     assert DjangoConstraintConfig.objects.filter(
         tenant__slug=DEMO_TENANT_SLUG,
         scope_type="default",
     ).count() == 1
+    assert DjangoConstraintConfig.objects.get(
+        tenant__slug=DEMO_TENANT_SLUG,
+        scope_type="default",
+    ).config_json == DEMO_CONSTRAINT_CONFIG
     assert (
         "http://127.0.0.1:8000/v2/monthly-workspace"
         f"?tenant_slug={DEMO_TENANT_SLUG}&month_scope={DEMO_MONTH_SCOPE}"

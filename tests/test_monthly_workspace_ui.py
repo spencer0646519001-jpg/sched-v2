@@ -1,12 +1,20 @@
 from __future__ import annotations
 
+import datetime as dt
 import html
 import re
+from decimal import Decimal
 
 import pytest
 from django.test import RequestFactory
 
 from app.api.django_runtime import build_django_monthly_workspace_page_urlpatterns
+from app.engine.contracts import (
+    AssignmentOutput,
+    MonthPlanningMetadata,
+    MonthPlanningResult,
+    MonthPlanningSummary,
+)
 from app.monthly_workspace_demo_data import (
     DEMO_TENANT_NAME,
     DEMO_TENANT_SLUG,
@@ -192,6 +200,156 @@ def test_workspace_page_supports_leave_preview_apply_and_save_flow() -> None:
     assert DjangoMonthlyPlanVersion.objects.get().summary == "Reviewer baseline"
 
 
+def test_workspace_page_orders_people_leave_and_grid_rows_chef_first() -> None:
+    tenant = _seed_custom_month_context(
+        workers=[
+            ("Z_CHEF_1", "Chef Alpha", "chef"),
+            ("A_COOK", "Cook Alpha", "employee"),
+            ("Y_CHEF_2", "Chef Beta", "chef"),
+        ]
+    )
+    chef_beta = DjangoWorker.objects.get(tenant=tenant, code="Y_CHEF_2")
+    cook_alpha = DjangoWorker.objects.get(tenant=tenant, code="A_COOK")
+    view = {
+        pattern.name: pattern.callback
+        for pattern in build_django_monthly_workspace_page_urlpatterns(
+            preview_engine=_FixedPreviewEngine(
+                _build_preview_result(
+                    AssignmentOutput(
+                        date=dt.date(2026, 4, 1),
+                        worker_code="A_COOK",
+                        shift_code="DAY",
+                        station_code="GRILL",
+                        source="preview",
+                        note=None,
+                    )
+                )
+            )
+        )
+    }["monthly_schedule_workspace"]
+
+    DjangoLeaveRequest.objects.create(
+        tenant=tenant,
+        worker=cook_alpha,
+        leave_date=dt.date(2026, 4, 1),
+        reason="vacation",
+    )
+    DjangoLeaveRequest.objects.create(
+        tenant=tenant,
+        worker=chef_beta,
+        leave_date=dt.date(2026, 4, 2),
+        reason="vacation",
+    )
+
+    response = view(
+        RequestFactory().post(
+            "/v2/monthly-workspace",
+            data={
+                "form_action": "preview",
+                "tenant_slug": tenant.slug,
+                "month_scope": "2026-04",
+            },
+        )
+    )
+    html_text = response.content.decode()
+
+    assert response.status_code == 200
+    assert _extract_worker_option_labels(html_text) == [
+        "Select employee",
+        "Chef Alpha (Z_CHEF_1)",
+        "Chef Beta (Y_CHEF_2)",
+        "Cook Alpha (A_COOK)",
+    ]
+    assert "Chef Beta (Y_CHEF_2): 1" in html_text
+    assert "Cook Alpha (A_COOK): 1" in html_text
+    assert html_text.index("Chef Beta (Y_CHEF_2): 1") < html_text.index(
+        "Cook Alpha (A_COOK): 1"
+    )
+    assert html_text.index("<strong>Chef Beta (Y_CHEF_2)</strong>") < html_text.index(
+        "<strong>Cook Alpha (A_COOK)</strong>"
+    )
+    assert _extract_grid_worker_names(html_text) == [
+        "Chef Alpha",
+        "Chef Beta",
+        "Cook Alpha",
+    ]
+
+
+def test_workspace_page_renders_required_chef_as_attendance_and_persists_note_on_apply() -> None:
+    tenant = _seed_custom_month_context(
+        workers=[
+            ("CHEF_A", "Chef Anna", "chef"),
+            ("COOK_A", "Cook Ben", "employee"),
+        ]
+    )
+    view = {
+        pattern.name: pattern.callback
+        for pattern in build_django_monthly_workspace_page_urlpatterns(
+            preview_engine=_FixedPreviewEngine(
+                _build_preview_result(
+                    AssignmentOutput(
+                        date=dt.date(2026, 4, 1),
+                        worker_code="CHEF_A",
+                        shift_code="DAY",
+                        station_code=None,
+                        source="preview",
+                        note="required_chef",
+                    ),
+                    AssignmentOutput(
+                        date=dt.date(2026, 4, 1),
+                        worker_code="COOK_A",
+                        shift_code="DAY",
+                        station_code="GRILL",
+                        source="preview",
+                        note=None,
+                    ),
+                )
+            )
+        )
+    }["monthly_schedule_workspace"]
+
+    preview_response = view(
+        RequestFactory().post(
+            "/v2/monthly-workspace",
+            data={
+                "form_action": "preview",
+                "tenant_slug": tenant.slug,
+                "month_scope": "2026-04",
+            },
+        )
+    )
+    preview_html = preview_response.content.decode()
+    candidate_result_json = _extract_candidate_result_json(preview_html)
+
+    assert preview_response.status_code == 200
+    assert ">WORK<" in preview_html
+    assert ">chef attendance<" in preview_html
+    assert ">required_chef<" not in preview_html
+
+    apply_response = view(
+        RequestFactory().post(
+            "/v2/monthly-workspace",
+            data={
+                "form_action": "apply",
+                "tenant_slug": tenant.slug,
+                "month_scope": "2026-04",
+                "candidate_result_json": candidate_result_json,
+            },
+        )
+    )
+    apply_html = apply_response.content.decode()
+    chef_assignment = DjangoMonthlyAssignment.objects.get(
+        workspace__tenant=tenant,
+        worker__code="CHEF_A",
+    )
+
+    assert apply_response.status_code == 200
+    assert ">WORK<" in apply_html
+    assert ">chef attendance<" in apply_html
+    assert chef_assignment.note == "required_chef"
+    assert chef_assignment.station_id is None
+
+
 def _seed_month_context() -> DjangoTenant:
     tenant = DjangoTenant.objects.create(
         slug=DEMO_TENANT_SLUG,
@@ -233,6 +391,92 @@ def _seed_month_context() -> DjangoTenant:
         },
     )
     return tenant
+
+
+def _seed_custom_month_context(
+    *,
+    workers: list[tuple[str, str, str]],
+) -> DjangoTenant:
+    tenant = DjangoTenant.objects.create(
+        slug=DEMO_TENANT_SLUG,
+        name=DEMO_TENANT_NAME,
+        default_locale="en-US",
+    )
+    for code, name, role in workers:
+        DjangoWorker.objects.create(
+            tenant=tenant,
+            code=code,
+            name=name,
+            role=role,
+            is_active=True,
+        )
+    DjangoStation.objects.create(
+        tenant=tenant,
+        code="GRILL",
+        name="Grill",
+        is_active=True,
+    )
+    DjangoShiftDefinition.objects.create(
+        tenant=tenant,
+        code="DAY",
+        name="Day",
+        paid_hours=Decimal("8.00"),
+        start_time=None,
+        end_time=None,
+        is_off_shift=False,
+    )
+    DjangoConstraintConfig.objects.create(
+        tenant=tenant,
+        scope_type="default",
+        config_json={
+            "stations": {"GRILL": 1},
+            "min_staff_weekday": 1,
+            "min_staff_weekend": 1,
+            "max_staff_per_day": 1,
+            "min_rest_days_per_month": 0,
+            "max_consecutive_days": 31,
+        },
+    )
+    return tenant
+
+
+class _FixedPreviewEngine:
+    def __init__(self, result: MonthPlanningResult) -> None:
+        self.result = result
+
+    def __call__(self, planning_input) -> MonthPlanningResult:
+        del planning_input
+        return self.result
+
+
+def _build_preview_result(*assignments: AssignmentOutput) -> MonthPlanningResult:
+    return MonthPlanningResult(
+        assignments=list(assignments),
+        warnings=[],
+        summary=MonthPlanningSummary(
+            total_assignments=len(assignments),
+            total_warnings=0,
+            assignments_by_worker={},
+            paid_hours_by_worker={},
+            warnings_by_type={},
+        ),
+        metadata=MonthPlanningMetadata(
+            generated_at=dt.datetime(2026, 4, 12, tzinfo=dt.timezone.utc),
+            source_type="preview",
+            refinement_applied=False,
+            notes=["ui-test"],
+        ),
+    )
+
+
+def _extract_worker_option_labels(html_text: str) -> list[str]:
+    match = re.search(r'<select name="worker_id">(.*?)</select>', html_text, re.S)
+    assert match is not None
+    return re.findall(r"<option[^>]*>([^<]+)</option>", match.group(1))
+
+
+def _extract_grid_worker_names(html_text: str) -> list[str]:
+    return re.findall(r'<span class="worker-name">([^<]+)</span>', html_text)
 
 
 def _extract_candidate_result_json(html_text: str) -> str:

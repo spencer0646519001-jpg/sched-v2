@@ -17,6 +17,7 @@ from app.infra.django_app.models import (
     Station as DjangoStation,
     Tenant as DjangoTenant,
     Worker as DjangoWorker,
+    WorkerStationSkill as DjangoWorkerStationSkill,
 )
 from app.infra.django_repositories import (
     DjangoConstraintConfigRepository,
@@ -37,6 +38,7 @@ def _clear_scheduler_tables() -> None:
     DjangoMonthlyAssignment.objects.all().delete()
     DjangoMonthlyPlanVersion.objects.all().delete()
     DjangoMonthlyWorkspace.objects.all().delete()
+    DjangoWorkerStationSkill.objects.all().delete()
     DjangoShiftDefinition.objects.all().delete()
     DjangoStation.objects.all().delete()
     DjangoWorker.objects.all().delete()
@@ -54,7 +56,7 @@ def test_master_data_repositories_return_framework_neutral_dataclasses() -> None
         name="Tenant B",
         default_locale="en-US",
     )
-    DjangoWorker.objects.create(
+    worker = DjangoWorker.objects.create(
         tenant=tenant,
         code="W1",
         name="Alex",
@@ -68,7 +70,7 @@ def test_master_data_repositories_return_framework_neutral_dataclasses() -> None
         role="cashier",
         is_active=True,
     )
-    DjangoStation.objects.create(
+    station = DjangoStation.objects.create(
         tenant=tenant,
         code="GRILL",
         name="Grill",
@@ -80,6 +82,11 @@ def test_master_data_repositories_return_framework_neutral_dataclasses() -> None
         name="Day",
         paid_hours=Decimal("8.00"),
         is_off_shift=False,
+    )
+    persisted_skill = DjangoWorkerStationSkill.objects.create(
+        tenant=tenant,
+        worker=worker,
+        station=station,
     )
 
     tenant_repo = DjangoTenantRepository()
@@ -99,10 +106,19 @@ def test_master_data_repositories_return_framework_neutral_dataclasses() -> None
     assert by_id is not None
     assert by_id.id == str(tenant.id)
     assert by_id.name == "Tenant A"
-    assert worker_repo.list_station_skills(str(tenant.id)) == []
+    assert worker_repo.list_station_skills(str(tenant.id)) == [
+        infra_models.WorkerStationSkill(
+            id=str(persisted_skill.id),
+            tenant_id=str(tenant.id),
+            worker_id=str(worker.id),
+            station_id=str(station.id),
+            created_at=persisted_skill.created_at,
+            updated_at=persisted_skill.updated_at,
+        )
+    ]
     assert workers == [
         infra_models.Worker(
-            id=str(DjangoWorker.objects.get(tenant=tenant, code="W1").id),
+            id=str(worker.id),
             tenant_id=str(tenant.id),
             name="Alex",
             role="cook",
@@ -112,7 +128,7 @@ def test_master_data_repositories_return_framework_neutral_dataclasses() -> None
     ]
     assert stations == [
         infra_models.Station(
-            id=str(DjangoStation.objects.get(tenant=tenant, code="GRILL").id),
+            id=str(station.id),
             tenant_id=str(tenant.id),
             name="Grill",
             code="GRILL",
@@ -435,6 +451,7 @@ def test_workspace_repository_replaces_assignments_and_loads_current_state() -> 
                 assignment_date=dt.date(2026, 4, 3),
                 shift_definition_id=str(shift.id),
                 station_id=None,
+                note="required_chef",
             ),
         ],
     )
@@ -466,6 +483,11 @@ def test_workspace_repository_replaces_assignments_and_loads_current_state() -> 
             flat=True,
         )
     ) == ["apply", "apply"]
+    assert list(
+        DjangoMonthlyAssignment.objects.filter(workspace=workspace)
+        .order_by("assignment_date", "worker_id", "id")
+        .values_list("note", flat=True)
+    ) == [None, "required_chef"]
     assert current.assignments == replacement
 
 

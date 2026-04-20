@@ -257,6 +257,7 @@ def _translate_engine_assignments_to_persistence_rows(
                 assignment_date=assignment.date,
                 shift_definition_id=shift_definition_id,
                 station_id=station_id,
+                note=assignment.note,
             )
         )
 

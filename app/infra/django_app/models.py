@@ -85,6 +85,36 @@ class ShiftDefinition(models.Model):
         ]
 
 
+class WorkerStationSkill(models.Model):
+    """Tenant-scoped worker-to-station capability row used by preview."""
+
+    tenant = models.ForeignKey(
+        Tenant,
+        on_delete=models.CASCADE,
+        related_name="worker_station_skills",
+    )
+    worker = models.ForeignKey(
+        Worker,
+        on_delete=models.CASCADE,
+        related_name="station_skills",
+    )
+    station = models.ForeignKey(
+        Station,
+        on_delete=models.CASCADE,
+        related_name="worker_skills",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=("tenant", "worker", "station"),
+                name="sched_worker_station_skill_tenant_worker_station_uniq",
+            ),
+        ]
+
+
 class LeaveRequest(models.Model):
     """Approved single-day worker leave used as month-planning input."""
 

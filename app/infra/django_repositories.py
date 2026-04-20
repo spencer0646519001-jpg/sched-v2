@@ -23,6 +23,7 @@ from app.infra.django_app.models import (
     Station as DjangoStation,
     Tenant as DjangoTenant,
     Worker as DjangoWorker,
+    WorkerStationSkill as DjangoWorkerStationSkill,
 )
 from app.infra.models import (
     ConstraintConfig,
@@ -46,6 +47,9 @@ _SUPPORTED_CONSTRAINT_CONFIG_KEYS = (
     "max_staff_per_day",
     "min_rest_days_per_month",
     "max_consecutive_days",
+    "require_one_chef",
+    "count_chefs_in_headcount",
+    "chefs_have_no_shift",
 )
 
 
@@ -168,6 +172,20 @@ def _assignment_from_model(model: DjangoMonthlyAssignment) -> MonthlyAssignment:
             if model.station_id is not None
             else None
         ),
+        note=model.note,
+        created_at=model.created_at,
+        updated_at=model.updated_at,
+    )
+
+
+def _worker_station_skill_from_model(
+    model: DjangoWorkerStationSkill,
+) -> WorkerStationSkill:
+    return WorkerStationSkill(
+        id=_serialize_record_id(model.pk),
+        tenant_id=_serialize_record_id(model.tenant_id),
+        worker_id=_serialize_record_id(model.worker_id),
+        station_id=_serialize_record_id(model.station_id),
         created_at=model.created_at,
         updated_at=model.updated_at,
     )
@@ -241,8 +259,14 @@ class DjangoWorkerRepository:
         return [_worker_from_model(worker) for worker in workers]
 
     def list_station_skills(self, tenant_id: RecordId) -> list[WorkerStationSkill]:
-        del tenant_id
-        return []
+        skills = (
+            DjangoWorkerStationSkill.objects.filter(
+                tenant_id=_parse_record_id(tenant_id, label="tenant_id")
+            )
+            .select_related("worker", "station")
+            .order_by("worker_id", "station__code", "station_id", "id")
+        )
+        return [_worker_station_skill_from_model(skill) for skill in skills]
 
 
 class DjangoStationRepository:
@@ -404,7 +428,7 @@ class DjangoWorkspaceRepository:
                         else None
                     ),
                     assignment_source="apply",
-                    note=None,
+                    note=assignment.note,
                 )
             )
 

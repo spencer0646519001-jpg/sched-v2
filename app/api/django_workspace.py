@@ -53,6 +53,8 @@ _TEMPLATE_ENGINE = Engine(
     autoescape=True,
 )
 
+_REQUIRED_CHEF_NOTE = "required_chef"
+
 
 @dataclass(slots=True)
 class MonthlyWorkspacePageDependencies:
@@ -512,7 +514,9 @@ def _build_workspace_context(
         }
 
     tenant_id = str(selected_tenant.pk)
-    workers = dependencies.worker_repository.list_for_tenant(tenant_id)
+    workers = _order_workers_for_workspace(
+        dependencies.worker_repository.list_for_tenant(tenant_id)
+    )
     stations = dependencies.station_repository.list_for_tenant(tenant_id)
     shifts = dependencies.shift_repository.list_for_tenant(tenant_id)
     current_state = dependencies.workspace_repository.load_current(
@@ -529,6 +533,7 @@ def _build_workspace_context(
         tenant=selected_tenant,
         year=scope["year"],
         month=scope["month"],
+        workers=workers,
     )
     leave_summary = _build_leave_summary(leave_rows)
     worker_options = _build_worker_options(workers, selected_worker_id)
@@ -619,7 +624,9 @@ def _load_leave_rows(
     tenant: DjangoTenant,
     year: int,
     month: int,
+    workers: list[Worker],
 ) -> list[dict[str, str]]:
+    worker_order = _worker_order_lookup(workers)
     rows: list[dict[str, str]] = []
     leave_requests = (
         DjangoLeaveRequest.objects.filter(
@@ -628,11 +635,20 @@ def _load_leave_rows(
             leave_date__month=month,
         )
         .select_related("worker")
-        .order_by("leave_date", "worker__code", "worker_id", "id")
+        .order_by("id")
     )
-    for row in leave_requests:
+    sorted_leave_requests = sorted(
+        leave_requests,
+        key=lambda row: (
+            worker_order.get(str(row.worker_id), len(worker_order)),
+            row.leave_date,
+            row.id,
+        ),
+    )
+    for row in sorted_leave_requests:
         rows.append(
             {
+                "worker_id": str(row.worker_id),
                 "worker_name": row.worker.name,
                 "worker_code": row.worker.code,
                 "date": row.leave_date.isoformat(),
@@ -642,13 +658,16 @@ def _load_leave_rows(
 
 
 def _build_leave_summary(leave_rows: list[dict[str, str]]) -> list[dict[str, str]]:
-    counts = Counter(
-        f"{row['worker_name']} ({row['worker_code']})" for row in leave_rows
-    )
-    return [
-        {"label": label, "count": str(count)}
-        for label, count in sorted(counts.items(), key=lambda item: item[0])
-    ]
+    counts: Counter[str] = Counter()
+    ordered_labels: list[str] = []
+    seen_labels: set[str] = set()
+    for row in leave_rows:
+        label = f"{row['worker_name']} ({row['worker_code']})"
+        counts[label] += 1
+        if label not in seen_labels:
+            ordered_labels.append(label)
+            seen_labels.add(label)
+    return [{"label": label, "count": str(counts[label])} for label in ordered_labels]
 
 
 def _build_state_cards(
@@ -828,7 +847,7 @@ def _build_current_workspace_surface(
                     if assignment.station_id is not None
                     else None
                 ),
-                "note": None,
+                "note": assignment.note,
             }
         )
 
@@ -882,7 +901,10 @@ def _build_grid_rows(
         day = assignment["date"].day
         worker_day_map = assignments_by_worker_day.setdefault(worker_code, {})
         cell = worker_day_map.get(day)
-        main_value = str(assignment["shift_code"])
+        main_value = _build_cell_main_value(
+            assignment.get("shift_code"),
+            assignment.get("note"),
+        )
         subvalue = _build_cell_subvalue(
             assignment.get("station_code"),
             assignment.get("note"),
@@ -951,12 +973,53 @@ def _build_cell_subvalue(
     station_code: object | None,
     note: object | None,
 ) -> str:
+    note_text = str(note) if note else ""
+    if note_text == _REQUIRED_CHEF_NOTE:
+        return "chef attendance"
+
     parts: list[str] = []
     if station_code:
         parts.append(str(station_code))
-    if note:
-        parts.append(str(note))
+    if note_text:
+        parts.append(note_text)
     return " / ".join(parts)
+
+
+def _build_cell_main_value(
+    shift_code: object | None,
+    note: object | None,
+) -> str:
+    if note == _REQUIRED_CHEF_NOTE:
+        return "WORK"
+    return str(shift_code)
+
+
+def _order_workers_for_workspace(workers: list[Worker]) -> list[Worker]:
+    return sorted(
+        workers,
+        key=lambda worker: (
+            0 if _is_chef_role(worker.role) else 1,
+            _record_sort_key(worker.id),
+        ),
+    )
+
+
+def _worker_order_lookup(workers: list[Worker]) -> dict[str, int]:
+    return {
+        worker_id: index
+        for index, worker in enumerate(workers)
+        if (worker_id := worker.id) is not None
+    }
+
+
+def _record_sort_key(record_id: str | None) -> tuple[int, int | str]:
+    if record_id and record_id.isdigit():
+        return (0, int(record_id))
+    return (1, record_id or "")
+
+
+def _is_chef_role(role: str) -> bool:
+    return role.strip().casefold() == "chef"
 
 
 def _build_day_headers(year: int, month: int) -> list[int]:

@@ -3,6 +3,7 @@ from __future__ import annotations
 import datetime as dt
 from copy import deepcopy
 from dataclasses import dataclass
+from decimal import Decimal
 
 import pytest
 from django.db import IntegrityError, transaction
@@ -31,6 +32,7 @@ from app.infra.django_app.models import (
     Station as DjangoStation,
     Tenant as DjangoTenant,
     Worker as DjangoWorker,
+    WorkerStationSkill as DjangoWorkerStationSkill,
 )
 from app.infra.django_repositories import (
     DjangoConstraintConfigRepository,
@@ -54,6 +56,7 @@ def _clear_scheduler_tables() -> None:
     DjangoMonthlyAssignment.objects.all().delete()
     DjangoMonthlyPlanVersion.objects.all().delete()
     DjangoMonthlyWorkspace.objects.all().delete()
+    DjangoWorkerStationSkill.objects.all().delete()
     DjangoShiftDefinition.objects.all().delete()
     DjangoStation.objects.all().delete()
     DjangoWorker.objects.all().delete()
@@ -99,6 +102,102 @@ def test_preview_flow_with_real_engine_respects_persisted_leave() -> None:
     assert DjangoMonthlyAssignment.objects.count() == 0
 
 
+def test_preview_flow_with_real_engine_uses_persisted_worker_station_skills() -> None:
+    tenant = DjangoTenant.objects.create(
+        slug=DEMO_TENANT_SLUG,
+        name=DEMO_TENANT_NAME,
+        default_locale="en-US",
+    )
+    worker_one = DjangoWorker.objects.create(
+        tenant=tenant,
+        code="W1",
+        name="Alex",
+        role="employee",
+        is_active=True,
+    )
+    worker_two = DjangoWorker.objects.create(
+        tenant=tenant,
+        code="W2",
+        name="Casey",
+        role="employee",
+        is_active=True,
+    )
+    gateau = DjangoStation.objects.create(
+        tenant=tenant,
+        code="GATEAU",
+        name="Gateau",
+        is_active=True,
+    )
+    petit_four = DjangoStation.objects.create(
+        tenant=tenant,
+        code="PETIT_FOUR",
+        name="Petit Four",
+        is_active=True,
+    )
+    DjangoShiftDefinition.objects.create(
+        tenant=tenant,
+        code="DAY",
+        name="Day",
+        paid_hours=Decimal("8.00"),
+        is_off_shift=False,
+    )
+    DjangoWorkerStationSkill.objects.create(
+        tenant=tenant,
+        worker=worker_one,
+        station=gateau,
+    )
+    DjangoWorkerStationSkill.objects.create(
+        tenant=tenant,
+        worker=worker_two,
+        station=petit_four,
+    )
+    DjangoConstraintConfig.objects.create(
+        tenant=tenant,
+        scope_type="default",
+        config_json={
+            "stations": {
+                "GATEAU": 1,
+                "PETIT_FOUR": 1,
+            },
+            "min_staff_weekday": 2,
+            "min_staff_weekend": 2,
+            "max_staff_per_day": 2,
+            "min_rest_days_per_month": 0,
+            "max_consecutive_days": 31,
+        },
+    )
+
+    response = PreviewMonthScheduleService(
+        tenant_repository=DjangoTenantRepository(),
+        worker_repository=DjangoWorkerRepository(),
+        station_repository=DjangoStationRepository(),
+        shift_repository=DjangoShiftRepository(),
+        leave_request_repository=DjangoLeaveRequestRepository(),
+        constraint_config_repository=DjangoConstraintConfigRepository(),
+        engine_runner=generate_month_plan,
+    ).preview_month_schedule(
+        PreviewMonthScheduleRequest(
+            tenant_slug=tenant.slug,
+            year=2026,
+            month=4,
+        )
+    )
+
+    first_day_assignments = sorted(
+        (
+            assignment.station_code,
+            assignment.worker_code,
+        )
+        for assignment in response.candidate_result.assignments
+        if assignment.date == dt.date(2026, 4, 1)
+    )
+
+    assert first_day_assignments == [
+        ("GATEAU", "W1"),
+        ("PETIT_FOUR", "W2"),
+    ]
+
+
 def test_apply_flow_creates_current_workspace_from_preview_result() -> None:
     ctx = _seed_month_context()
     preview_response = _preview_month(
@@ -138,6 +237,10 @@ def test_apply_flow_creates_current_workspace_from_preview_result() -> None:
     assert all(row.worker_id == ctx.worker.id for row in assignments)
     assert all(row.shift_definition_id == ctx.shift.id for row in assignments)
     assert all(row.station_id == ctx.station.id for row in assignments)
+    assert [row.note for row in assignments] == [
+        "Integration assignment 1",
+        "Integration assignment 2",
+    ]
 
 
 def test_apply_flow_replaces_assignments_instead_of_appending() -> None:
@@ -232,11 +335,18 @@ def test_save_flow_creates_immutable_version_snapshots() -> None:
     ] == [
         "2026-04-01",
     ]
+    assert [row["note"] for row in first_version.snapshot_json["assignments"]] == [
+        "Integration assignment 1",
+    ]
     assert [
         row["assignment_date"] for row in versions[1].snapshot_json["assignments"]
     ] == [
         "2026-04-02",
         "2026-04-03",
+    ]
+    assert [row["note"] for row in versions[1].snapshot_json["assignments"]] == [
+        "Integration assignment 1",
+        "Integration assignment 2",
     ]
 
 

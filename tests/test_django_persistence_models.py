@@ -16,6 +16,7 @@ from app.infra.django_app.models import (
     Station,
     Tenant,
     Worker,
+    WorkerStationSkill,
 )
 
 
@@ -26,6 +27,7 @@ def _clear_scheduler_tables() -> None:
     MonthlyAssignment.objects.all().delete()
     MonthlyPlanVersion.objects.all().delete()
     MonthlyWorkspace.objects.all().delete()
+    WorkerStationSkill.objects.all().delete()
     ShiftDefinition.objects.all().delete()
     Station.objects.all().delete()
     Worker.objects.all().delete()
@@ -40,6 +42,7 @@ def test_initial_migration_creates_expected_tables() -> None:
         "scheduler_infra_worker",
         "scheduler_infra_station",
         "scheduler_infra_shiftdefinition",
+        "scheduler_infra_workerstationskill",
         "scheduler_infra_leaverequest",
         "scheduler_infra_constraintconfig",
         "scheduler_infra_monthlyworkspace",
@@ -66,6 +69,11 @@ def test_monthly_persistence_models_support_apply_and_save_shape() -> None:
         code="GRILL",
         name="Grill",
         is_active=True,
+    )
+    station_skill = WorkerStationSkill.objects.create(
+        tenant=tenant,
+        worker=worker,
+        station=station,
     )
     shift = ShiftDefinition.objects.create(
         tenant=tenant,
@@ -126,6 +134,9 @@ def test_monthly_persistence_models_support_apply_and_save_shape() -> None:
 
     assert tenant.leave_requests.get().id == leave_request.id
     assert tenant.constraint_configs.get().id == constraint_config.id
+    assert tenant.worker_station_skills.get().id == station_skill.id
+    assert worker.station_skills.get().id == station_skill.id
+    assert station.worker_skills.get().id == station_skill.id
     assert workspace.source_version_id == plan_version.id
     assert workspace.assignments.get().id == assignment.id
     assert workspace.plan_versions.get().id == plan_version.id
@@ -199,6 +210,11 @@ def test_unique_constraints_are_enforced_for_core_slice() -> None:
     worker = Worker.objects.get(tenant=tenant, code="W1")
     station = Station.objects.get(tenant=tenant, code="GRILL")
     shift = ShiftDefinition.objects.get(tenant=tenant, code="DAY")
+    WorkerStationSkill.objects.create(
+        tenant=tenant,
+        worker=worker,
+        station=station,
+    )
     LeaveRequest.objects.create(
         tenant=tenant,
         worker=worker,
@@ -249,6 +265,13 @@ def test_unique_constraints_are_enforced_for_core_slice() -> None:
             code="GRILL",
             name="Duplicate Station",
             is_active=True,
+        )
+    )
+    _assert_integrity_error(
+        lambda: WorkerStationSkill.objects.create(
+            tenant=tenant,
+            worker=worker,
+            station=station,
         )
     )
     _assert_integrity_error(

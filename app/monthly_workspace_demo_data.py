@@ -10,8 +10,8 @@ Small v2-only transformations are kept explicit here:
 - station codes follow the normalized persisted v1 demo bootstrap shape
 - shift names mirror the v1 shift code because v1 defines codes, not labels
 
-Deeper alignment such as worker-skill persistence and richer rule pass-through
-lands in a follow-up PR.
+Deeper alignment such as richer shift preferences and broader rule pass-through
+still lands in follow-up PRs.
 """
 
 from __future__ import annotations
@@ -32,6 +32,7 @@ class DemoWorkerRow:
     code: str
     name: str
     role: str
+    station_skills: tuple[str, ...] = ()
     is_active: bool = True
 
 
@@ -57,19 +58,31 @@ def _derive_worker_code(name: str) -> str:
     return normalized.upper()
 
 
+def _normalize_station_skill_codes(*raw_codes: str) -> tuple[str, ...]:
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for raw_code in raw_codes:
+        code = raw_code.strip().lower()
+        if not code or code in seen:
+            continue
+        normalized.append(code)
+        seen.add(code)
+    return tuple(normalized)
+
+
 _WORKER_SOURCE_ROWS = (
-    ("Takahashi_chef", "chef"),
-    ("Funatsu", "chef"),
-    ("Spencer", "employee"),
-    ("Chung", "employee"),
-    ("Ishikawa", "employee"),
-    ("Mochizuki", "employee"),
-    ("Takai", "employee"),
-    ("Tarutani", "employee"),
-    ("Komura", "employee"),
-    ("Kim", "employee"),
-    ("Sera", "employee"),
-    ("Miyazawa", "employee"),
+    ("Takahashi_chef", "chef", ()),
+    ("Funatsu", "chef", ()),
+    ("Spencer", "employee", ("mise_en_place",)),
+    ("Chung", "employee", ("mise_en_place", "glaze_and_fruit")),
+    ("Ishikawa", "employee", ("glaze_and_fruit", "mise_en_place", "GATEAU")),
+    ("Mochizuki", "employee", ("mise_en_place", "glaze_and_fruit", "GATEAU")),
+    ("Takai", "employee", ("mise_en_place", "glaze_and_fruit", "GATEAU")),
+    ("Tarutani", "employee", ("mise_en_place", "GATEAU")),
+    ("Komura", "employee", ("mise_en_place", "petit_four")),
+    ("Kim", "employee", ("mise_en_place", "petit_four", "GATEAU")),
+    ("Sera", "employee", ("mise_en_place", "petit_four")),
+    ("Miyazawa", "employee", ("mise_en_place", "petit_four")),
 )
 
 DEMO_WORKERS = tuple(
@@ -77,8 +90,9 @@ DEMO_WORKERS = tuple(
         code=_derive_worker_code(name),
         name=name,
         role=role,
+        station_skills=_normalize_station_skill_codes(*station_skills),
     )
-    for name, role in _WORKER_SOURCE_ROWS
+    for name, role, station_skills in _WORKER_SOURCE_ROWS
 )
 
 DEMO_STATIONS = (
@@ -159,10 +173,12 @@ DEMO_CONSTRAINT_CONFIG = {
     "max_staff_per_day": 9,
     "min_rest_days_per_month": 9,
     "max_consecutive_days": 4,
+    "require_one_chef": True,
+    "count_chefs_in_headcount": True,
+    "chefs_have_no_shift": True,
 }
 
 PRIMARY_DEMO_WORKER = next(worker for worker in DEMO_WORKERS if worker.name == "Spencer")
 SECONDARY_DEMO_WORKER = next(worker for worker in DEMO_WORKERS if worker.name == "Chung")
 PRIMARY_DEMO_STATION = DEMO_STATIONS[0]
 PRIMARY_DEMO_SHIFT = DEMO_SHIFTS[0]
-

@@ -229,6 +229,11 @@ def _build_baseline_assignments(
     chef_workers = [
         worker for worker in active_workers if _is_chef_worker(worker)
     ]
+    assignable_station_workers = (
+        [worker for worker in active_workers if not _is_chef_worker(worker)]
+        if settings.chefs_have_no_shift
+        else active_workers
+    )
     morning_shift_codes = set(settings.morning_shift_codes)
 
     assignment_counts = {
@@ -345,7 +350,7 @@ def _build_baseline_assignments(
             )
             worker = _select_worker(
                 assignment_date,
-                candidate_workers=active_workers,
+                candidate_workers=assignable_station_workers,
                 assigned_today=assigned_today,
                 assignment_counts=assignment_counts,
                 assigned_dates_by_worker=assigned_dates_by_worker,

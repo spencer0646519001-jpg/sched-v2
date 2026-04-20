@@ -20,6 +20,7 @@ from app.infra.django_app.models import (
     Station,
     Tenant,
     Worker,
+    WorkerStationSkill,
 )
 
 
@@ -67,6 +68,32 @@ class Command(BaseCommand):
                     "end_time": shift_row.end_time,
                 },
             )
+
+        workers_by_code = {
+            worker.code: worker
+            for worker in Worker.objects.filter(tenant=tenant)
+        }
+        stations_by_code = {
+            station.code: station
+            for station in Station.objects.filter(tenant=tenant)
+        }
+        desired_skill_pairs: set[tuple[int, int]] = set()
+        for worker_row in DEMO_WORKERS:
+            worker = workers_by_code[worker_row.code]
+            for station_code in worker_row.station_skills:
+                station = stations_by_code[station_code]
+                desired_skill_pairs.add((worker.id, station.id))
+                WorkerStationSkill.objects.get_or_create(
+                    tenant=tenant,
+                    worker=worker,
+                    station=station,
+                )
+
+        for persisted_skill in WorkerStationSkill.objects.filter(tenant=tenant):
+            pair = (persisted_skill.worker_id, persisted_skill.station_id)
+            if pair not in desired_skill_pairs:
+                persisted_skill.delete()
+
         ConstraintConfig.objects.update_or_create(
             tenant=tenant,
             scope_type="default",

@@ -198,6 +198,7 @@ def _serialize_assignment(assignment: MonthlyAssignment) -> JsonObject:
         "assignment_date": assignment.assignment_date.isoformat(),
         "shift_definition_id": assignment.shift_definition_id,
         "station_id": assignment.station_id,
+        "note": assignment.note,
     }
 
 

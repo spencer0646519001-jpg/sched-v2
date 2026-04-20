@@ -135,6 +135,7 @@ class MonthlyAssignment:
     assignment_date: date
     shift_definition_id: RecordId
     station_id: RecordId | None = None
+    note: str | None = None
     id: RecordId | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None

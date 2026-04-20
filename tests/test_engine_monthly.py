@@ -315,6 +315,59 @@ def test_generate_month_plan_warns_when_required_chef_is_impossible() -> None:
     assert chef_warnings[0].details == {"required_role": "chef"}
 
 
+def test_generate_month_plan_keeps_extra_chefs_out_of_normal_station_slots() -> None:
+    result = generate_month_plan(
+        _build_planning_input(
+            workers=[
+                _worker("CHEF1", name="Morgan", role="chef"),
+                _worker("CHEF2", name="Taylor", role="chef"),
+                _worker("COOK1", name="Alex", station_skills=["GRILL"]),
+            ],
+            stations=[_station("GRILL", name="Grill")],
+            shifts=[_shift("DAY", name="Day", paid_hours="8")],
+            constraint_config={
+                "min_staff_weekday": 2,
+                "min_staff_weekend": 2,
+                "max_staff_per_day": 2,
+                "require_one_chef": True,
+                "count_chefs_in_headcount": True,
+                "chefs_have_no_shift": True,
+            },
+        )
+    )
+
+    first_day_assignments = [
+        (
+            assignment.worker_code,
+            assignment.shift_code,
+            assignment.station_code,
+            assignment.note,
+        )
+        for assignment in result.assignments
+        if assignment.date == dt.date(2026, 4, 1)
+    ]
+
+    chef_assignments = [
+        assignment
+        for assignment in result.assignments
+        if assignment.worker_code.startswith("CHEF")
+    ]
+
+    assert len(first_day_assignments) == 2
+    assert [
+        assignment[1:]
+        for assignment in first_day_assignments
+        if assignment[0].startswith("CHEF")
+    ] == [("DAY", None, "required_chef")]
+    assert [
+        assignment[1:]
+        for assignment in first_day_assignments
+        if assignment[0] == "COOK1"
+    ] == [("DAY", "GRILL", None)]
+    assert all(assignment.station_code is None for assignment in chef_assignments)
+    assert result.summary.total_warnings == 0
+
+
 def test_generate_month_plan_remains_deterministic_with_domain_rules() -> None:
     planning_input = _build_planning_input(
         workers=[
