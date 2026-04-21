@@ -62,6 +62,11 @@ def test_master_data_repositories_return_framework_neutral_dataclasses() -> None
         name="Alex",
         role="cook",
         is_active=True,
+        scheduling_profile_json={
+            "shift_prefs": ["DAY"],
+            "fixed_days_off": ["Sun"],
+            "core": True,
+        },
     )
     DjangoWorker.objects.create(
         tenant=other_tenant,
@@ -124,6 +129,11 @@ def test_master_data_repositories_return_framework_neutral_dataclasses() -> None
             role="cook",
             code="W1",
             is_active=True,
+            scheduling_profile_json={
+                "shift_prefs": ["DAY"],
+                "fixed_days_off": ["Sun"],
+                "core": True,
+            },
         )
     ]
     assert stations == [

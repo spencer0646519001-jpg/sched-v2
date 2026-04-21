@@ -44,6 +44,7 @@ class Command(BaseCommand):
                     "name": worker_row.name,
                     "role": worker_row.role,
                     "is_active": worker_row.is_active,
+                    "scheduling_profile_json": worker_row.scheduling_profile.as_json(),
                 },
             )
 

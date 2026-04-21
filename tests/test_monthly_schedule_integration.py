@@ -200,6 +200,116 @@ def test_preview_flow_with_real_engine_uses_persisted_worker_station_skills() ->
     ]
 
 
+def test_preview_flow_with_real_engine_uses_persisted_worker_scheduling_profiles() -> None:
+    tenant = DjangoTenant.objects.create(
+        slug="worker-profile-demo",
+        name="Worker Profile Demo",
+        default_locale="en-US",
+    )
+    unavailable_worker = DjangoWorker.objects.create(
+        tenant=tenant,
+        code="W1",
+        name="Unavailable",
+        role="employee",
+        is_active=True,
+        scheduling_profile_json={
+            "ad_hoc_unavailable": ["2026-04-01"],
+        },
+    )
+    evening_pref_worker = DjangoWorker.objects.create(
+        tenant=tenant,
+        code="W2",
+        name="Evening Pref",
+        role="employee",
+        is_active=True,
+        scheduling_profile_json={
+            "shift_prefs": ["EVE"],
+            "core": True,
+        },
+    )
+    neutral_worker = DjangoWorker.objects.create(
+        tenant=tenant,
+        code="W3",
+        name="Neutral",
+        role="employee",
+        is_active=True,
+    )
+    station = DjangoStation.objects.create(
+        tenant=tenant,
+        code="GRILL",
+        name="Grill",
+        is_active=True,
+    )
+    for worker in (
+        unavailable_worker,
+        evening_pref_worker,
+        neutral_worker,
+    ):
+        DjangoWorkerStationSkill.objects.create(
+            tenant=tenant,
+            worker=worker,
+            station=station,
+        )
+
+    DjangoShiftDefinition.objects.create(
+        tenant=tenant,
+        code="DAY",
+        name="Day",
+        paid_hours=Decimal("8.00"),
+        is_off_shift=False,
+    )
+    DjangoShiftDefinition.objects.create(
+        tenant=tenant,
+        code="EVE",
+        name="Evening",
+        paid_hours=Decimal("6.00"),
+        is_off_shift=False,
+    )
+    DjangoConstraintConfig.objects.create(
+        tenant=tenant,
+        scope_type="default",
+        config_json={
+            "stations": {"GRILL": 2},
+            "min_staff_weekday": 2,
+            "min_staff_weekend": 2,
+            "max_staff_per_day": 2,
+            "min_rest_days_per_month": 0,
+            "max_consecutive_days": 31,
+        },
+    )
+
+    response = PreviewMonthScheduleService(
+        tenant_repository=DjangoTenantRepository(),
+        worker_repository=DjangoWorkerRepository(),
+        station_repository=DjangoStationRepository(),
+        shift_repository=DjangoShiftRepository(),
+        leave_request_repository=DjangoLeaveRequestRepository(),
+        constraint_config_repository=DjangoConstraintConfigRepository(),
+        engine_runner=generate_month_plan,
+    ).preview_month_schedule(
+        PreviewMonthScheduleRequest(
+            tenant_slug=tenant.slug,
+            year=2026,
+            month=4,
+        )
+    )
+
+    first_day_assignments = [
+        (assignment.worker_code, assignment.shift_code)
+        for assignment in response.candidate_result.assignments
+        if assignment.date == dt.date(2026, 4, 1)
+    ]
+
+    assert first_day_assignments == [
+        ("W2", "EVE"),
+        ("W3", "DAY"),
+    ]
+    assert all(
+        assignment.worker_code != "W1" or assignment.date != dt.date(2026, 4, 1)
+        for assignment in response.candidate_result.assignments
+    )
+
+
 def test_preview_flow_with_real_engine_uses_multiple_ordinary_shifts_from_persisted_inputs() -> None:
     tenant = _seed_multi_shift_month_context()
 
@@ -268,7 +378,7 @@ def test_preview_flow_with_seeded_demo_data_eliminates_off_skill_station_fill() 
 
     assert off_skill_assignments == []
     assert fallback_assignments == []
-    assert response.candidate_result.summary.total_warnings == 10
+    assert response.candidate_result.summary.total_warnings == 11
 
 
 def test_apply_flow_creates_current_workspace_from_preview_result() -> None:

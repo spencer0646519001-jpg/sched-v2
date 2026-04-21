@@ -65,6 +65,15 @@ class _StationWorkerSelection:
 
 
 @dataclass(frozen=True, slots=True)
+class _WorkerSchedulingState:
+    preferred_shift_codes: frozenset[str]
+    fixed_day_off_weekdays: frozenset[int]
+    hard_blocked_dates: frozenset[dt.date]
+    soft_off_dates: frozenset[dt.date]
+    core: bool
+
+
+@dataclass(frozen=True, slots=True)
 class _PlannerSettings:
     station_minimums: dict[str, int]
     morning_shift_codes: tuple[str, ...]
@@ -103,6 +112,7 @@ def generate_month_plan(planning_input: MonthPlanningInput) -> MonthPlanningResu
     )
     primary_shift = working_shifts[0] if working_shifts else None
     leave_dates_by_worker = _build_leave_dates_by_worker(planning_input)
+    worker_scheduling_states = _build_worker_scheduling_states(active_workers)
     settings = _build_planner_settings(
         planning_input.constraint_config,
         active_station_codes=active_station_codes,
@@ -133,6 +143,7 @@ def generate_month_plan(planning_input: MonthPlanningInput) -> MonthPlanningResu
         morning_shift=morning_shift,
         ordinary_shift_pool=ordinary_shift_pool,
         leave_dates_by_worker=leave_dates_by_worker,
+        worker_scheduling_states=worker_scheduling_states,
         settings=settings,
     )
 
@@ -144,6 +155,7 @@ def generate_month_plan(planning_input: MonthPlanningInput) -> MonthPlanningResu
             active_worker_codes=active_worker_codes,
             active_station_codes=active_station_codes,
             leave_dates_by_worker=leave_dates_by_worker,
+            worker_scheduling_states=worker_scheduling_states,
             primary_shift=primary_shift,
             shifts_by_code=shifts_by_code,
         )
@@ -244,6 +256,7 @@ def _build_baseline_assignments(
     morning_shift: ShiftInput | None,
     ordinary_shift_pool: tuple[ShiftInput, ...],
     leave_dates_by_worker: dict[str, set[dt.date]],
+    worker_scheduling_states: dict[str, _WorkerSchedulingState],
     settings: _PlannerSettings,
 ) -> tuple[list[AssignmentOutput], list[WarningOutput]]:
     assignments: list[AssignmentOutput] = []
@@ -280,7 +293,9 @@ def _build_baseline_assignments(
                 assignment_counts=assignment_counts,
                 assigned_dates_by_worker=assigned_dates_by_worker,
                 leave_dates_by_worker=leave_dates_by_worker,
+                worker_scheduling_states=worker_scheduling_states,
                 max_consecutive_days=settings.max_consecutive_days,
+                shift_code=primary_shift.shift_code if primary_shift is not None else None,
             )
             if chef_worker is None or primary_shift is None:
                 warnings.append(
@@ -330,6 +345,7 @@ def _build_baseline_assignments(
                     assigned_today=assigned_today,
                     assigned_dates_by_worker=assigned_dates_by_worker,
                     leave_dates_by_worker=leave_dates_by_worker,
+                    worker_scheduling_states=worker_scheduling_states,
                     max_consecutive_days=settings.max_consecutive_days,
                 )
                 chef_slot_priority = _select_next_station_slot(
@@ -358,6 +374,10 @@ def _build_baseline_assignments(
                         remaining_station_slots=fillable_station_slots,
                         assignment_counts=assignment_counts,
                         assigned_dates_by_worker=assigned_dates_by_worker,
+                        worker_scheduling_states=worker_scheduling_states,
+                        slot_shift_code=(
+                            chef_shift.shift_code if chef_shift is not None else None
+                        ),
                     )
                     remaining_station_slots = (
                         fillable_station_slots[: chef_slot_priority.slot_index]
@@ -399,6 +419,7 @@ def _build_baseline_assignments(
                 assigned_today=assigned_today,
                 assigned_dates_by_worker=assigned_dates_by_worker,
                 leave_dates_by_worker=leave_dates_by_worker,
+                worker_scheduling_states=worker_scheduling_states,
                 max_consecutive_days=settings.max_consecutive_days,
             )
             if not eligible_station_workers:
@@ -427,6 +448,8 @@ def _build_baseline_assignments(
                 remaining_station_slots=remaining_station_slots,
                 assignment_counts=assignment_counts,
                 assigned_dates_by_worker=assigned_dates_by_worker,
+                worker_scheduling_states=worker_scheduling_states,
+                slot_shift_code=shift.shift_code if shift is not None else None,
             )
             remaining_station_slots = (
                 remaining_station_slots[: station_slot_priority.slot_index]
@@ -632,14 +655,19 @@ def _build_eligible_workers(
     assigned_today: set[str],
     assigned_dates_by_worker: dict[str, set[dt.date]],
     leave_dates_by_worker: dict[str, set[dt.date]],
+    worker_scheduling_states: dict[str, _WorkerSchedulingState],
     max_consecutive_days: int | None,
 ) -> list[WorkerInput]:
     return [
         worker
         for worker in candidate_workers
         if worker.worker_code not in assigned_today
-        and assignment_date
-        not in leave_dates_by_worker.get(worker.worker_code, set())
+        and not _is_worker_unavailable(
+            assignment_date,
+            worker_code=worker.worker_code,
+            leave_dates_by_worker=leave_dates_by_worker,
+            worker_scheduling_states=worker_scheduling_states,
+        )
         and not _has_reached_consecutive_limit(
             assignment_date,
             assigned_dates=assigned_dates_by_worker[worker.worker_code],
@@ -721,6 +749,8 @@ def _select_station_worker(
     remaining_station_slots: list[_RequiredStationSlot],
     assignment_counts: dict[str, int],
     assigned_dates_by_worker: dict[str, set[dt.date]],
+    worker_scheduling_states: dict[str, _WorkerSchedulingState],
+    slot_shift_code: str | None,
 ) -> _StationWorkerSelection | None:
     if not eligible_workers:
         return None
@@ -743,12 +773,14 @@ def _select_station_worker(
                 remaining_station_slots=remaining_station_slots,
                 exclude_slot_index=slot_index,
             ),
-            assignment_counts[worker.worker_code],
-            _current_consecutive_streak(
-                assignment_date,
-                assigned_dates_by_worker[worker.worker_code],
+            *_build_worker_selection_key(
+                worker,
+                assignment_date=assignment_date,
+                shift_code=slot_shift_code,
+                assignment_counts=assignment_counts,
+                assigned_dates_by_worker=assigned_dates_by_worker,
+                worker_scheduling_states=worker_scheduling_states,
             ),
-            worker.worker_code,
         )
     )
     return _StationWorkerSelection(
@@ -779,8 +811,10 @@ def _select_worker(
     assignment_counts: dict[str, int],
     assigned_dates_by_worker: dict[str, set[dt.date]],
     leave_dates_by_worker: dict[str, set[dt.date]],
+    worker_scheduling_states: dict[str, _WorkerSchedulingState],
     max_consecutive_days: int | None,
     station_code: str | None = None,
+    shift_code: str | None = None,
 ) -> WorkerInput | None:
     candidates = _build_eligible_workers(
         assignment_date,
@@ -788,6 +822,7 @@ def _select_worker(
         assigned_today=assigned_today,
         assigned_dates_by_worker=assigned_dates_by_worker,
         leave_dates_by_worker=leave_dates_by_worker,
+        worker_scheduling_states=worker_scheduling_states,
         max_consecutive_days=max_consecutive_days,
     )
     if not candidates:
@@ -798,15 +833,95 @@ def _select_worker(
             0
             if station_code is None or station_code in worker.station_skills
             else 1,
-            assignment_counts[worker.worker_code],
-            _current_consecutive_streak(
-                assignment_date,
-                assigned_dates_by_worker[worker.worker_code],
+            *_build_worker_selection_key(
+                worker,
+                assignment_date=assignment_date,
+                shift_code=shift_code,
+                assignment_counts=assignment_counts,
+                assigned_dates_by_worker=assigned_dates_by_worker,
+                worker_scheduling_states=worker_scheduling_states,
             ),
-            worker.worker_code,
         )
     )
     return candidates[0]
+
+
+def _build_worker_scheduling_states(
+    active_workers: list[WorkerInput],
+) -> dict[str, _WorkerSchedulingState]:
+    return {
+        worker.worker_code: _WorkerSchedulingState(
+            preferred_shift_codes=frozenset(worker.scheduling_profile.shift_prefs),
+            fixed_day_off_weekdays=frozenset(
+                worker.scheduling_profile.fixed_day_off_weekdays
+            ),
+            hard_blocked_dates=frozenset(
+                [
+                    *worker.scheduling_profile.ad_hoc_unavailable,
+                    *worker.scheduling_profile.wish_off.hard,
+                ]
+            ),
+            soft_off_dates=frozenset(worker.scheduling_profile.wish_off.soft),
+            core=worker.scheduling_profile.core,
+        )
+        for worker in active_workers
+    }
+
+
+def _is_worker_unavailable(
+    assignment_date: dt.date,
+    *,
+    worker_code: str,
+    leave_dates_by_worker: dict[str, set[dt.date]],
+    worker_scheduling_states: dict[str, _WorkerSchedulingState],
+) -> bool:
+    if assignment_date in leave_dates_by_worker.get(worker_code, set()):
+        return True
+    worker_state = worker_scheduling_states.get(worker_code)
+    if worker_state is None:
+        return False
+    if assignment_date.weekday() in worker_state.fixed_day_off_weekdays:
+        return True
+    return assignment_date in worker_state.hard_blocked_dates
+
+
+def _build_worker_selection_key(
+    worker: WorkerInput,
+    *,
+    assignment_date: dt.date,
+    shift_code: str | None,
+    assignment_counts: dict[str, int],
+    assigned_dates_by_worker: dict[str, set[dt.date]],
+    worker_scheduling_states: dict[str, _WorkerSchedulingState],
+) -> tuple[int, int, int, int, int, str]:
+    worker_state = worker_scheduling_states.get(worker.worker_code)
+    soft_off_penalty = 0
+    shift_pref_penalty = 0
+    core_penalty = 1
+    if worker_state is not None:
+        soft_off_penalty = (
+            1 if assignment_date in worker_state.soft_off_dates else 0
+        )
+        shift_pref_penalty = (
+            1
+            if shift_code is not None
+            and worker_state.preferred_shift_codes
+            and shift_code not in worker_state.preferred_shift_codes
+            else 0
+        )
+        core_penalty = 0 if worker_state.core else 1
+
+    return (
+        assignment_counts[worker.worker_code],
+        soft_off_penalty,
+        shift_pref_penalty,
+        _current_consecutive_streak(
+            assignment_date,
+            assigned_dates_by_worker[worker.worker_code],
+        ),
+        core_penalty,
+        worker.worker_code,
+    )
 
 
 def _append_assignment(
@@ -979,6 +1094,7 @@ def _apply_adjustment_patch(
     active_worker_codes: set[str],
     active_station_codes: list[str],
     leave_dates_by_worker: dict[str, set[dt.date]],
+    worker_scheduling_states: dict[str, _WorkerSchedulingState],
     primary_shift: ShiftInput | None,
     shifts_by_code: dict[str, ShiftInput],
 ) -> tuple[list[AssignmentOutput], list[WarningOutput], set[str]]:
@@ -1018,11 +1134,16 @@ def _apply_adjustment_patch(
             notes.add(_UNSUPPORTED_PATCH_NOTE)
             continue
 
-        if patch.date in leave_dates_by_worker.get(patch.worker_code, set()):
+        if _is_worker_unavailable(
+            patch.date,
+            worker_code=patch.worker_code,
+            leave_dates_by_worker=leave_dates_by_worker,
+            worker_scheduling_states=worker_scheduling_states,
+        ):
             warnings.append(
                 WarningOutput(
-                    type="worker_on_leave_conflict",
-                    message_key="worker_on_leave_conflict",
+                    type="worker_unavailable_conflict",
+                    message_key="worker_unavailable_conflict",
                     worker_code=patch.worker_code,
                     date=patch.date,
                     details={

@@ -8,6 +8,7 @@ computed preview without mutating workspace state.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import date
 from typing import Protocol
 
 from app.engine.contracts import (
@@ -17,6 +18,8 @@ from app.engine.contracts import (
     ShiftInput,
     StationInput,
     WorkerInput,
+    WorkerSchedulingProfileInput,
+    WorkerWishOffInput,
 )
 from app.engine.evaluation import attach_month_planning_evaluation
 from app.infra.models import RecordId, Station, Tenant, Worker
@@ -29,6 +32,26 @@ from app.infra.repositories import (
     TenantRepository,
     WorkerRepository,
 )
+
+_WEEKDAY_LOOKUP = {
+    "mon": 0,
+    "monday": 0,
+    "tue": 1,
+    "tues": 1,
+    "tuesday": 1,
+    "wed": 2,
+    "wednesday": 2,
+    "thu": 3,
+    "thur": 3,
+    "thurs": 3,
+    "thursday": 3,
+    "fri": 4,
+    "friday": 4,
+    "sat": 5,
+    "saturday": 5,
+    "sun": 6,
+    "sunday": 6,
+}
 
 
 class MonthlySchedulePreviewEngine(Protocol):
@@ -181,6 +204,11 @@ def _translate_persistence_bundle_to_engine_input(
             station_code
         )
 
+    available_shift_codes = {
+        shift.code
+        for shift in bundle.shifts
+        if shift.is_active and not shift.is_off_shift
+    }
     worker_codes_by_id: dict[RecordId, str] = {}
     worker_inputs: list[WorkerInput] = []
     for worker in bundle.workers:
@@ -194,6 +222,12 @@ def _translate_persistence_bundle_to_engine_input(
                 role=worker.role,
                 is_active=worker.is_active,
                 station_skills=station_skills_by_worker_id.get(worker_id, []),
+                scheduling_profile=_normalize_worker_scheduling_profile(
+                    worker.scheduling_profile_json,
+                    year=bundle.year,
+                    month=bundle.month,
+                    available_shift_codes=available_shift_codes,
+                ),
             )
         )
 
@@ -255,6 +289,137 @@ def _validate_request(request: PreviewMonthScheduleRequest) -> None:
         raise ValueError("Preview year must be greater than zero.")
     if request.month < 1 or request.month > 12:
         raise ValueError("Preview month must be between 1 and 12.")
+
+
+def _normalize_worker_scheduling_profile(
+    raw_profile_json: object,
+    *,
+    year: int,
+    month: int,
+    available_shift_codes: set[str],
+) -> WorkerSchedulingProfileInput:
+    if not isinstance(raw_profile_json, dict):
+        return WorkerSchedulingProfileInput()
+
+    raw_wish_off = raw_profile_json.get("wish_off")
+    wish_off = raw_wish_off if isinstance(raw_wish_off, dict) else {}
+    return WorkerSchedulingProfileInput(
+        shift_prefs=_normalize_shift_prefs(
+            raw_profile_json.get("shift_prefs"),
+            available_shift_codes=available_shift_codes,
+        ),
+        fixed_day_off_weekdays=_normalize_fixed_days_off(
+            raw_profile_json.get("fixed_days_off")
+        ),
+        ad_hoc_unavailable=_normalize_profile_dates(
+            raw_profile_json.get("ad_hoc_unavailable"),
+            year=year,
+            month=month,
+        ),
+        wish_off=WorkerWishOffInput(
+            hard=_normalize_profile_dates(
+                wish_off.get("hard"),
+                year=year,
+                month=month,
+            ),
+            soft=_normalize_profile_dates(
+                wish_off.get("soft"),
+                year=year,
+                month=month,
+            ),
+        ),
+        core=bool(raw_profile_json.get("core", False)),
+    )
+
+
+def _normalize_shift_prefs(
+    raw_shift_prefs: object,
+    *,
+    available_shift_codes: set[str],
+) -> list[str]:
+    if not isinstance(raw_shift_prefs, list):
+        return []
+
+    shift_codes_by_key = {
+        shift_code.strip().casefold(): shift_code
+        for shift_code in available_shift_codes
+        if shift_code.strip()
+    }
+    normalized_shift_prefs: list[str] = []
+    seen_shift_codes: set[str] = set()
+    for raw_shift_code in raw_shift_prefs:
+        if not isinstance(raw_shift_code, str):
+            continue
+        shift_code = shift_codes_by_key.get(raw_shift_code.strip().casefold())
+        if shift_code is None or shift_code in seen_shift_codes:
+            continue
+        seen_shift_codes.add(shift_code)
+        normalized_shift_prefs.append(shift_code)
+    return normalized_shift_prefs
+
+
+def _normalize_fixed_days_off(raw_fixed_days_off: object) -> list[int]:
+    if not isinstance(raw_fixed_days_off, list):
+        return []
+
+    normalized_weekdays: list[int] = []
+    seen_weekdays: set[int] = set()
+    for raw_weekday in raw_fixed_days_off:
+        weekday_index = _coerce_weekday_index(raw_weekday)
+        if weekday_index is None or weekday_index in seen_weekdays:
+            continue
+        seen_weekdays.add(weekday_index)
+        normalized_weekdays.append(weekday_index)
+    return normalized_weekdays
+
+
+def _coerce_weekday_index(raw_weekday: object) -> int | None:
+    if isinstance(raw_weekday, int) and 0 <= raw_weekday <= 6:
+        return raw_weekday
+    if not isinstance(raw_weekday, str):
+        return None
+    weekday_key = raw_weekday.strip().casefold()
+    if not weekday_key:
+        return None
+    return _WEEKDAY_LOOKUP.get(weekday_key)
+
+
+def _normalize_profile_dates(
+    raw_dates: object,
+    *,
+    year: int,
+    month: int,
+) -> list[date]:
+    if not isinstance(raw_dates, list):
+        return []
+
+    normalized_dates: list[date] = []
+    seen_dates: set[date] = set()
+    for raw_value in raw_dates:
+        parsed_date = _parse_profile_date(raw_value)
+        if parsed_date is None:
+            continue
+        if parsed_date.year != year or parsed_date.month != month:
+            continue
+        if parsed_date in seen_dates:
+            continue
+        seen_dates.add(parsed_date)
+        normalized_dates.append(parsed_date)
+    return normalized_dates
+
+
+def _parse_profile_date(raw_value: object) -> date | None:
+    if isinstance(raw_value, date):
+        return raw_value
+    if not isinstance(raw_value, str):
+        return None
+    normalized = raw_value.strip().replace("/", "-")
+    if not normalized:
+        return None
+    try:
+        return date.fromisoformat(normalized)
+    except ValueError:
+        return None
 
 
 def _resolve_worker_code(worker: Worker) -> str:

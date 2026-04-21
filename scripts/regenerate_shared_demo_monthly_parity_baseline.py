@@ -213,17 +213,7 @@ def _build_v1_engine_inputs(
     ]
 
     people = [
-        {
-            "name": worker["name"],
-            "role": worker["role"],
-            "station_skills": list(worker.get("station_skills") or []),
-            "headcount_only": worker["role"].strip().casefold() == "chef",
-            "fixed_days_off": [],
-            "ad_hoc_unavailable": [],
-            "wish_off": {"hard": [], "soft": []},
-            "special_leave_days": [],
-            "shift_prefs": [],
-        }
+        _build_v1_person_payload(worker)
         for worker in active_workers
     ]
     shifts_list = [
@@ -390,6 +380,28 @@ def _normalize_warnings(
         )
     )
     return warnings
+
+
+def _build_v1_person_payload(worker: dict[str, object]) -> dict[str, object]:
+    scheduling_profile = worker.get("scheduling_profile")
+    profile = scheduling_profile if isinstance(scheduling_profile, dict) else {}
+    raw_wish_off = profile.get("wish_off")
+    wish_off = raw_wish_off if isinstance(raw_wish_off, dict) else {}
+    return {
+        "name": worker["name"],
+        "role": worker["role"],
+        "station_skills": list(worker.get("station_skills") or []),
+        "headcount_only": worker["role"].strip().casefold() == "chef",
+        "fixed_days_off": list(profile.get("fixed_days_off") or []),
+        "ad_hoc_unavailable": list(profile.get("ad_hoc_unavailable") or []),
+        "wish_off": {
+            "hard": list(wish_off.get("hard") or []),
+            "soft": list(wish_off.get("soft") or []),
+        },
+        "special_leave_days": [],
+        "shift_prefs": list(profile.get("shift_prefs") or []),
+        "core": bool(profile.get("core", False)),
+    }
 
 
 def _normalize_day_warning(

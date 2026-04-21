@@ -10,8 +10,8 @@ Small v2-only transformations are kept explicit here:
 - station codes follow the normalized persisted v1 demo bootstrap shape
 - shift names mirror the v1 shift code because v1 defines codes, not labels
 
-Deeper alignment such as richer shift preferences and broader rule pass-through
-still lands in follow-up PRs.
+Worker-side scheduling profile signal is intentionally limited to the narrow
+PR5 subset needed to make ordinary staff selection feel less anonymous.
 """
 
 from __future__ import annotations
@@ -28,11 +28,41 @@ DEMO_MONTH_SCOPE = "2026-04"
 
 
 @dataclass(frozen=True, slots=True)
+class DemoWorkerSchedulingProfileRow:
+    shift_prefs: tuple[str, ...] = ()
+    fixed_days_off: tuple[str, ...] = ()
+    ad_hoc_unavailable: tuple[str, ...] = ()
+    wish_off_hard: tuple[str, ...] = ()
+    wish_off_soft: tuple[str, ...] = ()
+    core: bool = False
+
+    def as_json(self) -> dict[str, object]:
+        payload: dict[str, object] = {}
+        if self.shift_prefs:
+            payload["shift_prefs"] = list(self.shift_prefs)
+        if self.fixed_days_off:
+            payload["fixed_days_off"] = list(self.fixed_days_off)
+        if self.ad_hoc_unavailable:
+            payload["ad_hoc_unavailable"] = list(self.ad_hoc_unavailable)
+        if self.wish_off_hard or self.wish_off_soft:
+            payload["wish_off"] = {
+                "hard": list(self.wish_off_hard),
+                "soft": list(self.wish_off_soft),
+            }
+        if self.core:
+            payload["core"] = True
+        return payload
+
+
+@dataclass(frozen=True, slots=True)
 class DemoWorkerRow:
     code: str
     name: str
     role: str
     station_skills: tuple[str, ...] = ()
+    scheduling_profile: DemoWorkerSchedulingProfileRow = (
+        DemoWorkerSchedulingProfileRow()
+    )
     is_active: bool = True
 
 
@@ -71,18 +101,79 @@ def _normalize_station_skill_codes(*raw_codes: str) -> tuple[str, ...]:
 
 
 _WORKER_SOURCE_ROWS = (
-    ("Takahashi_chef", "chef", ()),
-    ("Funatsu", "chef", ()),
-    ("Spencer", "employee", ("mise_en_place",)),
-    ("Chung", "employee", ("mise_en_place", "glaze_and_fruit")),
-    ("Ishikawa", "employee", ("glaze_and_fruit", "mise_en_place", "GATEAU")),
-    ("Mochizuki", "employee", ("mise_en_place", "glaze_and_fruit", "GATEAU")),
-    ("Takai", "employee", ("mise_en_place", "glaze_and_fruit", "GATEAU")),
-    ("Tarutani", "employee", ("mise_en_place", "GATEAU")),
-    ("Komura", "employee", ("mise_en_place", "petit_four")),
-    ("Kim", "employee", ("mise_en_place", "petit_four", "GATEAU")),
-    ("Sera", "employee", ("mise_en_place", "petit_four")),
-    ("Miyazawa", "employee", ("mise_en_place", "petit_four")),
+    (
+        "Takahashi_chef",
+        "chef",
+        (),
+        DemoWorkerSchedulingProfileRow(fixed_days_off=("Mon",)),
+    ),
+    ("Funatsu", "chef", (), DemoWorkerSchedulingProfileRow()),
+    (
+        "Spencer",
+        "employee",
+        ("mise_en_place",),
+        DemoWorkerSchedulingProfileRow(
+            shift_prefs=("C", "D", "3", "4"),
+            ad_hoc_unavailable=("2026-04-15",),
+            core=True,
+        ),
+    ),
+    (
+        "Chung",
+        "employee",
+        ("mise_en_place", "glaze_and_fruit"),
+        DemoWorkerSchedulingProfileRow(
+            shift_prefs=("C", "D", "3", "4"),
+            wish_off_soft=("2026-04-18",),
+            core=True,
+        ),
+    ),
+    (
+        "Ishikawa",
+        "employee",
+        ("glaze_and_fruit", "mise_en_place", "GATEAU"),
+        DemoWorkerSchedulingProfileRow(core=True),
+    ),
+    (
+        "Mochizuki",
+        "employee",
+        ("mise_en_place", "glaze_and_fruit", "GATEAU"),
+        DemoWorkerSchedulingProfileRow(
+            wish_off_hard=("2026-04-12",),
+            core=True,
+        ),
+    ),
+    (
+        "Takai",
+        "employee",
+        ("mise_en_place", "glaze_and_fruit", "GATEAU"),
+        DemoWorkerSchedulingProfileRow(core=True),
+    ),
+    ("Tarutani", "employee", ("mise_en_place", "GATEAU"), DemoWorkerSchedulingProfileRow()),
+    (
+        "Komura",
+        "employee",
+        ("mise_en_place", "petit_four"),
+        DemoWorkerSchedulingProfileRow(),
+    ),
+    (
+        "Kim",
+        "employee",
+        ("mise_en_place", "petit_four", "GATEAU"),
+        DemoWorkerSchedulingProfileRow(),
+    ),
+    (
+        "Sera",
+        "employee",
+        ("mise_en_place", "petit_four"),
+        DemoWorkerSchedulingProfileRow(),
+    ),
+    (
+        "Miyazawa",
+        "employee",
+        ("mise_en_place", "petit_four"),
+        DemoWorkerSchedulingProfileRow(),
+    ),
 )
 
 DEMO_WORKERS = tuple(
@@ -91,8 +182,9 @@ DEMO_WORKERS = tuple(
         name=name,
         role=role,
         station_skills=_normalize_station_skill_codes(*station_skills),
+        scheduling_profile=scheduling_profile,
     )
-    for name, role, station_skills in _WORKER_SOURCE_ROWS
+    for name, role, station_skills, scheduling_profile in _WORKER_SOURCE_ROWS
 )
 
 DEMO_STATIONS = (

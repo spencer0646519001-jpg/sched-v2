@@ -10,6 +10,8 @@ from app.engine.contracts import (
     ShiftInput,
     StationInput,
     WorkerInput,
+    WorkerSchedulingProfileInput,
+    WorkerWishOffInput,
 )
 from app.engine.monthly import generate_month_plan
 
@@ -99,6 +101,215 @@ def test_generate_month_plan_skips_workers_on_leave_dates() -> None:
         for assignment in result.assignments
     )
     assert result.summary.total_warnings == 0
+
+
+def test_generate_month_plan_respects_fixed_days_off_weekdays() -> None:
+    result = generate_month_plan(
+        _build_planning_input(
+            workers=[
+                _worker(
+                    "W1",
+                    name="Alex",
+                    scheduling_profile=_profile(fixed_day_off_weekdays=[2]),
+                ),
+                _worker("W2", name="Casey"),
+            ],
+            stations=[_station("GRILL", name="Grill")],
+            shifts=[_shift("DAY", name="Day", paid_hours="8")],
+            constraint_config={
+                "min_staff_weekday": 1,
+                "min_staff_weekend": 1,
+                "max_staff_per_day": 1,
+                "max_consecutive_days": 31,
+            },
+        )
+    )
+
+    assignments_by_date = {
+        assignment.date: assignment for assignment in result.assignments[:2]
+    }
+
+    assert assignments_by_date[dt.date(2026, 4, 1)].worker_code == "W2"
+    assert assignments_by_date[dt.date(2026, 4, 2)].worker_code == "W1"
+
+
+def test_generate_month_plan_respects_ad_hoc_unavailable_dates() -> None:
+    result = generate_month_plan(
+        _build_planning_input(
+            workers=[
+                _worker(
+                    "W1",
+                    name="Alex",
+                    scheduling_profile=_profile(
+                        ad_hoc_unavailable=[dt.date(2026, 4, 1)]
+                    ),
+                ),
+                _worker("W2", name="Casey"),
+            ],
+            stations=[_station("GRILL", name="Grill")],
+            shifts=[_shift("DAY", name="Day", paid_hours="8")],
+            constraint_config={
+                "min_staff_weekday": 1,
+                "min_staff_weekend": 1,
+                "max_staff_per_day": 1,
+                "max_consecutive_days": 31,
+            },
+        )
+    )
+
+    assert result.assignments[0].date == dt.date(2026, 4, 1)
+    assert result.assignments[0].worker_code == "W2"
+
+
+def test_generate_month_plan_respects_hard_wish_off_dates() -> None:
+    result = generate_month_plan(
+        _build_planning_input(
+            workers=[
+                _worker(
+                    "W1",
+                    name="Alex",
+                    scheduling_profile=_profile(
+                        wish_off_hard=[dt.date(2026, 4, 1)]
+                    ),
+                ),
+                _worker("W2", name="Casey"),
+            ],
+            stations=[_station("GRILL", name="Grill")],
+            shifts=[_shift("DAY", name="Day", paid_hours="8")],
+            constraint_config={
+                "min_staff_weekday": 1,
+                "min_staff_weekend": 1,
+                "max_staff_per_day": 1,
+                "max_consecutive_days": 31,
+            },
+        )
+    )
+
+    assert result.assignments[0].date == dt.date(2026, 4, 1)
+    assert result.assignments[0].worker_code == "W2"
+
+
+def test_generate_month_plan_uses_soft_wish_off_as_ranking_penalty() -> None:
+    result = generate_month_plan(
+        _build_planning_input(
+            workers=[
+                _worker(
+                    "W1",
+                    name="Alex",
+                    scheduling_profile=_profile(
+                        wish_off_soft=[dt.date(2026, 4, 1)]
+                    ),
+                ),
+                _worker("W2", name="Casey"),
+            ],
+            stations=[_station("GRILL", name="Grill")],
+            shifts=[_shift("DAY", name="Day", paid_hours="8")],
+            constraint_config={
+                "min_staff_weekday": 1,
+                "min_staff_weekend": 1,
+                "max_staff_per_day": 1,
+                "max_consecutive_days": 31,
+            },
+        )
+    )
+
+    assert result.assignments[0].date == dt.date(2026, 4, 1)
+    assert result.assignments[0].worker_code == "W2"
+
+
+def test_generate_month_plan_soft_wish_off_does_not_block_last_available_worker() -> None:
+    result = generate_month_plan(
+        _build_planning_input(
+            workers=[
+                _worker(
+                    "W1",
+                    name="Alex",
+                    scheduling_profile=_profile(
+                        wish_off_soft=[dt.date(2026, 4, 1)]
+                    ),
+                )
+            ],
+            stations=[_station("GRILL", name="Grill")],
+            shifts=[_shift("DAY", name="Day", paid_hours="8")],
+            constraint_config={
+                "min_staff_weekday": 1,
+                "min_staff_weekend": 1,
+                "max_staff_per_day": 1,
+            },
+        )
+    )
+
+    assert result.assignments[0].date == dt.date(2026, 4, 1)
+    assert result.assignments[0].worker_code == "W1"
+    assert result.summary.total_assignments == 30
+
+
+def test_generate_month_plan_prefers_matching_shift_preferences_for_ordinary_slots() -> None:
+    result = generate_month_plan(
+        _build_planning_input(
+            workers=[
+                _worker(
+                    "W1",
+                    name="Day Pref",
+                    scheduling_profile=_profile(shift_prefs=["DAY"]),
+                ),
+                _worker(
+                    "W2",
+                    name="Evening Pref",
+                    scheduling_profile=_profile(shift_prefs=["EVE"]),
+                ),
+            ],
+            stations=[_station("GRILL", name="Grill")],
+            shifts=[
+                _shift("DAY", name="Day", paid_hours="8"),
+                _shift("EVE", name="Evening", paid_hours="6"),
+            ],
+            constraint_config={
+                "stations": {"GRILL": 2},
+                "min_staff_weekday": 2,
+                "min_staff_weekend": 2,
+                "max_staff_per_day": 2,
+                "max_consecutive_days": 31,
+            },
+        )
+    )
+
+    first_day_assignments = [
+        (assignment.worker_code, assignment.shift_code)
+        for assignment in result.assignments
+        if assignment.date == dt.date(2026, 4, 1)
+    ]
+
+    assert first_day_assignments == [
+        ("W1", "DAY"),
+        ("W2", "EVE"),
+    ]
+
+
+def test_generate_month_plan_prefers_core_worker_as_late_tie_breaker() -> None:
+    result = generate_month_plan(
+        _build_planning_input(
+            workers=[
+                _worker("W1", name="Non Core"),
+                _worker(
+                    "W2",
+                    name="Core",
+                    scheduling_profile=_profile(core=True),
+                ),
+            ],
+            stations=[_station("GRILL", name="Grill")],
+            shifts=[_shift("DAY", name="Day", paid_hours="8")],
+            constraint_config={
+                "min_staff_weekday": 1,
+                "min_staff_weekend": 1,
+                "max_staff_per_day": 1,
+                "max_consecutive_days": 31,
+            },
+        )
+    )
+
+    assert result.assignments[0].date == dt.date(2026, 4, 1)
+    assert result.assignments[0].worker_code == "W2"
 
 
 def test_generate_month_plan_emits_understaffed_station_warnings() -> None:
@@ -692,6 +903,7 @@ def _worker(
     is_active: bool = True,
     role: str = "cook",
     station_skills: list[str] | None = None,
+    scheduling_profile: WorkerSchedulingProfileInput | None = None,
 ) -> WorkerInput:
     return WorkerInput(
         worker_code=worker_code,
@@ -699,6 +911,11 @@ def _worker(
         role=role,
         is_active=is_active,
         station_skills=station_skills or ["GRILL", "PREP"],
+        scheduling_profile=(
+            scheduling_profile
+            if scheduling_profile is not None
+            else WorkerSchedulingProfileInput()
+        ),
         metadata_json=None,
     )
 
@@ -730,4 +947,25 @@ def _shift(
         start_time=None,
         end_time=None,
         metadata_json=None,
+    )
+
+
+def _profile(
+    *,
+    shift_prefs: list[str] | None = None,
+    fixed_day_off_weekdays: list[int] | None = None,
+    ad_hoc_unavailable: list[dt.date] | None = None,
+    wish_off_hard: list[dt.date] | None = None,
+    wish_off_soft: list[dt.date] | None = None,
+    core: bool = False,
+) -> WorkerSchedulingProfileInput:
+    return WorkerSchedulingProfileInput(
+        shift_prefs=shift_prefs or [],
+        fixed_day_off_weekdays=fixed_day_off_weekdays or [],
+        ad_hoc_unavailable=ad_hoc_unavailable or [],
+        wish_off=WorkerWishOffInput(
+            hard=wish_off_hard or [],
+            soft=wish_off_soft or [],
+        ),
+        core=core,
     )

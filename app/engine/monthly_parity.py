@@ -56,6 +56,7 @@ class MonthlyParityContext:
     month: int
     worker_codes: tuple[str, ...]
     worker_skills_by_code: dict[str, frozenset[str]]
+    worker_hard_unavailable_dates_by_code: dict[str, frozenset[dt.date]]
     station_codes: tuple[str, ...]
     month_dates: tuple[dt.date, ...]
 
@@ -70,6 +71,7 @@ class MonthlyParityMetrics:
     station_day_coverage_counts: dict[str, dict[int, int]]
     warning_counts_by_type: dict[str, int]
     per_worker_assignment_totals: dict[str, int]
+    worker_profile_hard_conflict_count: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -82,6 +84,7 @@ class MonthlyParityMetricDeltas:
     station_day_coverage_counts: dict[str, dict[int, int]]
     warning_counts_by_type: dict[str, int]
     per_worker_assignment_totals: dict[str, int]
+    worker_profile_hard_conflict_count: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -117,6 +120,7 @@ def build_monthly_parity_context(
         if station.is_active
     )
     month_dates = tuple(_iter_month_dates(planning_input.year, planning_input.month))
+    month_date_set = set(month_dates)
 
     return MonthlyParityContext(
         fixture_id=fixture_id,
@@ -125,6 +129,13 @@ def build_monthly_parity_context(
         worker_codes=tuple(worker.worker_code for worker in active_workers),
         worker_skills_by_code={
             worker.worker_code: frozenset(worker.station_skills)
+            for worker in active_workers
+        },
+        worker_hard_unavailable_dates_by_code={
+            worker.worker_code: _build_worker_hard_unavailable_dates(
+                worker,
+                month_dates=month_date_set,
+            )
             for worker in active_workers
         },
         station_codes=tuple(active_stations),
@@ -203,6 +214,12 @@ def calculate_monthly_parity_metrics(
         and assignment.station_code
         not in context.worker_skills_by_code[assignment.worker_code]
     )
+    worker_profile_hard_conflict_count = sum(
+        1
+        for assignment in snapshot.assignments
+        if assignment.date
+        in context.worker_hard_unavailable_dates_by_code[assignment.worker_code]
+    )
 
     return MonthlyParityMetrics(
         total_assignments=len(snapshot.assignments),
@@ -211,6 +228,7 @@ def calculate_monthly_parity_metrics(
         station_day_coverage_counts=station_day_coverage_counts,
         warning_counts_by_type=warning_counts_by_type,
         per_worker_assignment_totals=per_worker_assignment_totals,
+        worker_profile_hard_conflict_count=worker_profile_hard_conflict_count,
     )
 
 
@@ -254,6 +272,10 @@ def evaluate_monthly_parity(
             per_worker_assignment_totals=_subtract_flat_counts(
                 baseline_metrics.per_worker_assignment_totals,
                 candidate_metrics.per_worker_assignment_totals,
+            ),
+            worker_profile_hard_conflict_count=(
+                candidate_metrics.worker_profile_hard_conflict_count
+                - baseline_metrics.worker_profile_hard_conflict_count
             ),
         ),
         baseline_assignment_count=len(baseline_snapshot.assignments),
@@ -340,6 +362,24 @@ def _iter_month_dates(year: int, month: int) -> list[dt.date]:
         dt.date(year, month, day_number)
         for day_number in range(1, days_in_month + 1)
     ]
+
+
+def _build_worker_hard_unavailable_dates(
+    worker,
+    *,
+    month_dates: set[dt.date],
+) -> frozenset[dt.date]:
+    scheduling_profile = worker.scheduling_profile
+    blocked_dates = {
+        *scheduling_profile.ad_hoc_unavailable,
+        *scheduling_profile.wish_off.hard,
+    }
+    blocked_dates.update(
+        month_date
+        for month_date in month_dates
+        if month_date.weekday() in scheduling_profile.fixed_day_off_weekdays
+    )
+    return frozenset(month_date for month_date in blocked_dates if month_date in month_dates)
 
 
 __all__ = [

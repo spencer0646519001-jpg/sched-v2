@@ -9,7 +9,10 @@
       "name": "Takahashi_chef",
       "role": "chef",
       "is_active": true,
-      "station_skills": []
+      "station_skills": [],
+      "scheduling_profile": {
+        "fixed_days_off": ["Mon"]
+      }
     },
     {
       "worker_code": "FUNATSU",
@@ -25,7 +28,12 @@
       "is_active": true,
       "station_skills": [
         "mise_en_place"
-      ]
+      ],
+      "scheduling_profile": {
+        "shift_prefs": ["C", "D", "3", "4"],
+        "ad_hoc_unavailable": ["2026-04-15"],
+        "core": true
+      }
     },
     {
       "worker_code": "CHUNG",
@@ -35,7 +43,15 @@
       "station_skills": [
         "mise_en_place",
         "glaze_and_fruit"
-      ]
+      ],
+      "scheduling_profile": {
+        "shift_prefs": ["C", "D", "3", "4"],
+        "wish_off": {
+          "hard": [],
+          "soft": ["2026-04-18"]
+        },
+        "core": true
+      }
     },
     {
       "worker_code": "ISHIKAWA",
@@ -46,7 +62,10 @@
         "glaze_and_fruit",
         "mise_en_place",
         "gateau"
-      ]
+      ],
+      "scheduling_profile": {
+        "core": true
+      }
     },
     {
       "worker_code": "MOCHIZUKI",
@@ -57,7 +76,14 @@
         "mise_en_place",
         "glaze_and_fruit",
         "gateau"
-      ]
+      ],
+      "scheduling_profile": {
+        "wish_off": {
+          "hard": ["2026-04-12"],
+          "soft": []
+        },
+        "core": true
+      }
     },
     {
       "worker_code": "TAKAI",
@@ -68,7 +94,10 @@
         "mise_en_place",
         "glaze_and_fruit",
         "gateau"
-      ]
+      ],
+      "scheduling_profile": {
+        "core": true
+      }
     },
     {
       "worker_code": "TARUTANI",

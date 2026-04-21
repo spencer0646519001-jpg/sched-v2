@@ -91,6 +91,11 @@ def _worker_from_model(model: DjangoWorker) -> Worker:
         role=model.role,
         code=model.code,
         is_active=model.is_active,
+        scheduling_profile_json=(
+            deepcopy(model.scheduling_profile_json)
+            if model.scheduling_profile_json
+            else None
+        ),
     )
 
 

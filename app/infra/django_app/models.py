@@ -26,6 +26,7 @@ class Worker(models.Model):
     name = models.CharField(max_length=255)
     role = models.CharField(max_length=64)
     is_active = models.BooleanField(default=True)
+    scheduling_profile_json = models.JSONField(default=dict, blank=True)
 
     class Meta:
         constraints = [

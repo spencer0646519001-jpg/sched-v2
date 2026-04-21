@@ -8,7 +8,7 @@ directly.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date, datetime, time
 from decimal import Decimal
 from typing import Any, Literal, TypeAlias
@@ -16,8 +16,28 @@ from typing import Any, Literal, TypeAlias
 WorkerCode: TypeAlias = str
 StationCode: TypeAlias = str
 ShiftCode: TypeAlias = str
+WeekdayIndex: TypeAlias = int
 JsonObject: TypeAlias = dict[str, Any]
 ScheduleQualityLabel: TypeAlias = Literal["good", "needs_review", "invalid"]
+
+
+@dataclass(slots=True)
+class WorkerWishOffInput:
+    """Worker-requested days off split into hard and soft scheduling signals."""
+
+    hard: list[date] = field(default_factory=list)
+    soft: list[date] = field(default_factory=list)
+
+
+@dataclass(slots=True)
+class WorkerSchedulingProfileInput:
+    """Normalized worker-side scheduling signals used by the engine."""
+
+    shift_prefs: list[ShiftCode] = field(default_factory=list)
+    fixed_day_off_weekdays: list[WeekdayIndex] = field(default_factory=list)
+    ad_hoc_unavailable: list[date] = field(default_factory=list)
+    wish_off: WorkerWishOffInput = field(default_factory=WorkerWishOffInput)
+    core: bool = False
 
 
 @dataclass(slots=True)
@@ -29,6 +49,9 @@ class WorkerInput:
     role: str
     is_active: bool
     station_skills: list[StationCode]
+    scheduling_profile: WorkerSchedulingProfileInput = field(
+        default_factory=WorkerSchedulingProfileInput
+    )
     metadata_json: JsonObject | None = None
 
 
@@ -185,4 +208,7 @@ __all__ = [
     "WarningOutput",
     "WorkerCode",
     "WorkerInput",
+    "WorkerSchedulingProfileInput",
+    "WorkerWishOffInput",
+    "WeekdayIndex",
 ]

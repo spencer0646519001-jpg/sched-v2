@@ -12,6 +12,8 @@ from app.engine.contracts import (
     ShiftInput,
     StationInput,
     WorkerInput,
+    WorkerSchedulingProfileInput,
+    WorkerWishOffInput,
 )
 from app.engine.monthly import generate_month_plan
 from app.engine.monthly_parity import (
@@ -31,6 +33,25 @@ FIXTURE_DIR = (
     / "monthly_parity"
     / "shared_demo_april_2026"
 )
+_FIXTURE_WEEKDAY_LOOKUP = {
+    "mon": 0,
+    "monday": 0,
+    "tue": 1,
+    "tues": 1,
+    "tuesday": 1,
+    "wed": 2,
+    "wednesday": 2,
+    "thu": 3,
+    "thur": 3,
+    "thurs": 3,
+    "thursday": 3,
+    "fri": 4,
+    "friday": 4,
+    "sat": 5,
+    "saturday": 5,
+    "sun": 6,
+    "sunday": 6,
+}
 
 
 def test_calculate_monthly_parity_metrics_reports_requested_aggregates() -> None:
@@ -45,6 +66,9 @@ def test_calculate_monthly_parity_metrics_reports_requested_aggregates() -> None
                 role="employee",
                 is_active=True,
                 station_skills=["GRILL"],
+                scheduling_profile=WorkerSchedulingProfileInput(
+                    ad_hoc_unavailable=[dt.date(2026, 4, 2)]
+                ),
             ),
             WorkerInput(
                 worker_code="W2",
@@ -128,6 +152,7 @@ def test_calculate_monthly_parity_metrics_reports_requested_aggregates() -> None
         "weekly_rest": 1,
     }
     assert metrics.per_worker_assignment_totals == {"W1": 2, "W2": 1}
+    assert metrics.worker_profile_hard_conflict_count == 1
 
 
 def test_evaluate_monthly_parity_computes_candidate_minus_baseline_deltas() -> None:
@@ -142,6 +167,9 @@ def test_evaluate_monthly_parity_computes_candidate_minus_baseline_deltas() -> N
                 role="employee",
                 is_active=True,
                 station_skills=["GRILL"],
+                scheduling_profile=WorkerSchedulingProfileInput(
+                    ad_hoc_unavailable=[dt.date(2026, 4, 1)]
+                ),
             ),
             WorkerInput(
                 worker_code="W2",
@@ -191,7 +219,7 @@ def test_evaluate_monthly_parity_computes_candidate_minus_baseline_deltas() -> N
     candidate_snapshot = MonthlyParitySnapshot(
         assignments=(
             MonthlyParityAssignment(
-                date=dt.date(2026, 4, 1),
+                date=dt.date(2026, 4, 2),
                 worker_code="W1",
                 shift_code="DAY",
                 station_code="GRILL",
@@ -217,6 +245,7 @@ def test_evaluate_monthly_parity_computes_candidate_minus_baseline_deltas() -> N
     assert report.metric_deltas.off_skill_assignment_count == 0
     assert report.metric_deltas.warning_counts_by_type == {"weekly_rest": -1}
     assert report.metric_deltas.per_worker_assignment_totals == {"W1": 0, "W2": 1}
+    assert report.metric_deltas.worker_profile_hard_conflict_count == -1
     assert report.metric_deltas.station_day_coverage_counts == {
         "FRY": {0: -1, 1: 1},
         "GRILL": {0: 0, 1: 0},
@@ -254,11 +283,12 @@ def test_frozen_shared_demo_monthly_parity_evaluator_stays_reproducible() -> Non
     assert report.year == 2026
     assert report.month == 4
     assert report.baseline_assignment_count == 210
-    assert report.baseline_warning_count == 8
+    assert report.baseline_warning_count == 20
     assert report.baseline_metrics.warning_counts_by_type == {
-        "auto_rest": 4,
-        "weekly_rest": 4,
+        "auto_rest": 14,
+        "weekly_rest": 6,
     }
+    assert report.baseline_metrics.worker_profile_hard_conflict_count == 0
 
     assert result.metadata.source_type == "monthly_planner"
     assert report.candidate_assignment_count == result.summary.total_assignments
@@ -266,6 +296,7 @@ def test_frozen_shared_demo_monthly_parity_evaluator_stays_reproducible() -> Non
     assert sum(report.candidate_metrics.shift_histogram.values()) == len(result.assignments)
     assert report.candidate_metrics.warning_counts_by_type == result.summary.warnings_by_type
     assert report.candidate_metrics.off_skill_assignment_count == 0
+    assert report.candidate_metrics.worker_profile_hard_conflict_count == 0
     assert (
         sum(
             1
@@ -334,6 +365,9 @@ def _parse_month_planning_input_fixture(
                 role=str(worker["role"]),
                 is_active=bool(worker["is_active"]),
                 station_skills=[str(code) for code in worker["station_skills"]],
+                scheduling_profile=_parse_worker_scheduling_profile_fixture(
+                    worker.get("scheduling_profile")
+                ),
             )
             for worker in fixture_payload["workers"]
         ],
@@ -398,3 +432,51 @@ def _parse_v1_baseline_snapshot(
         for warning in baseline_artifact["warnings"]
     )
     return MonthlyParitySnapshot(assignments=assignments, warnings=warnings)
+
+
+def _parse_worker_scheduling_profile_fixture(
+    raw_profile: object,
+) -> WorkerSchedulingProfileInput:
+    if not isinstance(raw_profile, dict):
+        return WorkerSchedulingProfileInput()
+
+    raw_wish_off = raw_profile.get("wish_off")
+    wish_off = raw_wish_off if isinstance(raw_wish_off, dict) else {}
+    return WorkerSchedulingProfileInput(
+        shift_prefs=[
+            str(shift_code)
+            for shift_code in (raw_profile.get("shift_prefs") or [])
+            if isinstance(shift_code, str)
+        ],
+        fixed_day_off_weekdays=[
+            weekday_index
+            for weekday_index in (
+                _parse_fixture_weekday_index(raw_value)
+                for raw_value in (raw_profile.get("fixed_days_off") or [])
+            )
+            if weekday_index is not None
+        ],
+        ad_hoc_unavailable=[
+            dt.date.fromisoformat(str(raw_date).replace("/", "-"))
+            for raw_date in (raw_profile.get("ad_hoc_unavailable") or [])
+        ],
+        wish_off=WorkerWishOffInput(
+            hard=[
+                dt.date.fromisoformat(str(raw_date).replace("/", "-"))
+                for raw_date in (wish_off.get("hard") or [])
+            ],
+            soft=[
+                dt.date.fromisoformat(str(raw_date).replace("/", "-"))
+                for raw_date in (wish_off.get("soft") or [])
+            ],
+        ),
+        core=bool(raw_profile.get("core", False)),
+    )
+
+
+def _parse_fixture_weekday_index(raw_value: object) -> int | None:
+    if isinstance(raw_value, int) and 0 <= raw_value <= 6:
+        return raw_value
+    if not isinstance(raw_value, str):
+        return None
+    return _FIXTURE_WEEKDAY_LOOKUP.get(raw_value.strip().casefold())

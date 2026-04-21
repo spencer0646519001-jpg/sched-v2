@@ -64,6 +64,13 @@ def test_seed_monthly_workspace_demo_is_idempotent_and_reviewable() -> None:
             "is_active",
         )
     }
+    seeded_profiles = {
+        row["code"]: row["scheduling_profile_json"] or {}
+        for row in DjangoWorker.objects.filter(tenant__slug=DEMO_TENANT_SLUG).values(
+            "code",
+            "scheduling_profile_json",
+        )
+    }
     seeded_stations = {
         row["code"]: row
         for row in DjangoStation.objects.filter(tenant__slug=DEMO_TENANT_SLUG).values(
@@ -124,6 +131,10 @@ def test_seed_monthly_workspace_demo_is_idempotent_and_reviewable() -> None:
     }
     assert seeded_station_skills == {
         worker.code: sorted(worker.station_skills)
+        for worker in DEMO_WORKERS
+    }
+    assert seeded_profiles == {
+        worker.code: worker.scheduling_profile.as_json()
         for worker in DEMO_WORKERS
     }
     assert DjangoConstraintConfig.objects.filter(
