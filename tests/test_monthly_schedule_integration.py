@@ -198,6 +198,35 @@ def test_preview_flow_with_real_engine_uses_persisted_worker_station_skills() ->
     ]
 
 
+def test_preview_flow_with_real_engine_uses_multiple_ordinary_shifts_from_persisted_inputs() -> None:
+    tenant = _seed_multi_shift_month_context()
+
+    response = PreviewMonthScheduleService(
+        tenant_repository=DjangoTenantRepository(),
+        worker_repository=DjangoWorkerRepository(),
+        station_repository=DjangoStationRepository(),
+        shift_repository=DjangoShiftRepository(),
+        leave_request_repository=DjangoLeaveRequestRepository(),
+        constraint_config_repository=DjangoConstraintConfigRepository(),
+        engine_runner=generate_month_plan,
+    ).preview_month_schedule(
+        PreviewMonthScheduleRequest(
+            tenant_slug=tenant.slug,
+            year=2026,
+            month=4,
+        )
+    )
+
+    first_day_shift_codes = [
+        assignment.shift_code
+        for assignment in response.candidate_result.assignments
+        if assignment.date == dt.date(2026, 4, 1)
+    ]
+
+    assert response.candidate_result.summary.total_warnings == 0
+    assert first_day_shift_codes == ["M1", "DAY", "EVE"]
+
+
 def test_apply_flow_creates_current_workspace_from_preview_result() -> None:
     ctx = _seed_month_context()
     preview_response = _preview_month(
@@ -558,6 +587,81 @@ def _seed_month_context() -> _SeedContext:
         station=station,
         shift=shift,
     )
+
+
+def _seed_multi_shift_month_context() -> DjangoTenant:
+    tenant = DjangoTenant.objects.create(
+        slug="multi-shift-demo",
+        name="Multi Shift Demo",
+        default_locale="en-US",
+    )
+    worker_codes = ("W1", "W2", "W3")
+    station_codes = ("GATEAU", "PREP")
+    workers_by_code: dict[str, DjangoWorker] = {}
+    stations_by_code: dict[str, DjangoStation] = {}
+
+    for worker_code in worker_codes:
+        workers_by_code[worker_code] = DjangoWorker.objects.create(
+            tenant=tenant,
+            code=worker_code,
+            name=worker_code,
+            role="employee",
+            is_active=True,
+        )
+    for station_code in station_codes:
+        stations_by_code[station_code] = DjangoStation.objects.create(
+            tenant=tenant,
+            code=station_code,
+            name=station_code.title(),
+            is_active=True,
+        )
+    for worker in workers_by_code.values():
+        for station in stations_by_code.values():
+            DjangoWorkerStationSkill.objects.create(
+                tenant=tenant,
+                worker=worker,
+                station=station,
+            )
+
+    DjangoShiftDefinition.objects.create(
+        tenant=tenant,
+        code="DAY",
+        name="Day",
+        paid_hours=Decimal("8.00"),
+        is_off_shift=False,
+    )
+    DjangoShiftDefinition.objects.create(
+        tenant=tenant,
+        code="EVE",
+        name="Evening",
+        paid_hours=Decimal("6.00"),
+        is_off_shift=False,
+    )
+    DjangoShiftDefinition.objects.create(
+        tenant=tenant,
+        code="M1",
+        name="Morning 1",
+        paid_hours=Decimal("8.00"),
+        is_off_shift=False,
+    )
+    DjangoConstraintConfig.objects.create(
+        tenant=tenant,
+        scope_type="default",
+        config_json={
+            "stations": {
+                "GATEAU": 2,
+                "PREP": 1,
+            },
+            "morning_shifts": ["M1"],
+            "stations_require_morning": {"GATEAU": 1},
+            "min_staff_weekday": 3,
+            "min_staff_weekend": 3,
+            "max_staff_per_day": 3,
+            "min_rest_days_per_month": 0,
+            "max_consecutive_days": 31,
+        },
+    )
+    return tenant
 
 
 def _preview_month(

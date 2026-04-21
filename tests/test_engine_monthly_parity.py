@@ -265,6 +265,14 @@ def test_frozen_shared_demo_monthly_parity_evaluator_stays_reproducible() -> Non
     assert report.candidate_warning_count == len(result.warnings)
     assert sum(report.candidate_metrics.shift_histogram.values()) == len(result.assignments)
     assert report.candidate_metrics.warning_counts_by_type == result.summary.warnings_by_type
+    assert len(report.candidate_metrics.shift_histogram) >= 4
+    assert (
+        _max_histogram_share(
+            report.candidate_metrics.shift_histogram,
+            report.candidate_assignment_count,
+        )
+        < 0.5
+    )
     assert set(report.candidate_metrics.per_worker_assignment_totals) == {
         worker.worker_code
         for worker in planning_input.workers
@@ -292,6 +300,15 @@ def _compute_fixture_sha256(fixture_payload: dict[str, object]) -> str:
         separators=(",", ":"),
     ).encode("utf-8")
     return hashlib.sha256(canonical).hexdigest()
+
+
+def _max_histogram_share(
+    histogram: dict[str, int],
+    total_assignments: int,
+) -> float:
+    if total_assignments <= 0 or not histogram:
+        return 0.0
+    return max(histogram.values()) / total_assignments
 
 
 def _parse_month_planning_input_fixture(

@@ -287,6 +287,70 @@ def test_generate_month_plan_warns_when_morning_station_cannot_be_covered() -> N
     }
 
 
+def test_generate_month_plan_rotates_non_morning_shifts_across_ordinary_slots() -> None:
+    result = generate_month_plan(
+        _build_planning_input(
+            workers=[
+                _worker("W1", name="Alex", station_skills=["GATEAU", "PREP"]),
+                _worker("W2", name="Casey", station_skills=["GATEAU", "PREP"]),
+                _worker("W3", name="Jordan", station_skills=["GATEAU", "PREP"]),
+            ],
+            stations=[
+                _station("GATEAU", name="Gateau"),
+                _station("PREP", name="Prep"),
+            ],
+            shifts=[
+                _shift("DAY", name="Day", paid_hours="8"),
+                _shift("EVE", name="Evening", paid_hours="6"),
+                _shift("M1", name="Morning 1", paid_hours="8"),
+            ],
+            constraint_config={
+                "stations": {
+                    "GATEAU": 2,
+                    "PREP": 1,
+                },
+                "min_staff_weekday": 3,
+                "min_staff_weekend": 3,
+                "max_staff_per_day": 3,
+                "morning_shifts": ["M1"],
+                "stations_require_morning": {"GATEAU": 1},
+                "max_consecutive_days": 31,
+            },
+        )
+    )
+
+    first_day_assignments = [
+        (
+            assignment.worker_code,
+            assignment.shift_code,
+            assignment.station_code,
+        )
+        for assignment in result.assignments
+        if assignment.date == dt.date(2026, 4, 1)
+    ]
+    second_day_assignments = [
+        (
+            assignment.worker_code,
+            assignment.shift_code,
+            assignment.station_code,
+        )
+        for assignment in result.assignments
+        if assignment.date == dt.date(2026, 4, 2)
+    ]
+
+    assert first_day_assignments == [
+        ("W1", "M1", "GATEAU"),
+        ("W2", "DAY", "GATEAU"),
+        ("W3", "EVE", "PREP"),
+    ]
+    assert second_day_assignments == [
+        ("W1", "M1", "GATEAU"),
+        ("W2", "EVE", "GATEAU"),
+        ("W3", "DAY", "PREP"),
+    ]
+    assert result.summary.total_warnings == 0
+
+
 def test_generate_month_plan_warns_when_required_chef_is_impossible() -> None:
     result = generate_month_plan(
         _build_planning_input(
@@ -445,7 +509,11 @@ def test_generate_month_plan_applies_patch_override_after_baseline() -> None:
     assert first_assignment.source == "adjustment_patch"
     assert first_assignment.note == "manual override"
     assert result.summary.total_assignments == 30
-    assert result.summary.paid_hours_by_worker == {"W1": Decimal("238")}
+    expected_paid_hours = sum(
+        Decimal("8") if assignment.shift_code == "DAY" else Decimal("6")
+        for assignment in result.assignments
+    )
+    assert result.summary.paid_hours_by_worker == {"W1": expected_paid_hours}
     assert result.metadata.refinement_applied is True
     assert "adjustment_patch_applied" in (result.metadata.notes or [])
 

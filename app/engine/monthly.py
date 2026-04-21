@@ -96,6 +96,10 @@ def generate_month_plan(planning_input: MonthPlanningInput) -> MonthPlanningResu
         settings.morning_shift_codes,
         shifts_by_code=shifts_by_code,
     )
+    ordinary_shift_pool = _resolve_ordinary_shift_pool(
+        working_shifts,
+        morning_shift_codes=settings.morning_shift_codes,
+    )
 
     notes = {_BASELINE_NOTE}
     if (
@@ -111,6 +115,7 @@ def generate_month_plan(planning_input: MonthPlanningInput) -> MonthPlanningResu
         active_station_codes=active_station_codes,
         primary_shift=primary_shift,
         morning_shift=morning_shift,
+        ordinary_shift_pool=ordinary_shift_pool,
         leave_dates_by_worker=leave_dates_by_worker,
         settings=settings,
     )
@@ -221,6 +226,7 @@ def _build_baseline_assignments(
     active_station_codes: list[str],
     primary_shift: ShiftInput | None,
     morning_shift: ShiftInput | None,
+    ordinary_shift_pool: tuple[ShiftInput, ...],
     leave_dates_by_worker: dict[str, set[dt.date]],
     settings: _PlannerSettings,
 ) -> tuple[list[AssignmentOutput], list[WarningOutput]]:
@@ -248,6 +254,7 @@ def _build_baseline_assignments(
         assigned_station_counts: Counter[str] = Counter()
         assigned_morning_station_counts: Counter[str] = Counter()
         chef_assignment_counted_in_headcount = 0
+        ordinary_shift_index = 0
 
         if settings.require_one_chef and settings.chefs_have_no_shift:
             chef_worker = _select_worker(
@@ -304,8 +311,10 @@ def _build_baseline_assignments(
                 chef_slot = fillable_station_slots[0]
                 chef_shift = _resolve_station_slot_shift(
                     chef_slot,
-                    primary_shift=primary_shift,
+                    assignment_date=assignment_date,
+                    ordinary_shift_index=ordinary_shift_index,
                     morning_shift=morning_shift,
+                    ordinary_shift_pool=ordinary_shift_pool,
                 )
                 chef_worker = _select_worker(
                     assignment_date,
@@ -336,6 +345,11 @@ def _build_baseline_assignments(
                         assigned_dates_by_worker=assigned_dates_by_worker,
                         morning_shift_codes=morning_shift_codes,
                     )
+                    if not _slot_uses_configured_morning_shift(
+                        chef_slot,
+                        morning_shift=morning_shift,
+                    ):
+                        ordinary_shift_index += 1
                     remaining_station_slots = fillable_station_slots[1:]
             else:
                 warnings.append(
@@ -345,9 +359,16 @@ def _build_baseline_assignments(
         for station_slot in remaining_station_slots:
             shift = _resolve_station_slot_shift(
                 station_slot,
-                primary_shift=primary_shift,
+                assignment_date=assignment_date,
+                ordinary_shift_index=ordinary_shift_index,
                 morning_shift=morning_shift,
+                ordinary_shift_pool=ordinary_shift_pool,
             )
+            if not _slot_uses_configured_morning_shift(
+                station_slot,
+                morning_shift=morning_shift,
+            ):
+                ordinary_shift_index += 1
             worker = _select_worker(
                 assignment_date,
                 candidate_workers=assignable_station_workers,
@@ -477,12 +498,73 @@ def _resolve_daily_minimum_staff(
 def _resolve_station_slot_shift(
     station_slot: _RequiredStationSlot,
     *,
-    primary_shift: ShiftInput | None,
+    assignment_date: dt.date,
+    ordinary_shift_index: int,
     morning_shift: ShiftInput | None,
+    ordinary_shift_pool: tuple[ShiftInput, ...],
 ) -> ShiftInput | None:
-    if station_slot.requires_morning and morning_shift is not None:
+    if _slot_uses_configured_morning_shift(
+        station_slot,
+        morning_shift=morning_shift,
+    ):
         return morning_shift
-    return primary_shift
+    return _select_ordinary_shift_for_slot(
+        assignment_date,
+        ordinary_shift_index=ordinary_shift_index,
+        ordinary_shift_pool=ordinary_shift_pool,
+    )
+
+
+def _slot_uses_configured_morning_shift(
+    station_slot: _RequiredStationSlot,
+    *,
+    morning_shift: ShiftInput | None,
+) -> bool:
+    return station_slot.requires_morning and morning_shift is not None
+
+
+def _select_ordinary_shift_for_slot(
+    assignment_date: dt.date,
+    *,
+    ordinary_shift_index: int,
+    ordinary_shift_pool: tuple[ShiftInput, ...],
+) -> ShiftInput | None:
+    if not ordinary_shift_pool:
+        return None
+    shift_index = (
+        (assignment_date.day - 1) + ordinary_shift_index
+    ) % len(ordinary_shift_pool)
+    return ordinary_shift_pool[shift_index]
+
+
+def _resolve_ordinary_shift_pool(
+    working_shifts: list[ShiftInput],
+    *,
+    morning_shift_codes: tuple[str, ...],
+) -> tuple[ShiftInput, ...]:
+    morning_shift_code_set = set(morning_shift_codes)
+    ordered_working_shifts = _sort_slot_shift_candidates(working_shifts)
+    ordinary_shifts = tuple(
+        shift
+        for shift in ordered_working_shifts
+        if shift.shift_code not in morning_shift_code_set
+    )
+    if ordinary_shifts:
+        return ordinary_shifts
+    return tuple(ordered_working_shifts)
+
+
+def _sort_slot_shift_candidates(
+    shifts: list[ShiftInput],
+) -> list[ShiftInput]:
+    return sorted(
+        shifts,
+        key=lambda shift: (
+            shift.start_time is None,
+            shift.start_time or dt.time.max,
+            shift.shift_code,
+        ),
+    )
 
 
 def _select_worker(
