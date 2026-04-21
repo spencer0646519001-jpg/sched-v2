@@ -1,0 +1,1323 @@
+{
+  "artifact_version": "v1",
+  "fixture_id": "shared_demo_april_2026",
+  "fixture_sha256": "467bfe931f1454ee49de4c09499b4e13d55a3dee867a96b5e7cb6ba726ad6ae6",
+  "generated_at": "2026-04-21T04:00:02+00:00",
+  "generated_from": {
+    "repo": "sched-mvp",
+    "commit": "37b2797a900692df573e1cf70e5ac07023bb5f69",
+    "entrypoint": "app.generate_week.generate_week",
+    "month_rollup": "weekly_chunk_rollup"
+  },
+  "normalization_notes": [
+    "worker identities are mapped from fixture names to fixture worker_code values",
+    "station codes are normalized to the frozen fixture station_code values",
+    "headcount-only chef presence is not synthesized into assignment rows",
+    "weekly_rest warnings are reconstructed from month assignment coverage",
+    "shared demo baseline uses an empty holiday calendar for cross-repo parity"
+  ],
+  "assignments": [
+    {
+      "date": "2026-04-01",
+      "worker_code": "CHUNG",
+      "shift_code": "D",
+      "station_code": "glaze_and_fruit"
+    },
+    {
+      "date": "2026-04-01",
+      "worker_code": "ISHIKAWA",
+      "shift_code": "C",
+      "station_code": "gateau"
+    },
+    {
+      "date": "2026-04-01",
+      "worker_code": "KOMURA",
+      "shift_code": "C",
+      "station_code": "petit_four"
+    },
+    {
+      "date": "2026-04-01",
+      "worker_code": "MOCHIZUKI",
+      "shift_code": "B",
+      "station_code": "gateau"
+    },
+    {
+      "date": "2026-04-01",
+      "worker_code": "SPENCER",
+      "shift_code": "A",
+      "station_code": "mise_en_place"
+    },
+    {
+      "date": "2026-04-01",
+      "worker_code": "TAKAI",
+      "shift_code": "A",
+      "station_code": "glaze_and_fruit"
+    },
+    {
+      "date": "2026-04-01",
+      "worker_code": "TARUTANI",
+      "shift_code": "D",
+      "station_code": "mise_en_place"
+    },
+    {
+      "date": "2026-04-02",
+      "worker_code": "CHUNG",
+      "shift_code": "B",
+      "station_code": "glaze_and_fruit"
+    },
+    {
+      "date": "2026-04-02",
+      "worker_code": "ISHIKAWA",
+      "shift_code": "C",
+      "station_code": "glaze_and_fruit"
+    },
+    {
+      "date": "2026-04-02",
+      "worker_code": "KIM",
+      "shift_code": "B",
+      "station_code": "gateau"
+    },
+    {
+      "date": "2026-04-02",
+      "worker_code": "MIYAZAWA",
+      "shift_code": "D",
+      "station_code": "petit_four"
+    },
+    {
+      "date": "2026-04-02",
+      "worker_code": "MOCHIZUKI",
+      "shift_code": "A",
+      "station_code": "gateau"
+    },
+    {
+      "date": "2026-04-02",
+      "worker_code": "SERA",
+      "shift_code": "A",
+      "station_code": "mise_en_place"
+    },
+    {
+      "date": "2026-04-02",
+      "worker_code": "TARUTANI",
+      "shift_code": "D",
+      "station_code": "mise_en_place"
+    },
+    {
+      "date": "2026-04-03",
+      "worker_code": "CHUNG",
+      "shift_code": "C",
+      "station_code": "glaze_and_fruit"
+    },
+    {
+      "date": "2026-04-03",
+      "worker_code": "KIM",
+      "shift_code": "B",
+      "station_code": "gateau"
+    },
+    {
+      "date": "2026-04-03",
+      "worker_code": "KOMURA",
+      "shift_code": "A",
+      "station_code": "petit_four"
+    },
+    {
+      "date": "2026-04-03",
+      "worker_code": "MIYAZAWA",
+      "shift_code": "A",
+      "station_code": "mise_en_place"
+    },
+    {
+      "date": "2026-04-03",
+      "worker_code": "MOCHIZUKI",
+      "shift_code": "A",
+      "station_code": "glaze_and_fruit"
+    },
+    {
+      "date": "2026-04-03",
+      "worker_code": "SPENCER",
+      "shift_code": "B",
+      "station_code": "mise_en_place"
+    },
+    {
+      "date": "2026-04-03",
+      "worker_code": "TAKAI",
+      "shift_code": "A",
+      "station_code": "gateau"
+    },
+    {
+      "date": "2026-04-04",
+      "worker_code": "CHUNG",
+      "shift_code": "1",
+      "station_code": "glaze_and_fruit"
+    },
+    {
+      "date": "2026-04-04",
+      "worker_code": "ISHIKAWA",
+      "shift_code": "B",
+      "station_code": "glaze_and_fruit"
+    },
+    {
+      "date": "2026-04-04",
+      "worker_code": "KOMURA",
+      "shift_code": "A",
+      "station_code": "petit_four"
+    },
+    {
+      "date": "2026-04-04",
+      "worker_code": "SERA",
+      "shift_code": "1",
+      "station_code": "mise_en_place"
+    },
+    {
+      "date": "2026-04-04",
+      "worker_code": "SPENCER",
+      "shift_code": "3",
+      "station_code": "mise_en_place"
+    },
+    {
+      "date": "2026-04-04",
+      "worker_code": "TAKAI",
+      "shift_code": "C",
+      "station_code": "gateau"
+    },
+    {
+      "date": "2026-04-04",
+      "worker_code": "TARUTANI",
+      "shift_code": "2",
+      "station_code": "gateau"
+    },
+    {
+      "date": "2026-04-05",
+      "worker_code": "ISHIKAWA",
+      "shift_code": "C",
+      "station_code": "gateau"
+    },
+    {
+      "date": "2026-04-05",
+      "worker_code": "KIM",
+      "shift_code": "A",
+      "station_code": "gateau"
+    },
+    {
+      "date": "2026-04-05",
+      "worker_code": "MIYAZAWA",
+      "shift_code": "4",
+      "station_code": "mise_en_place"
+    },
+    {
+      "date": "2026-04-05",
+      "worker_code": "MOCHIZUKI",
+      "shift_code": "C",
+      "station_code": "glaze_and_fruit"
+    },
+    {
+      "date": "2026-04-05",
+      "worker_code": "SERA",
+      "shift_code": "A",
+      "station_code": "petit_four"
+    },
+    {
+      "date": "2026-04-05",
+      "worker_code": "TAKAI",
+      "shift_code": "C",
+      "station_code": "glaze_and_fruit"
+    },
+    {
+      "date": "2026-04-05",
+      "worker_code": "TARUTANI",
+      "shift_code": "4",
+      "station_code": "mise_en_place"
+    },
+    {
+      "date": "2026-04-06",
+      "worker_code": "CHUNG",
+      "shift_code": "D",
+      "station_code": "glaze_and_fruit"
+    },
+    {
+      "date": "2026-04-06",
+      "worker_code": "ISHIKAWA",
+      "shift_code": "C",
+      "station_code": "glaze_and_fruit"
+    },
+    {
+      "date": "2026-04-06",
+      "worker_code": "KIM",
+      "shift_code": "D",
+      "station_code": "gateau"
+    },
+    {
+      "date": "2026-04-06",
+      "worker_code": "KOMURA",
+      "shift_code": "D",
+      "station_code": "petit_four"
+    },
+    {
+      "date": "2026-04-06",
+      "worker_code": "MIYAZAWA",
+      "shift_code": "C",
+      "station_code": "mise_en_place"
+    },
+    {
+      "date": "2026-04-06",
+      "worker_code": "MOCHIZUKI",
+      "shift_code": "C",
+      "station_code": "gateau"
+    },
+    {
+      "date": "2026-04-06",
+      "worker_code": "SPENCER",
+      "shift_code": "A",
+      "station_code": "mise_en_place"
+    },
+    {
+      "date": "2026-04-07",
+      "worker_code": "CHUNG",
+      "shift_code": "A",
+      "station_code": "glaze_and_fruit"
+    },
+    {
+      "date": "2026-04-07",
+      "worker_code": "KOMURA",
+      "shift_code": "C",
+      "station_code": "petit_four"
+    },
+    {
+      "date": "2026-04-07",
+      "worker_code": "MOCHIZUKI",
+      "shift_code": "D",
+      "station_code": "glaze_and_fruit"
+    },
+    {
+      "date": "2026-04-07",
+      "worker_code": "SERA",
+      "shift_code": "C",
+      "station_code": "mise_en_place"
+    },
+    {
+      "date": "2026-04-07",
+      "worker_code": "SPENCER",
+      "shift_code": "A",
+      "station_code": "mise_en_place"
+    },
+    {
+      "date": "2026-04-07",
+      "worker_code": "TAKAI",
+      "shift_code": "C",
+      "station_code": "gateau"
+    },
+    {
+      "date": "2026-04-07",
+      "worker_code": "TARUTANI",
+      "shift_code": "A",
+      "station_code": "gateau"
+    },
+    {
+      "date": "2026-04-08",
+      "worker_code": "CHUNG",
+      "shift_code": "A",
+      "station_code": "glaze_and_fruit"
+    },
+    {
+      "date": "2026-04-08",
+      "worker_code": "ISHIKAWA",
+      "shift_code": "D",
+      "station_code": "gateau"
+    },
+    {
+      "date": "2026-04-08",
+      "worker_code": "KIM",
+      "shift_code": "B",
+      "station_code": "mise_en_place"
+    },
+    {
+      "date": "2026-04-08",
+      "worker_code": "MIYAZAWA",
+      "shift_code": "A",
+      "station_code": "petit_four"
+    },
+    {
+      "date": "2026-04-08",
+      "worker_code": "SERA",
+      "shift_code": "A",
+      "station_code": "mise_en_place"
+    },
+    {
+      "date": "2026-04-08",
+      "worker_code": "TAKAI",
+      "shift_code": "A",
+      "station_code": "glaze_and_fruit"
+    },
+    {
+      "date": "2026-04-08",
+      "worker_code": "TARUTANI",
+      "shift_code": "D",
+      "station_code": "gateau"
+    },
+    {
+      "date": "2026-04-09",
+      "worker_code": "ISHIKAWA",
+      "shift_code": "B",
+      "station_code": "glaze_and_fruit"
+    },
+    {
+      "date": "2026-04-09",
+      "worker_code": "KIM",
+      "shift_code": "D",
+      "station_code": "gateau"
+    },
+    {
+      "date": "2026-04-09",
+      "worker_code": "KOMURA",
+      "shift_code": "C",
+      "station_code": "petit_four"
+    },
+    {
+      "date": "2026-04-09",
+      "worker_code": "MIYAZAWA",
+      "shift_code": "A",
+      "station_code": "mise_en_place"
+    },
+    {
+      "date": "2026-04-09",
+      "worker_code": "MOCHIZUKI",
+      "shift_code": "A",
+      "station_code": "gateau"
+    },
+    {
+      "date": "2026-04-09",
+      "worker_code": "SPENCER",
+      "shift_code": "C",
+      "station_code": "mise_en_place"
+    },
+    {
+      "date": "2026-04-09",
+      "worker_code": "TAKAI",
+      "shift_code": "B",
+      "station_code": "glaze_and_fruit"
+    },
+    {
+      "date": "2026-04-10",
+      "worker_code": "CHUNG",
+      "shift_code": "B",
+      "station_code": "glaze_and_fruit"
+    },
+    {
+      "date": "2026-04-10",
+      "worker_code": "ISHIKAWA",
+      "shift_code": "A",
+      "station_code": "glaze_and_fruit"
+    },
+    {
+      "date": "2026-04-10",
+      "worker_code": "KOMURA",
+      "shift_code": "C",
+      "station_code": "petit_four"
+    },
+    {
+      "date": "2026-04-10",
+      "worker_code": "MOCHIZUKI",
+      "shift_code": "A",
+      "station_code": "gateau"
+    },
+    {
+      "date": "2026-04-10",
+      "worker_code": "SERA",
+      "shift_code": "D",
+      "station_code": "mise_en_place"
+    },
+    {
+      "date": "2026-04-10",
+      "worker_code": "SPENCER",
+      "shift_code": "A",
+      "station_code": "mise_en_place"
+    },
+    {
+      "date": "2026-04-10",
+      "worker_code": "TARUTANI",
+      "shift_code": "B",
+      "station_code": "gateau"
+    },
+    {
+      "date": "2026-04-11",
+      "worker_code": "CHUNG",
+      "shift_code": "C",
+      "station_code": "glaze_and_fruit"
+    },
+    {
+      "date": "2026-04-11",
+      "worker_code": "KIM",
+      "shift_code": "A",
+      "station_code": "gateau"
+    },
+    {
+      "date": "2026-04-11",
+      "worker_code": "MIYAZAWA",
+      "shift_code": "A",
+      "station_code": "mise_en_place"
+    },
+    {
+      "date": "2026-04-11",
+      "worker_code": "SERA",
+      "shift_code": "A",
+      "station_code": "petit_four"
+    },
+    {
+      "date": "2026-04-11",
+      "worker_code": "SPENCER",
+      "shift_code": "3",
+      "station_code": "mise_en_place"
+    },
+    {
+      "date": "2026-04-11",
+      "worker_code": "TAKAI",
+      "shift_code": "C",
+      "station_code": "glaze_and_fruit"
+    },
+    {
+      "date": "2026-04-11",
+      "worker_code": "TARUTANI",
+      "shift_code": "A",
+      "station_code": "gateau"
+    },
+    {
+      "date": "2026-04-12",
+      "worker_code": "CHUNG",
+      "shift_code": "2",
+      "station_code": "glaze_and_fruit"
+    },
+    {
+      "date": "2026-04-12",
+      "worker_code": "ISHIKAWA",
+      "shift_code": "D",
+      "station_code": "glaze_and_fruit"
+    },
+    {
+      "date": "2026-04-12",
+      "worker_code": "KIM",
+      "shift_code": "1",
+      "station_code": "petit_four"
+    },
+    {
+      "date": "2026-04-12",
+      "worker_code": "KOMURA",
+      "shift_code": "D",
+      "station_code": "mise_en_place"
+    },
+    {
+      "date": "2026-04-12",
+      "worker_code": "MIYAZAWA",
+      "shift_code": "3",
+      "station_code": "mise_en_place"
+    },
+    {
+      "date": "2026-04-12",
+      "worker_code": "MOCHIZUKI",
+      "shift_code": "D",
+      "station_code": "gateau"
+    },
+    {
+      "date": "2026-04-12",
+      "worker_code": "TAKAI",
+      "shift_code": "C",
+      "station_code": "gateau"
+    },
+    {
+      "date": "2026-04-13",
+      "worker_code": "ISHIKAWA",
+      "shift_code": "A",
+      "station_code": "gateau"
+    },
+    {
+      "date": "2026-04-13",
+      "worker_code": "KOMURA",
+      "shift_code": "C",
+      "station_code": "petit_four"
+    },
+    {
+      "date": "2026-04-13",
+      "worker_code": "MOCHIZUKI",
+      "shift_code": "C",
+      "station_code": "glaze_and_fruit"
+    },
+    {
+      "date": "2026-04-13",
+      "worker_code": "SERA",
+      "shift_code": "C",
+      "station_code": "mise_en_place"
+    },
+    {
+      "date": "2026-04-13",
+      "worker_code": "SPENCER",
+      "shift_code": "D",
+      "station_code": "mise_en_place"
+    },
+    {
+      "date": "2026-04-13",
+      "worker_code": "TAKAI",
+      "shift_code": "D",
+      "station_code": "glaze_and_fruit"
+    },
+    {
+      "date": "2026-04-13",
+      "worker_code": "TARUTANI",
+      "shift_code": "A",
+      "station_code": "gateau"
+    },
+    {
+      "date": "2026-04-14",
+      "worker_code": "CHUNG",
+      "shift_code": "B",
+      "station_code": "glaze_and_fruit"
+    },
+    {
+      "date": "2026-04-14",
+      "worker_code": "KIM",
+      "shift_code": "C",
+      "station_code": "gateau"
+    },
+    {
+      "date": "2026-04-14",
+      "worker_code": "MIYAZAWA",
+      "shift_code": "C",
+      "station_code": "mise_en_place"
+    },
+    {
+      "date": "2026-04-14",
+      "worker_code": "MOCHIZUKI",
+      "shift_code": "C",
+      "station_code": "glaze_and_fruit"
+    },
+    {
+      "date": "2026-04-14",
+      "worker_code": "SERA",
+      "shift_code": "A",
+      "station_code": "petit_four"
+    },
+    {
+      "date": "2026-04-14",
+      "worker_code": "SPENCER",
+      "shift_code": "D",
+      "station_code": "mise_en_place"
+    },
+    {
+      "date": "2026-04-14",
+      "worker_code": "TARUTANI",
+      "shift_code": "B",
+      "station_code": "gateau"
+    },
+    {
+      "date": "2026-04-15",
+      "worker_code": "CHUNG",
+      "shift_code": "C",
+      "station_code": "glaze_and_fruit"
+    },
+    {
+      "date": "2026-04-15",
+      "worker_code": "ISHIKAWA",
+      "shift_code": "D",
+      "station_code": "gateau"
+    },
+    {
+      "date": "2026-04-15",
+      "worker_code": "KIM",
+      "shift_code": "A",
+      "station_code": "petit_four"
+    },
+    {
+      "date": "2026-04-15",
+      "worker_code": "KOMURA",
+      "shift_code": "B",
+      "station_code": "mise_en_place"
+    },
+    {
+      "date": "2026-04-15",
+      "worker_code": "MIYAZAWA",
+      "shift_code": "C",
+      "station_code": "mise_en_place"
+    },
+    {
+      "date": "2026-04-15",
+      "worker_code": "TAKAI",
+      "shift_code": "C",
+      "station_code": "glaze_and_fruit"
+    },
+    {
+      "date": "2026-04-15",
+      "worker_code": "TARUTANI",
+      "shift_code": "C",
+      "station_code": "gateau"
+    },
+    {
+      "date": "2026-04-16",
+      "worker_code": "CHUNG",
+      "shift_code": "A",
+      "station_code": "glaze_and_fruit"
+    },
+    {
+      "date": "2026-04-16",
+      "worker_code": "ISHIKAWA",
+      "shift_code": "D",
+      "station_code": "glaze_and_fruit"
+    },
+    {
+      "date": "2026-04-16",
+      "worker_code": "KOMURA",
+      "shift_code": "D",
+      "station_code": "mise_en_place"
+    },
+    {
+      "date": "2026-04-16",
+      "worker_code": "MOCHIZUKI",
+      "shift_code": "B",
+      "station_code": "gateau"
+    },
+    {
+      "date": "2026-04-16",
+      "worker_code": "SERA",
+      "shift_code": "B",
+      "station_code": "petit_four"
+    },
+    {
+      "date": "2026-04-16",
+      "worker_code": "SPENCER",
+      "shift_code": "C",
+      "station_code": "mise_en_place"
+    },
+    {
+      "date": "2026-04-16",
+      "worker_code": "TAKAI",
+      "shift_code": "A",
+      "station_code": "gateau"
+    },
+    {
+      "date": "2026-04-17",
+      "worker_code": "ISHIKAWA",
+      "shift_code": "C",
+      "station_code": "gateau"
+    },
+    {
+      "date": "2026-04-17",
+      "worker_code": "KIM",
+      "shift_code": "A",
+      "station_code": "mise_en_place"
+    },
+    {
+      "date": "2026-04-17",
+      "worker_code": "MIYAZAWA",
+      "shift_code": "D",
+      "station_code": "petit_four"
+    },
+    {
+      "date": "2026-04-17",
+      "worker_code": "MOCHIZUKI",
+      "shift_code": "A",
+      "station_code": "glaze_and_fruit"
+    },
+    {
+      "date": "2026-04-17",
+      "worker_code": "SERA",
+      "shift_code": "B",
+      "station_code": "mise_en_place"
+    },
+    {
+      "date": "2026-04-17",
+      "worker_code": "TAKAI",
+      "shift_code": "A",
+      "station_code": "glaze_and_fruit"
+    },
+    {
+      "date": "2026-04-17",
+      "worker_code": "TARUTANI",
+      "shift_code": "B",
+      "station_code": "gateau"
+    },
+    {
+      "date": "2026-04-18",
+      "worker_code": "CHUNG",
+      "shift_code": "2",
+      "station_code": "glaze_and_fruit"
+    },
+    {
+      "date": "2026-04-18",
+      "worker_code": "KIM",
+      "shift_code": "A",
+      "station_code": "gateau"
+    },
+    {
+      "date": "2026-04-18",
+      "worker_code": "KOMURA",
+      "shift_code": "C",
+      "station_code": "petit_four"
+    },
+    {
+      "date": "2026-04-18",
+      "worker_code": "MIYAZAWA",
+      "shift_code": "C",
+      "station_code": "mise_en_place"
+    },
+    {
+      "date": "2026-04-18",
+      "worker_code": "MOCHIZUKI",
+      "shift_code": "D",
+      "station_code": "glaze_and_fruit"
+    },
+    {
+      "date": "2026-04-18",
+      "worker_code": "SPENCER",
+      "shift_code": "C",
+      "station_code": "mise_en_place"
+    },
+    {
+      "date": "2026-04-18",
+      "worker_code": "TARUTANI",
+      "shift_code": "1",
+      "station_code": "gateau"
+    },
+    {
+      "date": "2026-04-19",
+      "worker_code": "CHUNG",
+      "shift_code": "D",
+      "station_code": "glaze_and_fruit"
+    },
+    {
+      "date": "2026-04-19",
+      "worker_code": "ISHIKAWA",
+      "shift_code": "C",
+      "station_code": "gateau"
+    },
+    {
+      "date": "2026-04-19",
+      "worker_code": "KOMURA",
+      "shift_code": "4",
+      "station_code": "petit_four"
+    },
+    {
+      "date": "2026-04-19",
+      "worker_code": "SERA",
+      "shift_code": "2",
+      "station_code": "mise_en_place"
+    },
+    {
+      "date": "2026-04-19",
+      "worker_code": "SPENCER",
+      "shift_code": "D",
+      "station_code": "mise_en_place"
+    },
+    {
+      "date": "2026-04-19",
+      "worker_code": "TAKAI",
+      "shift_code": "C",
+      "station_code": "glaze_and_fruit"
+    },
+    {
+      "date": "2026-04-19",
+      "worker_code": "TARUTANI",
+      "shift_code": "1",
+      "station_code": "gateau"
+    },
+    {
+      "date": "2026-04-20",
+      "worker_code": "CHUNG",
+      "shift_code": "C",
+      "station_code": "glaze_and_fruit"
+    },
+    {
+      "date": "2026-04-20",
+      "worker_code": "ISHIKAWA",
+      "shift_code": "B",
+      "station_code": "glaze_and_fruit"
+    },
+    {
+      "date": "2026-04-20",
+      "worker_code": "KIM",
+      "shift_code": "A",
+      "station_code": "petit_four"
+    },
+    {
+      "date": "2026-04-20",
+      "worker_code": "MIYAZAWA",
+      "shift_code": "A",
+      "station_code": "mise_en_place"
+    },
+    {
+      "date": "2026-04-20",
+      "worker_code": "MOCHIZUKI",
+      "shift_code": "C",
+      "station_code": "gateau"
+    },
+    {
+      "date": "2026-04-20",
+      "worker_code": "SERA",
+      "shift_code": "B",
+      "station_code": "mise_en_place"
+    },
+    {
+      "date": "2026-04-20",
+      "worker_code": "TAKAI",
+      "shift_code": "D",
+      "station_code": "gateau"
+    },
+    {
+      "date": "2026-04-21",
+      "worker_code": "ISHIKAWA",
+      "shift_code": "B",
+      "station_code": "glaze_and_fruit"
+    },
+    {
+      "date": "2026-04-21",
+      "worker_code": "KIM",
+      "shift_code": "A",
+      "station_code": "gateau"
+    },
+    {
+      "date": "2026-04-21",
+      "worker_code": "KOMURA",
+      "shift_code": "A",
+      "station_code": "petit_four"
+    },
+    {
+      "date": "2026-04-21",
+      "worker_code": "MIYAZAWA",
+      "shift_code": "B",
+      "station_code": "mise_en_place"
+    },
+    {
+      "date": "2026-04-21",
+      "worker_code": "MOCHIZUKI",
+      "shift_code": "D",
+      "station_code": "glaze_and_fruit"
+    },
+    {
+      "date": "2026-04-21",
+      "worker_code": "SPENCER",
+      "shift_code": "C",
+      "station_code": "mise_en_place"
+    },
+    {
+      "date": "2026-04-21",
+      "worker_code": "TARUTANI",
+      "shift_code": "C",
+      "station_code": "gateau"
+    },
+    {
+      "date": "2026-04-22",
+      "worker_code": "CHUNG",
+      "shift_code": "D",
+      "station_code": "glaze_and_fruit"
+    },
+    {
+      "date": "2026-04-22",
+      "worker_code": "KOMURA",
+      "shift_code": "B",
+      "station_code": "petit_four"
+    },
+    {
+      "date": "2026-04-22",
+      "worker_code": "MOCHIZUKI",
+      "shift_code": "D",
+      "station_code": "glaze_and_fruit"
+    },
+    {
+      "date": "2026-04-22",
+      "worker_code": "SERA",
+      "shift_code": "D",
+      "station_code": "mise_en_place"
+    },
+    {
+      "date": "2026-04-22",
+      "worker_code": "SPENCER",
+      "shift_code": "A",
+      "station_code": "mise_en_place"
+    },
+    {
+      "date": "2026-04-22",
+      "worker_code": "TAKAI",
+      "shift_code": "C",
+      "station_code": "gateau"
+    },
+    {
+      "date": "2026-04-22",
+      "worker_code": "TARUTANI",
+      "shift_code": "A",
+      "station_code": "gateau"
+    },
+    {
+      "date": "2026-04-23",
+      "worker_code": "CHUNG",
+      "shift_code": "A",
+      "station_code": "glaze_and_fruit"
+    },
+    {
+      "date": "2026-04-23",
+      "worker_code": "ISHIKAWA",
+      "shift_code": "B",
+      "station_code": "gateau"
+    },
+    {
+      "date": "2026-04-23",
+      "worker_code": "KIM",
+      "shift_code": "A",
+      "station_code": "mise_en_place"
+    },
+    {
+      "date": "2026-04-23",
+      "worker_code": "MIYAZAWA",
+      "shift_code": "A",
+      "station_code": "petit_four"
+    },
+    {
+      "date": "2026-04-23",
+      "worker_code": "MOCHIZUKI",
+      "shift_code": "A",
+      "station_code": "glaze_and_fruit"
+    },
+    {
+      "date": "2026-04-23",
+      "worker_code": "SERA",
+      "shift_code": "C",
+      "station_code": "mise_en_place"
+    },
+    {
+      "date": "2026-04-23",
+      "worker_code": "TAKAI",
+      "shift_code": "B",
+      "station_code": "gateau"
+    },
+    {
+      "date": "2026-04-24",
+      "worker_code": "CHUNG",
+      "shift_code": "B",
+      "station_code": "glaze_and_fruit"
+    },
+    {
+      "date": "2026-04-24",
+      "worker_code": "ISHIKAWA",
+      "shift_code": "C",
+      "station_code": "glaze_and_fruit"
+    },
+    {
+      "date": "2026-04-24",
+      "worker_code": "KIM",
+      "shift_code": "B",
+      "station_code": "petit_four"
+    },
+    {
+      "date": "2026-04-24",
+      "worker_code": "KOMURA",
+      "shift_code": "B",
+      "station_code": "mise_en_place"
+    },
+    {
+      "date": "2026-04-24",
+      "worker_code": "SPENCER",
+      "shift_code": "D",
+      "station_code": "mise_en_place"
+    },
+    {
+      "date": "2026-04-24",
+      "worker_code": "TAKAI",
+      "shift_code": "C",
+      "station_code": "gateau"
+    },
+    {
+      "date": "2026-04-24",
+      "worker_code": "TARUTANI",
+      "shift_code": "D",
+      "station_code": "gateau"
+    },
+    {
+      "date": "2026-04-25",
+      "worker_code": "CHUNG",
+      "shift_code": "B",
+      "station_code": "glaze_and_fruit"
+    },
+    {
+      "date": "2026-04-25",
+      "worker_code": "ISHIKAWA",
+      "shift_code": "C",
+      "station_code": "glaze_and_fruit"
+    },
+    {
+      "date": "2026-04-25",
+      "worker_code": "KOMURA",
+      "shift_code": "2",
+      "station_code": "mise_en_place"
+    },
+    {
+      "date": "2026-04-25",
+      "worker_code": "MIYAZAWA",
+      "shift_code": "1",
+      "station_code": "mise_en_place"
+    },
+    {
+      "date": "2026-04-25",
+      "worker_code": "MOCHIZUKI",
+      "shift_code": "C",
+      "station_code": "gateau"
+    },
+    {
+      "date": "2026-04-25",
+      "worker_code": "SERA",
+      "shift_code": "1",
+      "station_code": "petit_four"
+    },
+    {
+      "date": "2026-04-25",
+      "worker_code": "TARUTANI",
+      "shift_code": "D",
+      "station_code": "gateau"
+    },
+    {
+      "date": "2026-04-26",
+      "worker_code": "ISHIKAWA",
+      "shift_code": "1",
+      "station_code": "glaze_and_fruit"
+    },
+    {
+      "date": "2026-04-26",
+      "worker_code": "KIM",
+      "shift_code": "D",
+      "station_code": "gateau"
+    },
+    {
+      "date": "2026-04-26",
+      "worker_code": "MIYAZAWA",
+      "shift_code": "2",
+      "station_code": "petit_four"
+    },
+    {
+      "date": "2026-04-26",
+      "worker_code": "MOCHIZUKI",
+      "shift_code": "A",
+      "station_code": "gateau"
+    },
+    {
+      "date": "2026-04-26",
+      "worker_code": "SERA",
+      "shift_code": "D",
+      "station_code": "mise_en_place"
+    },
+    {
+      "date": "2026-04-26",
+      "worker_code": "SPENCER",
+      "shift_code": "2",
+      "station_code": "mise_en_place"
+    },
+    {
+      "date": "2026-04-26",
+      "worker_code": "TAKAI",
+      "shift_code": "1",
+      "station_code": "glaze_and_fruit"
+    },
+    {
+      "date": "2026-04-27",
+      "worker_code": "CHUNG",
+      "shift_code": "A",
+      "station_code": "glaze_and_fruit"
+    },
+    {
+      "date": "2026-04-27",
+      "worker_code": "KIM",
+      "shift_code": "A",
+      "station_code": "petit_four"
+    },
+    {
+      "date": "2026-04-27",
+      "worker_code": "KOMURA",
+      "shift_code": "A",
+      "station_code": "mise_en_place"
+    },
+    {
+      "date": "2026-04-27",
+      "worker_code": "MOCHIZUKI",
+      "shift_code": "C",
+      "station_code": "glaze_and_fruit"
+    },
+    {
+      "date": "2026-04-27",
+      "worker_code": "SPENCER",
+      "shift_code": "A",
+      "station_code": "mise_en_place"
+    },
+    {
+      "date": "2026-04-27",
+      "worker_code": "TAKAI",
+      "shift_code": "D",
+      "station_code": "gateau"
+    },
+    {
+      "date": "2026-04-27",
+      "worker_code": "TARUTANI",
+      "shift_code": "D",
+      "station_code": "gateau"
+    },
+    {
+      "date": "2026-04-28",
+      "worker_code": "CHUNG",
+      "shift_code": "C",
+      "station_code": "glaze_and_fruit"
+    },
+    {
+      "date": "2026-04-28",
+      "worker_code": "ISHIKAWA",
+      "shift_code": "D",
+      "station_code": "gateau"
+    },
+    {
+      "date": "2026-04-28",
+      "worker_code": "KOMURA",
+      "shift_code": "A",
+      "station_code": "mise_en_place"
+    },
+    {
+      "date": "2026-04-28",
+      "worker_code": "MIYAZAWA",
+      "shift_code": "C",
+      "station_code": "mise_en_place"
+    },
+    {
+      "date": "2026-04-28",
+      "worker_code": "SERA",
+      "shift_code": "C",
+      "station_code": "petit_four"
+    },
+    {
+      "date": "2026-04-28",
+      "worker_code": "TAKAI",
+      "shift_code": "A",
+      "station_code": "glaze_and_fruit"
+    },
+    {
+      "date": "2026-04-28",
+      "worker_code": "TARUTANI",
+      "shift_code": "A",
+      "station_code": "gateau"
+    },
+    {
+      "date": "2026-04-29",
+      "worker_code": "CHUNG",
+      "shift_code": "D",
+      "station_code": "glaze_and_fruit"
+    },
+    {
+      "date": "2026-04-29",
+      "worker_code": "ISHIKAWA",
+      "shift_code": "A",
+      "station_code": "glaze_and_fruit"
+    },
+    {
+      "date": "2026-04-29",
+      "worker_code": "KIM",
+      "shift_code": "C",
+      "station_code": "petit_four"
+    },
+    {
+      "date": "2026-04-29",
+      "worker_code": "MOCHIZUKI",
+      "shift_code": "D",
+      "station_code": "gateau"
+    },
+    {
+      "date": "2026-04-29",
+      "worker_code": "SERA",
+      "shift_code": "A",
+      "station_code": "mise_en_place"
+    },
+    {
+      "date": "2026-04-29",
+      "worker_code": "SPENCER",
+      "shift_code": "C",
+      "station_code": "mise_en_place"
+    },
+    {
+      "date": "2026-04-29",
+      "worker_code": "TARUTANI",
+      "shift_code": "D",
+      "station_code": "gateau"
+    },
+    {
+      "date": "2026-04-30",
+      "worker_code": "ISHIKAWA",
+      "shift_code": "D",
+      "station_code": "glaze_and_fruit"
+    },
+    {
+      "date": "2026-04-30",
+      "worker_code": "KIM",
+      "shift_code": "C",
+      "station_code": "gateau"
+    },
+    {
+      "date": "2026-04-30",
+      "worker_code": "KOMURA",
+      "shift_code": "B",
+      "station_code": "mise_en_place"
+    },
+    {
+      "date": "2026-04-30",
+      "worker_code": "MIYAZAWA",
+      "shift_code": "C",
+      "station_code": "petit_four"
+    },
+    {
+      "date": "2026-04-30",
+      "worker_code": "MOCHIZUKI",
+      "shift_code": "A",
+      "station_code": "glaze_and_fruit"
+    },
+    {
+      "date": "2026-04-30",
+      "worker_code": "SPENCER",
+      "shift_code": "D",
+      "station_code": "mise_en_place"
+    },
+    {
+      "date": "2026-04-30",
+      "worker_code": "TAKAI",
+      "shift_code": "A",
+      "station_code": "gateau"
+    }
+  ],
+  "warnings": [
+    {
+      "type": "auto_rest",
+      "date": "2026-04-05",
+      "worker_code": "CHUNG"
+    },
+    {
+      "type": "auto_rest",
+      "date": "2026-04-24",
+      "worker_code": "MOCHIZUKI"
+    },
+    {
+      "type": "auto_rest",
+      "date": "2026-04-26",
+      "worker_code": "CHUNG"
+    },
+    {
+      "type": "auto_rest",
+      "date": "2026-04-27",
+      "worker_code": "ISHIKAWA"
+    },
+    {
+      "type": "weekly_rest",
+      "date": null,
+      "worker_code": "CHUNG"
+    },
+    {
+      "type": "weekly_rest",
+      "date": null,
+      "worker_code": "ISHIKAWA"
+    },
+    {
+      "type": "weekly_rest",
+      "date": null,
+      "worker_code": "MOCHIZUKI"
+    },
+    {
+      "type": "weekly_rest",
+      "date": null,
+      "worker_code": "TARUTANI"
+    }
+  ]
+}

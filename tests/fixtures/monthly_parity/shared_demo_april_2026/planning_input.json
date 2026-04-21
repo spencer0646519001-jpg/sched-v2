@@ -1,0 +1,230 @@
+{
+  "fixture_id": "shared_demo_april_2026",
+  "tenant_code": "demo_kitchen",
+  "year": 2026,
+  "month": 4,
+  "workers": [
+    {
+      "worker_code": "TAKAHASHI_CHEF",
+      "name": "Takahashi_chef",
+      "role": "chef",
+      "is_active": true,
+      "station_skills": []
+    },
+    {
+      "worker_code": "FUNATSU",
+      "name": "Funatsu",
+      "role": "chef",
+      "is_active": true,
+      "station_skills": []
+    },
+    {
+      "worker_code": "SPENCER",
+      "name": "Spencer",
+      "role": "employee",
+      "is_active": true,
+      "station_skills": [
+        "mise_en_place"
+      ]
+    },
+    {
+      "worker_code": "CHUNG",
+      "name": "Chung",
+      "role": "employee",
+      "is_active": true,
+      "station_skills": [
+        "mise_en_place",
+        "glaze_and_fruit"
+      ]
+    },
+    {
+      "worker_code": "ISHIKAWA",
+      "name": "Ishikawa",
+      "role": "employee",
+      "is_active": true,
+      "station_skills": [
+        "glaze_and_fruit",
+        "mise_en_place",
+        "gateau"
+      ]
+    },
+    {
+      "worker_code": "MOCHIZUKI",
+      "name": "Mochizuki",
+      "role": "employee",
+      "is_active": true,
+      "station_skills": [
+        "mise_en_place",
+        "glaze_and_fruit",
+        "gateau"
+      ]
+    },
+    {
+      "worker_code": "TAKAI",
+      "name": "Takai",
+      "role": "employee",
+      "is_active": true,
+      "station_skills": [
+        "mise_en_place",
+        "glaze_and_fruit",
+        "gateau"
+      ]
+    },
+    {
+      "worker_code": "TARUTANI",
+      "name": "Tarutani",
+      "role": "employee",
+      "is_active": true,
+      "station_skills": [
+        "mise_en_place",
+        "gateau"
+      ]
+    },
+    {
+      "worker_code": "KOMURA",
+      "name": "Komura",
+      "role": "employee",
+      "is_active": true,
+      "station_skills": [
+        "mise_en_place",
+        "petit_four"
+      ]
+    },
+    {
+      "worker_code": "KIM",
+      "name": "Kim",
+      "role": "employee",
+      "is_active": true,
+      "station_skills": [
+        "mise_en_place",
+        "petit_four",
+        "gateau"
+      ]
+    },
+    {
+      "worker_code": "SERA",
+      "name": "Sera",
+      "role": "employee",
+      "is_active": true,
+      "station_skills": [
+        "mise_en_place",
+        "petit_four"
+      ]
+    },
+    {
+      "worker_code": "MIYAZAWA",
+      "name": "Miyazawa",
+      "role": "employee",
+      "is_active": true,
+      "station_skills": [
+        "mise_en_place",
+        "petit_four"
+      ]
+    }
+  ],
+  "stations": [
+    {
+      "station_code": "gateau",
+      "name": "gateau",
+      "is_active": true
+    },
+    {
+      "station_code": "glaze_and_fruit",
+      "name": "glaze_and_fruit",
+      "is_active": true
+    },
+    {
+      "station_code": "mise_en_place",
+      "name": "mise_en_place",
+      "is_active": true
+    },
+    {
+      "station_code": "petit_four",
+      "name": "petit_four",
+      "is_active": true
+    }
+  ],
+  "shifts": [
+    {
+      "shift_code": "A",
+      "name": "A",
+      "paid_hours": "9.00",
+      "is_off_shift": false,
+      "start_time": "10:00",
+      "end_time": "20:00"
+    },
+    {
+      "shift_code": "B",
+      "name": "B",
+      "paid_hours": "8.00",
+      "is_off_shift": false,
+      "start_time": "12:00",
+      "end_time": "21:00"
+    },
+    {
+      "shift_code": "C",
+      "name": "C",
+      "paid_hours": "9.00",
+      "is_off_shift": false,
+      "start_time": "13:00",
+      "end_time": "23:00"
+    },
+    {
+      "shift_code": "D",
+      "name": "D",
+      "paid_hours": "8.00",
+      "is_off_shift": false,
+      "start_time": "14:00",
+      "end_time": "23:00"
+    },
+    {
+      "shift_code": "1",
+      "name": "1",
+      "paid_hours": "10.00",
+      "is_off_shift": false,
+      "start_time": "09:00",
+      "end_time": "20:00"
+    },
+    {
+      "shift_code": "2",
+      "name": "2",
+      "paid_hours": "10.00",
+      "is_off_shift": false,
+      "start_time": "10:00",
+      "end_time": "21:00"
+    },
+    {
+      "shift_code": "3",
+      "name": "3",
+      "paid_hours": "10.00",
+      "is_off_shift": false,
+      "start_time": "11:00",
+      "end_time": "22:00"
+    },
+    {
+      "shift_code": "4",
+      "name": "4",
+      "paid_hours": "10.00",
+      "is_off_shift": false,
+      "start_time": "12:00",
+      "end_time": "23:00"
+    }
+  ],
+  "leave_requests": [],
+  "constraint_config": {
+    "stations": {
+      "gateau": 2,
+      "petit_four": 2,
+      "glaze_and_fruit": 2,
+      "mise_en_place": 2
+    },
+    "min_staff_weekday": 7,
+    "min_staff_weekend": 8,
+    "max_staff_per_day": 9,
+    "min_rest_days_per_month": 9,
+    "max_consecutive_days": 4,
+    "require_one_chef": true,
+    "count_chefs_in_headcount": true,
+    "chefs_have_no_shift": true
+  }
+}
