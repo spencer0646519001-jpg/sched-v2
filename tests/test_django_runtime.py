@@ -26,6 +26,7 @@ from app.infra.django_app.models import (
     Station as DjangoStation,
     Tenant as DjangoTenant,
     Worker as DjangoWorker,
+    WorkerStationSkill as DjangoWorkerStationSkill,
 )
 
 
@@ -36,6 +37,7 @@ def _clear_scheduler_tables() -> None:
     DjangoMonthlyAssignment.objects.all().delete()
     DjangoMonthlyPlanVersion.objects.all().delete()
     DjangoMonthlyWorkspace.objects.all().delete()
+    DjangoWorkerStationSkill.objects.all().delete()
     DjangoShiftDefinition.objects.all().delete()
     DjangoStation.objects.all().delete()
     DjangoWorker.objects.all().delete()
@@ -296,6 +298,17 @@ def test_django_runtime_preview_uses_monthly_constraint_override() -> None:
         role=SECONDARY_DEMO_WORKER.role,
         is_active=True,
     )
+    DjangoWorkerStationSkill.objects.create(
+        tenant=tenant,
+        worker=DjangoWorker.objects.get(
+            tenant=tenant,
+            code=SECONDARY_DEMO_WORKER.code,
+        ),
+        station=DjangoStation.objects.get(
+            tenant=tenant,
+            code=PRIMARY_DEMO_STATION.code,
+        ),
+    )
     DjangoConstraintConfig.objects.create(
         tenant=tenant,
         scope_type="monthly",
@@ -445,18 +458,23 @@ def _seed_month_context(*, worker_is_active: bool = True) -> DjangoTenant:
         name=DEMO_TENANT_NAME,
         default_locale="en-US",
     )
-    DjangoWorker.objects.create(
+    worker = DjangoWorker.objects.create(
         tenant=tenant,
         code=PRIMARY_DEMO_WORKER.code,
         name=PRIMARY_DEMO_WORKER.name,
         role=PRIMARY_DEMO_WORKER.role,
         is_active=worker_is_active,
     )
-    DjangoStation.objects.create(
+    station = DjangoStation.objects.create(
         tenant=tenant,
         code=PRIMARY_DEMO_STATION.code,
         name=PRIMARY_DEMO_STATION.name,
         is_active=True,
+    )
+    DjangoWorkerStationSkill.objects.create(
+        tenant=tenant,
+        worker=worker,
+        station=station,
     )
     DjangoShiftDefinition.objects.create(
         tenant=tenant,
@@ -488,18 +506,23 @@ def _seed_morning_month_context(*, include_morning_shift: bool) -> DjangoTenant:
         name="Morning Demo",
         default_locale="en-US",
     )
-    DjangoWorker.objects.create(
+    worker = DjangoWorker.objects.create(
         tenant=tenant,
         code="W1",
         name="Alex",
         role="employee",
         is_active=True,
     )
-    DjangoStation.objects.create(
+    station = DjangoStation.objects.create(
         tenant=tenant,
         code="GATEAU",
         name="Gateau",
         is_active=True,
+    )
+    DjangoWorkerStationSkill.objects.create(
+        tenant=tenant,
+        worker=worker,
+        station=station,
     )
     DjangoShiftDefinition.objects.create(
         tenant=tenant,

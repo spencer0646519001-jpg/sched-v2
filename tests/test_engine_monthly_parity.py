@@ -265,6 +265,15 @@ def test_frozen_shared_demo_monthly_parity_evaluator_stays_reproducible() -> Non
     assert report.candidate_warning_count == len(result.warnings)
     assert sum(report.candidate_metrics.shift_histogram.values()) == len(result.assignments)
     assert report.candidate_metrics.warning_counts_by_type == result.summary.warnings_by_type
+    assert report.candidate_metrics.off_skill_assignment_count == 0
+    assert (
+        sum(
+            1
+            for assignment in result.assignments
+            if assignment.note == "fallback_station_skill_mismatch"
+        )
+        == 0
+    )
     assert len(report.candidate_metrics.shift_histogram) >= 4
     assert (
         _max_histogram_share(

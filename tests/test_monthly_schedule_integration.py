@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from decimal import Decimal
 
 import pytest
+from django.core.management import call_command
 from django.db import IntegrityError, transaction
 
 from app.engine.contracts import (
@@ -16,6 +17,7 @@ from app.engine.contracts import (
 )
 from app.engine.monthly import generate_month_plan
 from app.monthly_workspace_demo_data import (
+    DEMO_WORKERS,
     DEMO_TENANT_NAME,
     DEMO_TENANT_SLUG,
     PRIMARY_DEMO_SHIFT,
@@ -225,6 +227,48 @@ def test_preview_flow_with_real_engine_uses_multiple_ordinary_shifts_from_persis
 
     assert response.candidate_result.summary.total_warnings == 0
     assert first_day_shift_codes == ["M1", "DAY", "EVE"]
+
+
+def test_preview_flow_with_seeded_demo_data_eliminates_off_skill_station_fill() -> None:
+    call_command("seed_monthly_workspace_demo")
+    skills_by_worker_code = {
+        worker.code: set(worker.station_skills)
+        for worker in DEMO_WORKERS
+        if worker.is_active
+    }
+
+    response = PreviewMonthScheduleService(
+        tenant_repository=DjangoTenantRepository(),
+        worker_repository=DjangoWorkerRepository(),
+        station_repository=DjangoStationRepository(),
+        shift_repository=DjangoShiftRepository(),
+        leave_request_repository=DjangoLeaveRequestRepository(),
+        constraint_config_repository=DjangoConstraintConfigRepository(),
+        engine_runner=generate_month_plan,
+    ).preview_month_schedule(
+        PreviewMonthScheduleRequest(
+            tenant_slug=DEMO_TENANT_SLUG,
+            year=2026,
+            month=4,
+        )
+    )
+
+    off_skill_assignments = [
+        assignment
+        for assignment in response.candidate_result.assignments
+        if assignment.station_code is not None
+        and assignment.station_code
+        not in skills_by_worker_code.get(assignment.worker_code, set())
+    ]
+    fallback_assignments = [
+        assignment
+        for assignment in response.candidate_result.assignments
+        if assignment.note == "fallback_station_skill_mismatch"
+    ]
+
+    assert off_skill_assignments == []
+    assert fallback_assignments == []
+    assert response.candidate_result.summary.total_warnings == 10
 
 
 def test_apply_flow_creates_current_workspace_from_preview_result() -> None:

@@ -134,6 +134,151 @@ def test_generate_month_plan_emits_understaffed_station_warnings() -> None:
     assert result.evaluation.schedule_quality_label == "needs_review"
 
 
+def test_generate_month_plan_prefers_skilled_worker_over_off_skill_candidate() -> None:
+    result = generate_month_plan(
+        _build_planning_input(
+            workers=[
+                WorkerInput(
+                    worker_code="W1",
+                    name="Fallback",
+                    role="cook",
+                    is_active=True,
+                    station_skills=[],
+                ),
+                _worker(
+                    "W2",
+                    name="Skilled",
+                    station_skills=["PREP"],
+                ),
+            ],
+            stations=[_station("PREP", name="Prep")],
+            shifts=[_shift("DAY", name="Day", paid_hours="8")],
+            constraint_config={
+                "stations": {"PREP": 1},
+                "min_staff_weekday": 1,
+                "min_staff_weekend": 1,
+                "max_staff_per_day": 1,
+                "max_consecutive_days": 31,
+            },
+        )
+    )
+
+    first_assignment = result.assignments[0]
+
+    assert first_assignment.date == dt.date(2026, 4, 1)
+    assert first_assignment.worker_code == "W2"
+    assert first_assignment.station_code == "PREP"
+    assert first_assignment.note is None
+
+
+def test_generate_month_plan_preserves_only_viable_worker_for_scarce_later_slot() -> None:
+    result = generate_month_plan(
+        _build_planning_input(
+            workers=[
+                _worker(
+                    "W1",
+                    name="Scarce",
+                    station_skills=["APPLE", "ZULU"],
+                ),
+                _worker(
+                    "W2",
+                    name="Common",
+                    station_skills=["APPLE"],
+                ),
+            ],
+            stations=[
+                _station("APPLE", name="Apple"),
+                _station("ZULU", name="Zulu"),
+            ],
+            shifts=[_shift("DAY", name="Day", paid_hours="8")],
+            constraint_config={
+                "stations": {
+                    "APPLE": 1,
+                    "ZULU": 1,
+                },
+                "min_staff_weekday": 2,
+                "min_staff_weekend": 2,
+                "max_staff_per_day": 2,
+                "max_consecutive_days": 31,
+            },
+        )
+    )
+
+    first_day_assignments = [
+        (
+            assignment.worker_code,
+            assignment.station_code,
+            assignment.note,
+        )
+        for assignment in result.assignments
+        if assignment.date == dt.date(2026, 4, 1)
+    ]
+
+    assert first_day_assignments == [
+        ("W1", "ZULU", None),
+        ("W2", "APPLE", None),
+    ]
+    assert result.summary.total_warnings == 0
+
+
+def test_generate_month_plan_marks_fallback_station_assignments_explicitly() -> None:
+    result = generate_month_plan(
+        _build_planning_input(
+            workers=[
+                _worker(
+                    "W1",
+                    name="Skilled",
+                    station_skills=["GRILL"],
+                ),
+                WorkerInput(
+                    worker_code="W2",
+                    name="Fallback",
+                    role="cook",
+                    is_active=True,
+                    station_skills=[],
+                ),
+            ],
+            stations=[
+                _station("GRILL", name="Grill"),
+                _station("PREP", name="Prep"),
+            ],
+            shifts=[_shift("DAY", name="Day", paid_hours="8")],
+            constraint_config={
+                "stations": {
+                    "GRILL": 1,
+                    "PREP": 1,
+                },
+                "min_staff_weekday": 2,
+                "min_staff_weekend": 2,
+                "max_staff_per_day": 2,
+                "max_consecutive_days": 31,
+            },
+        )
+    )
+
+    first_day_assignments = [
+        (
+            assignment.worker_code,
+            assignment.station_code,
+            assignment.note,
+        )
+        for assignment in result.assignments
+        if assignment.date == dt.date(2026, 4, 1)
+    ]
+    fallback_assignments = [
+        assignment
+        for assignment in result.assignments
+        if assignment.note == "fallback_station_skill_mismatch"
+    ]
+
+    assert first_day_assignments == [
+        ("W1", "GRILL", None),
+        ("W2", "PREP", "fallback_station_skill_mismatch"),
+    ]
+    assert len(fallback_assignments) == 30
+    assert result.summary.total_warnings == 0
+
+
 def test_generate_month_plan_require_one_chef_can_add_extra_daily_assignment() -> None:
     baseline_result = generate_month_plan(
         _build_planning_input(
