@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import datetime as dt
 import json
+from decimal import Decimal
 
 import pytest
 from django.test import RequestFactory
@@ -356,6 +357,88 @@ def test_django_runtime_preview_uses_monthly_constraint_override() -> None:
     assert DjangoMonthlyAssignment.objects.count() == 0
 
 
+def test_django_runtime_preview_respects_persisted_morning_requirements() -> None:
+    tenant = _seed_morning_month_context(include_morning_shift=True)
+    views = {
+        pattern.name: pattern.callback
+        for pattern in build_django_monthly_schedule_urlpatterns()
+    }
+
+    preview_payload = _post_json(
+        views["preview_month_schedule"],
+        path="/v2/monthly-schedules/preview",
+        payload={
+            "tenant_slug": tenant.slug,
+            "year": 2026,
+            "month": 4,
+        },
+    )
+
+    assert preview_payload["result"]["summary"]["total_assignments"] == 30
+    assert preview_payload["result"]["summary"]["total_warnings"] == 0
+    assert preview_payload["result"]["warnings"] == []
+    assert preview_payload["result"]["assignments"][0] == {
+        "date": "2026-04-01",
+        "worker_code": "W1",
+        "shift_code": "M1",
+        "source": "monthly_planner",
+        "station_code": "GATEAU",
+        "note": None,
+    }
+    assert preview_payload["result"]["evaluation"] is not None
+    assert preview_payload["result"]["evaluation"]["schedule_quality_label"] == "good"
+
+
+def test_django_runtime_preview_surfaces_missing_morning_coverage_warning() -> None:
+    tenant = _seed_morning_month_context(include_morning_shift=False)
+    views = {
+        pattern.name: pattern.callback
+        for pattern in build_django_monthly_schedule_urlpatterns()
+    }
+
+    preview_payload = _post_json(
+        views["preview_month_schedule"],
+        path="/v2/monthly-schedules/preview",
+        payload={
+            "tenant_slug": tenant.slug,
+            "year": 2026,
+            "month": 4,
+        },
+    )
+
+    assert preview_payload["result"]["summary"] == {
+        "total_assignments": 30,
+        "total_warnings": 30,
+        "assignments_by_worker": {"W1": 30},
+        "paid_hours_by_worker": {"W1": "240.00"},
+        "warnings_by_type": {"missing_morning_station_coverage": 30},
+    }
+    assert preview_payload["result"]["assignments"][0] == {
+        "date": "2026-04-01",
+        "worker_code": "W1",
+        "shift_code": "DAY",
+        "source": "monthly_planner",
+        "station_code": "GATEAU",
+        "note": None,
+    }
+    assert preview_payload["result"]["warnings"][0] == {
+        "type": "missing_morning_station_coverage",
+        "message_key": "missing_morning_station_coverage",
+        "worker_code": None,
+        "date": "2026-04-01",
+        "details": {
+            "station_code": "GATEAU",
+            "required_morning_staff": 1,
+            "assigned_morning_staff": 0,
+            "missing_morning_staff": 1,
+        },
+    }
+    assert preview_payload["result"]["evaluation"] is not None
+    assert preview_payload["result"]["evaluation"]["schedule_quality_label"] == (
+        "needs_review"
+    )
+
+
 def _seed_month_context(*, worker_is_active: bool = True) -> DjangoTenant:
     tenant = DjangoTenant.objects.create(
         slug=DEMO_TENANT_SLUG,
@@ -389,6 +472,57 @@ def _seed_month_context(*, worker_is_active: bool = True) -> DjangoTenant:
         scope_type="default",
         config_json={
             "stations": {PRIMARY_DEMO_STATION.code: 1},
+            "min_staff_weekday": 1,
+            "min_staff_weekend": 1,
+            "max_staff_per_day": 1,
+            "min_rest_days_per_month": 0,
+            "max_consecutive_days": 31,
+        },
+    )
+    return tenant
+
+
+def _seed_morning_month_context(*, include_morning_shift: bool) -> DjangoTenant:
+    tenant = DjangoTenant.objects.create(
+        slug="morning-demo",
+        name="Morning Demo",
+        default_locale="en-US",
+    )
+    DjangoWorker.objects.create(
+        tenant=tenant,
+        code="W1",
+        name="Alex",
+        role="employee",
+        is_active=True,
+    )
+    DjangoStation.objects.create(
+        tenant=tenant,
+        code="GATEAU",
+        name="Gateau",
+        is_active=True,
+    )
+    DjangoShiftDefinition.objects.create(
+        tenant=tenant,
+        code="DAY",
+        name="Day",
+        paid_hours=Decimal("8.00"),
+        is_off_shift=False,
+    )
+    if include_morning_shift:
+        DjangoShiftDefinition.objects.create(
+            tenant=tenant,
+            code="M1",
+            name="Morning 1",
+            paid_hours=Decimal("8.00"),
+            is_off_shift=False,
+        )
+    DjangoConstraintConfig.objects.create(
+        tenant=tenant,
+        scope_type="default",
+        config_json={
+            "stations": {"GATEAU": 1},
+            "morning_shifts": ["M1"],
+            "stations_require_morning": {"GATEAU": 1},
             "min_staff_weekday": 1,
             "min_staff_weekend": 1,
             "max_staff_per_day": 1,

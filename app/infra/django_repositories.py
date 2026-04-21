@@ -42,6 +42,8 @@ from app.infra.repositories import CurrentWorkspaceState
 
 _SUPPORTED_CONSTRAINT_CONFIG_KEYS = (
     "stations",
+    "morning_shifts",
+    "stations_require_morning",
     "min_staff_weekday",
     "min_staff_weekend",
     "max_staff_per_day",

@@ -168,6 +168,10 @@ DEMO_CONSTRAINT_CONFIG = {
         "glaze_and_fruit": 2,
         "mise_en_place": 2,
     },
+    "morning_shifts": ["1"],
+    "stations_require_morning": {
+        "gateau": 1,
+    },
     "min_staff_weekday": 7,
     "min_staff_weekend": 8,
     "max_staff_per_day": 9,

@@ -130,10 +130,13 @@ def test_seed_monthly_workspace_demo_is_idempotent_and_reviewable() -> None:
         tenant__slug=DEMO_TENANT_SLUG,
         scope_type="default",
     ).count() == 1
-    assert DjangoConstraintConfig.objects.get(
+    seeded_config = DjangoConstraintConfig.objects.get(
         tenant__slug=DEMO_TENANT_SLUG,
         scope_type="default",
-    ).config_json == DEMO_CONSTRAINT_CONFIG
+    ).config_json
+    assert seeded_config["morning_shifts"] == ["1"]
+    assert seeded_config["stations_require_morning"] == {"gateau": 1}
+    assert seeded_config == DEMO_CONSTRAINT_CONFIG
     assert (
         "http://127.0.0.1:8000/v2/monthly-workspace"
         f"?tenant_slug={DEMO_TENANT_SLUG}&month_scope={DEMO_MONTH_SCOPE}"

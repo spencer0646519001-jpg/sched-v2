@@ -245,6 +245,8 @@ def test_constraint_config_repository_resolves_monthly_before_default() -> None:
         scope_type="default",
         config_json={
             "stations": {"GRILL": 1},
+            "morning_shifts": ["1"],
+            "stations_require_morning": {"GRILL": 1},
             "min_staff_weekday": 1,
             "min_staff_weekend": 1,
             "max_staff_per_day": 1,
@@ -260,6 +262,8 @@ def test_constraint_config_repository_resolves_monthly_before_default() -> None:
         month=4,
         config_json={
             "stations": {"GRILL": 2},
+            "morning_shifts": ["M1"],
+            "stations_require_morning": {"GRILL": 2},
             "min_staff_weekday": 2,
             "min_staff_weekend": 2,
             "max_staff_per_day": 2,
@@ -285,6 +289,8 @@ def test_constraint_config_repository_resolves_monthly_before_default() -> None:
             month=4,
             config_json={
                 "stations": {"GRILL": 2},
+                "morning_shifts": ["M1"],
+                "stations_require_morning": {"GRILL": 2},
                 "min_staff_weekday": 2,
                 "min_staff_weekend": 2,
                 "max_staff_per_day": 2,
@@ -304,6 +310,8 @@ def test_constraint_config_repository_resolves_monthly_before_default() -> None:
             month=None,
             config_json={
                 "stations": {"GRILL": 1},
+                "morning_shifts": ["1"],
+                "stations_require_morning": {"GRILL": 1},
                 "min_staff_weekday": 1,
                 "min_staff_weekend": 1,
                 "max_staff_per_day": 1,
@@ -346,6 +354,8 @@ def test_constraint_config_repository_resolves_monthly_before_default() -> None:
             month=None,
             config_json={
                 "stations": {"GRILL": 1},
+                "morning_shifts": ["1"],
+                "stations_require_morning": {"GRILL": 1},
                 "min_staff_weekday": 1,
                 "min_staff_weekend": 1,
                 "max_staff_per_day": 1,
