@@ -14,6 +14,7 @@ from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlencode
 
 from django.http import HttpRequest, HttpResponse
 from django.template import Context, Engine
@@ -21,6 +22,12 @@ from django.urls import URLPattern, path
 from django.views.decorators.http import require_http_methods
 from pydantic import ValidationError
 
+from app.api.monthly_workspace_copy import (
+    MONTHLY_WORKSPACE_UI_LANGUAGE_LABELS,
+    format_monthly_workspace_month_label,
+    get_monthly_workspace_copy,
+    resolve_monthly_workspace_ui_lang,
+)
 from app.api.schemas import MonthPlanningResultSchema
 from app.engine.monthly import generate_month_plan
 from app.infra.django_app.models import (
@@ -97,22 +104,26 @@ def build_django_monthly_workspace_view(
     def view(request: HttpRequest) -> HttpResponse:
         messages: list[dict[str, str]] = []
         scope = _resolve_scope(request)
-        if not scope["is_valid"]:
-            messages.append(
-                _message(
-                    "error",
-                    "Month selection must use the YYYY-MM month picker format.",
-                )
-            )
-
         tenants = list(DjangoTenant.objects.order_by("name", "slug", "id"))
         selected_tenant = _select_tenant(
             tenants,
             request.POST.get("tenant_slug") or request.GET.get("tenant_slug"),
         )
+        ui_lang = resolve_monthly_workspace_ui_lang(
+            request.POST.get("ui_lang") or request.GET.get("ui_lang"),
+            fallback_locale=(
+                selected_tenant.default_locale if selected_tenant is not None else None
+            ),
+        )
+        page_copy = get_monthly_workspace_copy(ui_lang)
+        if not scope["is_valid"]:
+            messages.append(
+                _message("error", page_copy["messages"]["invalid_scope"])
+            )
         candidate_result = _parse_candidate_result(
             request.POST.get("candidate_result_json"),
             messages,
+            page_copy=page_copy,
         )
         prefer_current_result = False
 
@@ -120,10 +131,7 @@ def build_django_monthly_workspace_view(
             action = (request.POST.get("form_action") or "").strip()
             if selected_tenant is None:
                 messages.append(
-                    _message(
-                        "error",
-                        "No tenant data is available yet for the monthly workspace.",
-                    )
+                    _message("error", page_copy["messages"]["no_tenant"])
                 )
                 candidate_result = None
             elif action == "add_leave":
@@ -133,6 +141,7 @@ def build_django_monthly_workspace_view(
                     year=scope["year"],
                     month=scope["month"],
                     messages=messages,
+                    page_copy=page_copy,
                 )
                 candidate_result = None
             elif action == "preview":
@@ -142,13 +151,14 @@ def build_django_monthly_workspace_view(
                     month=scope["month"],
                     preview_service=dependencies.preview_service,
                     messages=messages,
+                    page_copy=page_copy,
                 )
             elif action == "apply":
                 if candidate_result is None:
                     messages.append(
                         _message(
                             "error",
-                            "Generate a candidate preview before applying the month.",
+                            page_copy["messages"]["apply_requires_candidate"],
                         )
                     )
                 else:
@@ -159,6 +169,7 @@ def build_django_monthly_workspace_view(
                         candidate_result=candidate_result,
                         apply_service=dependencies.apply_service,
                         messages=messages,
+                        page_copy=page_copy,
                     )
             elif action == "save":
                 prefer_current_result = True
@@ -169,15 +180,20 @@ def build_django_monthly_workspace_view(
                     month=scope["month"],
                     save_service=dependencies.save_service,
                     messages=messages,
+                    page_copy=page_copy,
                 )
             elif action:
-                messages.append(_message("error", "Unknown workspace action."))
+                messages.append(
+                    _message("error", page_copy["messages"]["unknown_action"])
+                )
 
         context = _build_workspace_context(
             request=request,
             tenants=tenants,
             selected_tenant=selected_tenant,
             scope=scope,
+            ui_lang=ui_lang,
+            page_copy=page_copy,
             candidate_result=candidate_result,
             prefer_current_result=prefer_current_result,
             dependencies=dependencies,
@@ -282,6 +298,8 @@ def _select_tenant(
 def _parse_candidate_result(
     candidate_result_json: str | None,
     messages: list[dict[str, str]],
+    *,
+    page_copy: dict[str, Any],
 ) -> MonthPlanningResultSchema | None:
     if not candidate_result_json:
         return None
@@ -290,10 +308,7 @@ def _parse_candidate_result(
         return MonthPlanningResultSchema.model_validate_json(candidate_result_json)
     except ValidationError:
         messages.append(
-            _message(
-                "error",
-                "The stored candidate preview could not be reused. Preview the month again.",
-            )
+            _message("error", page_copy["messages"]["candidate_reuse_failed"])
         )
         return None
 
@@ -305,34 +320,33 @@ def _handle_add_leave(
     year: int,
     month: int,
     messages: list[dict[str, str]],
+    page_copy: dict[str, Any],
 ) -> None:
+    messages_copy = page_copy["messages"]
     worker_id = (request.POST.get("worker_id") or "").strip()
     leave_date_raw = (request.POST.get("leave_date") or "").strip()
     if not worker_id or not leave_date_raw:
         messages.append(
-            _message("error", "Choose a person and date before adding leave.")
+            _message("error", messages_copy["choose_person_and_date"])
         )
         return
 
     worker = DjangoWorker.objects.filter(tenant=tenant, pk=worker_id).first()
     if worker is None:
-        messages.append(_message("error", "The selected person was not found."))
+        messages.append(_message("error", messages_copy["selected_person_not_found"]))
         return
 
     try:
         leave_date = dt.date.fromisoformat(leave_date_raw)
     except ValueError:
         messages.append(
-            _message("error", "Leave date must use the native date picker value.")
+            _message("error", messages_copy["invalid_leave_date"])
         )
         return
 
     if leave_date.year != year or leave_date.month != month:
         messages.append(
-            _message(
-                "error",
-                "Leave requests must stay inside the selected month workspace.",
-            )
+            _message("error", messages_copy["leave_outside_scope"])
         )
         return
 
@@ -346,14 +360,20 @@ def _handle_add_leave(
         messages.append(
             _message(
                 "success",
-                f"Added leave for {worker.name} on {leave_date.isoformat()}.",
+                messages_copy["leave_added"].format(
+                    worker_name=worker.name,
+                    leave_date=leave_date.isoformat(),
+                ),
             )
         )
     else:
         messages.append(
             _message(
                 "info",
-                f"Leave for {worker.name} on {leave_date.isoformat()} was already present.",
+                messages_copy["leave_exists"].format(
+                    worker_name=worker.name,
+                    leave_date=leave_date.isoformat(),
+                ),
             )
         )
 
@@ -365,6 +385,7 @@ def _handle_preview(
     month: int,
     preview_service: PreviewMonthScheduleService,
     messages: list[dict[str, str]],
+    page_copy: dict[str, Any],
 ) -> MonthPlanningResultSchema | None:
     try:
         response = preview_service.preview_month_schedule(
@@ -385,7 +406,7 @@ def _handle_preview(
     messages.append(
         _message(
             "success",
-            "Candidate preview is ready for review before you apply it.",
+            page_copy["messages"]["candidate_ready"],
         )
     )
     return candidate_result
@@ -399,6 +420,7 @@ def _handle_apply(
     candidate_result: MonthPlanningResultSchema,
     apply_service: ApplyMonthScheduleService,
     messages: list[dict[str, str]],
+    page_copy: dict[str, Any],
 ) -> bool:
     try:
         response = apply_service.apply_month_schedule(
@@ -416,8 +438,9 @@ def _handle_apply(
     messages.append(
         _message(
             "success",
-            "Applied the candidate preview to the current workspace "
-            f"({response.assignment_count} assignments).",
+            page_copy["messages"]["applied_candidate"].format(
+                assignment_count=response.assignment_count,
+            ),
         )
     )
     return True
@@ -431,6 +454,7 @@ def _handle_save(
     month: int,
     save_service: SaveMonthScheduleService,
     messages: list[dict[str, str]],
+    page_copy: dict[str, Any],
 ) -> None:
     save_label = (request.POST.get("save_label") or "").strip() or None
 
@@ -451,7 +475,10 @@ def _handle_save(
     messages.append(
         _message(
             "success",
-            f"Saved version {response.version_number} for {year}-{month:02d}.",
+            page_copy["messages"]["saved_version"].format(
+                version_number=response.version_number,
+                month_value=f"{year:04d}-{month:02d}",
+            ),
         )
     )
 
@@ -462,11 +489,18 @@ def _build_workspace_context(
     tenants: list[DjangoTenant],
     selected_tenant: DjangoTenant | None,
     scope: dict[str, Any],
+    ui_lang: str,
+    page_copy: dict[str, Any],
     candidate_result: MonthPlanningResultSchema | None,
     prefer_current_result: bool,
     dependencies: MonthlyWorkspacePageDependencies,
     messages: list[dict[str, str]],
 ) -> dict[str, Any]:
+    month_label = format_monthly_workspace_month_label(
+        scope["year"],
+        scope["month"],
+        ui_lang,
+    )
     tenant_options = [
         {
             "slug": tenant.slug,
@@ -477,6 +511,17 @@ def _build_workspace_context(
     ]
     selected_worker_id = (request.POST.get("worker_id") or "").strip()
     save_label_value = (request.POST.get("save_label") or "").strip()
+    leave_summary_note = page_copy["leave"]["summary_note"].format(
+        month_label=month_label
+    )
+    leave_empty_text = page_copy["leave"]["empty"].format(month_label=month_label)
+    result_empty_text = page_copy["result"]["empty"].format(month_label=month_label)
+    language_options = _build_language_options(
+        path=request.path,
+        ui_lang=ui_lang,
+        month_value=scope["month_value"],
+        selected_tenant_slug=selected_tenant.slug if selected_tenant is not None else None,
+    )
 
     if selected_tenant is None:
         leave_rows: list[dict[str, str]] = []
@@ -486,13 +531,20 @@ def _build_workspace_context(
             candidate_result=candidate_result,
             has_current_workspace=False,
             saved_version_count=0,
+            page_copy=page_copy,
         )
         return {
             "messages": messages,
+            "ui_lang": ui_lang,
+            "page_copy": page_copy,
+            "language_options": language_options,
             "tenant_options": tenant_options,
             "selected_tenant": None,
             "month_value": scope["month_value"],
-            "month_label": scope["month_label"],
+            "month_label": month_label,
+            "leave_summary_note": leave_summary_note,
+            "leave_empty_text": leave_empty_text,
+            "result_empty_text": result_empty_text,
             "selected_worker_id": selected_worker_id,
             "leave_date_value": _default_leave_date(scope["year"], scope["month"]),
             "worker_options": worker_options,
@@ -501,16 +553,14 @@ def _build_workspace_context(
             "state_cards": state_cards,
             "display_surface": None,
             "warnings": [],
-            "warnings_note": (
-                "Preview warnings appear here after you generate a candidate preview."
-            ),
+            "warnings_note": page_copy["warnings"]["empty_no_current"],
             "candidate_result_json": (
                 candidate_result.model_dump_json() if candidate_result is not None else ""
             ),
             "apply_disabled": True,
             "save_disabled": True,
             "save_label_value": save_label_value,
-            "workflow_steps": _workflow_steps(),
+            "workflow_steps": _workflow_steps(page_copy),
         }
 
     tenant_id = str(selected_tenant.pk)
@@ -546,23 +596,27 @@ def _build_workspace_context(
         year=scope["year"],
         month=scope["month"],
         prefer_current_result=prefer_current_result,
+        page_copy=page_copy,
     )
 
-    warnings = _build_warning_rows(candidate_result)
-    warnings_note = (
-        "Preview warnings appear here after you generate a candidate preview. "
-        "Current workspace warnings are not persisted yet."
-    )
+    warnings = _build_warning_rows(candidate_result, page_copy=page_copy)
+    warnings_note = page_copy["warnings"]["empty_with_current"]
 
     return {
         "messages": messages,
+        "ui_lang": ui_lang,
+        "page_copy": page_copy,
+        "language_options": language_options,
         "tenant_options": tenant_options,
         "selected_tenant": {
             "slug": selected_tenant.slug,
             "name": selected_tenant.name,
         },
         "month_value": scope["month_value"],
-        "month_label": scope["month_label"],
+        "month_label": month_label,
+        "leave_summary_note": leave_summary_note,
+        "leave_empty_text": leave_empty_text,
+        "result_empty_text": result_empty_text,
         "selected_worker_id": selected_worker_id,
         "leave_date_value": request.POST.get("leave_date")
         or _default_leave_date(scope["year"], scope["month"]),
@@ -573,6 +627,7 @@ def _build_workspace_context(
             candidate_result=candidate_result,
             has_current_workspace=current_state is not None,
             saved_version_count=len(saved_versions),
+            page_copy=page_copy,
         ),
         "display_surface": display_surface,
         "warnings": warnings,
@@ -583,19 +638,38 @@ def _build_workspace_context(
         "apply_disabled": candidate_result is None,
         "save_disabled": current_state is None,
         "save_label_value": save_label_value,
-        "workflow_steps": _workflow_steps(),
+        "workflow_steps": _workflow_steps(page_copy),
     }
 
 
-def _workflow_steps() -> list[str]:
-    return [
-        "1. Select month",
-        "2. Add leave requests",
-        "3. Preview",
-        "4. Apply",
-        "5. Save",
-        "6. View monthly schedule result",
-    ]
+def _workflow_steps(page_copy: dict[str, Any]) -> list[str]:
+    return list(page_copy["workflow_steps"])
+
+
+def _build_language_options(
+    *,
+    path: str,
+    ui_lang: str,
+    month_value: str,
+    selected_tenant_slug: str | None,
+) -> list[dict[str, Any]]:
+    options: list[dict[str, Any]] = []
+    for language_code, label in MONTHLY_WORKSPACE_UI_LANGUAGE_LABELS.items():
+        query_params = {
+            "month_scope": month_value,
+            "ui_lang": language_code,
+        }
+        if selected_tenant_slug:
+            query_params["tenant_slug"] = selected_tenant_slug
+        options.append(
+            {
+                "value": language_code,
+                "label": label,
+                "href": f"{path}?{urlencode(query_params)}",
+                "selected": language_code == ui_lang,
+            }
+        )
+    return options
 
 
 def _build_worker_options(
@@ -675,36 +749,44 @@ def _build_state_cards(
     candidate_result: MonthPlanningResultSchema | None,
     has_current_workspace: bool,
     saved_version_count: int,
+    page_copy: dict[str, Any],
 ) -> list[dict[str, str]]:
-    evaluation_label = "none"
-    evaluation_note = "Generate a preview to evaluate the month."
+    card_copy = page_copy["state_cards"]
+    evaluation_label = card_copy["none"]
+    evaluation_note = card_copy["evaluation_note"]
     evaluation_tone = "tone-neutral"
     if candidate_result is not None and candidate_result.evaluation is not None:
         evaluation_label = candidate_result.evaluation.schedule_quality_label
-        evaluation_note = "Evaluation reflects the visible candidate preview."
+        evaluation_note = card_copy["evaluation_visible_note"]
         evaluation_tone = _evaluation_tone(evaluation_label)
 
     return [
         {
-            "label": "Candidate preview",
-            "value": "present" if candidate_result is not None else "none",
-            "note": "Read-only result from the latest preview action.",
+            "label": card_copy["candidate_preview_label"],
+            "value": (
+                card_copy["present"]
+                if candidate_result is not None
+                else card_copy["none"]
+            ),
+            "note": card_copy["candidate_preview_note"],
             "tone": "tone-good" if candidate_result is not None else "tone-neutral",
         },
         {
-            "label": "Current workspace",
-            "value": "present" if has_current_workspace else "none",
-            "note": "Mutable month state that Apply updates.",
+            "label": card_copy["current_workspace_label"],
+            "value": (
+                card_copy["present"] if has_current_workspace else card_copy["none"]
+            ),
+            "note": card_copy["current_workspace_note"],
             "tone": "tone-good" if has_current_workspace else "tone-neutral",
         },
         {
-            "label": "Saved versions",
+            "label": card_copy["saved_versions_label"],
             "value": str(saved_version_count),
-            "note": "Immutable month snapshots created by Save.",
+            "note": card_copy["saved_versions_note"],
             "tone": "tone-neutral",
         },
         {
-            "label": "Evaluation",
+            "label": card_copy["evaluation_label"],
             "value": evaluation_label,
             "note": evaluation_note,
             "tone": evaluation_tone,
@@ -732,6 +814,7 @@ def _choose_display_surface(
     year: int,
     month: int,
     prefer_current_result: bool,
+    page_copy: dict[str, Any],
 ) -> dict[str, Any] | None:
     if prefer_current_result and current_state is not None:
         return _build_current_workspace_surface(
@@ -741,6 +824,7 @@ def _choose_display_surface(
             stations=stations,
             year=year,
             month=month,
+            page_copy=page_copy,
         )
     if candidate_result is not None:
         return _build_candidate_surface(
@@ -748,6 +832,7 @@ def _choose_display_surface(
             workers=workers,
             year=year,
             month=month,
+            page_copy=page_copy,
         )
     if current_state is not None:
         return _build_current_workspace_surface(
@@ -757,6 +842,7 @@ def _choose_display_surface(
             stations=stations,
             year=year,
             month=month,
+            page_copy=page_copy,
         )
     return None
 
@@ -767,7 +853,9 @@ def _build_candidate_surface(
     workers: list[Worker],
     year: int,
     month: int,
+    page_copy: dict[str, Any],
 ) -> dict[str, Any]:
+    display_copy = page_copy["display"]
     normalized_assignments = [
         {
             "worker_code": assignment.worker_code,
@@ -779,18 +867,16 @@ def _build_candidate_surface(
         for assignment in candidate_result.assignments
     ]
     return {
-        "badge": "Candidate preview",
-        "description": (
-            "Showing the current read-only preview before it is applied to the workspace."
-        ),
+        "badge": display_copy["candidate_badge"],
+        "description": display_copy["candidate_description"],
         "meta": [
-            {"label": "Source", "value": candidate_result.metadata.source_type},
+            {"label": display_copy["source_label"], "value": candidate_result.metadata.source_type},
             {
-                "label": "Assignments",
+                "label": display_copy["assignments_label"],
                 "value": str(candidate_result.summary.total_assignments),
             },
             {
-                "label": "Warnings",
+                "label": display_copy["warnings_label"],
                 "value": str(candidate_result.summary.total_warnings),
             },
         ],
@@ -812,7 +898,9 @@ def _build_current_workspace_surface(
     stations: list[Station],
     year: int,
     month: int,
+    page_copy: dict[str, Any],
 ) -> dict[str, Any]:
+    display_copy = page_copy["display"]
     workers_by_id = {
         worker.id or "": {
             "worker_code": worker.code or worker.id or "",
@@ -852,15 +940,15 @@ def _build_current_workspace_surface(
         )
 
     return {
-        "badge": "Current workspace",
-        "description": "Showing the mutable workspace that Apply updates and Save snapshots.",
+        "badge": display_copy["current_badge"],
+        "description": display_copy["current_description"],
         "meta": [
-            {"label": "Status", "value": current_state.workspace.status},
+            {"label": display_copy["status_label"], "value": current_state.workspace.status},
             {
-                "label": "Assignments",
+                "label": display_copy["assignments_label"],
                 "value": str(len(current_state.assignments)),
             },
-            {"label": "Month", "value": f"{year:04d}-{month:02d}"},
+            {"label": display_copy["month_label"], "value": f"{year:04d}-{month:02d}"},
         ],
         "days": _build_day_headers(year, month),
         "rows": _build_grid_rows(
@@ -1029,10 +1117,13 @@ def _build_day_headers(year: int, month: int) -> list[int]:
 
 def _build_warning_rows(
     candidate_result: MonthPlanningResultSchema | None,
+    *,
+    page_copy: dict[str, Any],
 ) -> list[dict[str, str]]:
     if candidate_result is None:
         return []
 
+    warning_copy = page_copy["warnings"]
     rows: list[dict[str, str]] = []
     for warning in candidate_result.warnings:
         details_text = ", ".join(
@@ -1043,9 +1134,13 @@ def _build_warning_rows(
             {
                 "title": warning.type.replace("_", " "),
                 "message": warning.message_key.replace("_", " "),
-                "date": warning.date.isoformat() if warning.date is not None else "month",
-                "worker": warning.worker_code or "system",
-                "details": details_text or "No extra details.",
+                "date": (
+                    warning.date.isoformat()
+                    if warning.date is not None
+                    else warning_copy["month_value"]
+                ),
+                "worker": warning.worker_code or warning_copy["system_value"],
+                "details": details_text or warning_copy["no_details"],
             }
         )
     return rows

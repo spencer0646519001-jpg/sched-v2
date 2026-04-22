@@ -72,17 +72,53 @@ def test_workspace_page_renders_reviewer_visible_structure_without_config_contro
     html_text = response.content.decode()
 
     assert response.status_code == 200
-    assert "Monthly Scheduling Workspace" in html_text
+    assert 'lang="zh"' in html_text
+    assert "月度排班工作台" in html_text
     assert 'type="month"' in html_text
-    assert "Leave requests" in html_text
-    assert "Preview, apply, and save" in html_text
-    assert "Workspace state" in html_text
-    assert "Monthly schedule result" in html_text
-    assert "Warnings" in html_text
-    assert "Refine / explain" in html_text
+    assert "界面语言" in html_text
+    assert ">中文</a>" in html_text
+    assert ">日本語</a>" in html_text
+    assert "请假申请" in html_text
+    assert "预览、应用与保存" in html_text
+    assert "工作区状态" in html_text
+    assert "月度排班结果" in html_text
+    assert "警告" in html_text
+    assert "细化 / 说明" in html_text
     assert "result-grid-scroll" in html_text
     assert "require_one_chef" not in html_text
     assert "count_chefs_in_headcount" not in html_text
+
+
+def test_workspace_page_renders_japanese_copy_when_ui_lang_is_ja() -> None:
+    tenant = _seed_month_context()
+    view = {
+        pattern.name: pattern.callback
+        for pattern in build_django_monthly_workspace_page_urlpatterns()
+    }["monthly_schedule_workspace"]
+
+    response = view(
+        RequestFactory().get(
+            "/v2/monthly-workspace",
+            data={
+                "tenant_slug": tenant.slug,
+                "month_scope": "2026-04",
+                "ui_lang": "ja",
+            },
+        )
+    )
+    html_text = response.content.decode()
+
+    assert response.status_code == 200
+    assert 'lang="ja"' in html_text
+    assert "月次シフトワークスペース" in html_text
+    assert "表示言語" in html_text
+    assert "休暇申請" in html_text
+    assert "プレビュー、適用、保存" in html_text
+    assert "ワークスペース状態" in html_text
+    assert "月次シフト結果" in html_text
+    assert "調整 / 説明" in html_text
+    assert 'name="ui_lang" value="ja"' in html_text
+    assert 'locale-toggle-link is-selected' in html_text
 
 
 def test_workspace_page_css_keeps_overflow_scoped_to_grid_and_state_cards_wrapping() -> None:
@@ -123,6 +159,7 @@ def test_workspace_page_supports_leave_preview_apply_and_save_flow() -> None:
                 "form_action": "add_leave",
                 "tenant_slug": tenant.slug,
                 "month_scope": "2026-04",
+                "ui_lang": "zh",
                 "worker_id": str(
                     DjangoWorker.objects.get(
                         tenant=tenant,
@@ -136,7 +173,7 @@ def test_workspace_page_supports_leave_preview_apply_and_save_flow() -> None:
     add_leave_html = add_leave_response.content.decode()
 
     assert add_leave_response.status_code == 200
-    assert "Added leave for Spencer on 2026-04-10." in add_leave_html
+    assert "已为 Spencer 添加 2026-04-10 的请假。" in add_leave_html
     assert "Spencer (SPENCER)" in add_leave_html
     assert DjangoLeaveRequest.objects.count() == 1
 
@@ -147,6 +184,7 @@ def test_workspace_page_supports_leave_preview_apply_and_save_flow() -> None:
                 "form_action": "preview",
                 "tenant_slug": tenant.slug,
                 "month_scope": "2026-04",
+                "ui_lang": "zh",
             },
         )
     )
@@ -154,8 +192,8 @@ def test_workspace_page_supports_leave_preview_apply_and_save_flow() -> None:
     candidate_result_json = _extract_candidate_result_json(preview_html)
 
     assert preview_response.status_code == 200
-    assert "Candidate preview is ready for review before you apply it." in preview_html
-    assert "Candidate preview" in preview_html
+    assert "候选预览已生成，可在应用前先进行审核。" in preview_html
+    assert "候选预览" in preview_html
     assert "needs_review" in preview_html
     assert "understaffed station day" in preview_html
     assert candidate_result_json
@@ -167,6 +205,7 @@ def test_workspace_page_supports_leave_preview_apply_and_save_flow() -> None:
                 "form_action": "apply",
                 "tenant_slug": tenant.slug,
                 "month_scope": "2026-04",
+                "ui_lang": "zh",
                 "candidate_result_json": candidate_result_json,
             },
         )
@@ -174,8 +213,8 @@ def test_workspace_page_supports_leave_preview_apply_and_save_flow() -> None:
     apply_html = apply_response.content.decode()
 
     assert apply_response.status_code == 200
-    assert "Applied the candidate preview to the current workspace" in apply_html
-    assert "Current workspace" in apply_html
+    assert "已将候选预览应用到当前工作区" in apply_html
+    assert "当前工作区" in apply_html
     assert DjangoMonthlyWorkspace.objects.count() == 1
     assert DjangoMonthlyAssignment.objects.count() == 29
 
@@ -186,6 +225,7 @@ def test_workspace_page_supports_leave_preview_apply_and_save_flow() -> None:
                 "form_action": "save",
                 "tenant_slug": tenant.slug,
                 "month_scope": "2026-04",
+                "ui_lang": "zh",
                 "candidate_result_json": candidate_result_json,
                 "save_label": "Reviewer baseline",
             },
@@ -194,10 +234,36 @@ def test_workspace_page_supports_leave_preview_apply_and_save_flow() -> None:
     save_html = save_response.content.decode()
 
     assert save_response.status_code == 200
-    assert "Saved version 1 for 2026-04." in save_html
-    assert "Saved versions" in save_html
+    assert "已保存 2026-04 的版本 1。" in save_html
+    assert "已保存版本" in save_html
     assert DjangoMonthlyPlanVersion.objects.count() == 1
     assert DjangoMonthlyPlanVersion.objects.get().summary == "Reviewer baseline"
+
+
+def test_workspace_preview_post_preserves_selected_japanese_ui_lang() -> None:
+    tenant = _seed_month_context()
+    view = {
+        pattern.name: pattern.callback
+        for pattern in build_django_monthly_workspace_page_urlpatterns()
+    }["monthly_schedule_workspace"]
+
+    response = view(
+        RequestFactory().post(
+            "/v2/monthly-workspace",
+            data={
+                "form_action": "preview",
+                "tenant_slug": tenant.slug,
+                "month_scope": "2026-04",
+                "ui_lang": "ja",
+            },
+        )
+    )
+    html_text = response.content.decode()
+
+    assert response.status_code == 200
+    assert "候補プレビューの準備ができました。適用前に確認できます。" in html_text
+    assert 'name="ui_lang" value="ja"' in html_text
+    assert '>月をプレビュー<' in html_text
 
 
 def test_workspace_page_orders_people_leave_and_grid_rows_chef_first() -> None:
@@ -255,7 +321,7 @@ def test_workspace_page_orders_people_leave_and_grid_rows_chef_first() -> None:
 
     assert response.status_code == 200
     assert _extract_worker_option_labels(html_text) == [
-        "Select employee",
+        "请选择员工",
         "Chef Alpha (Z_CHEF_1)",
         "Chef Beta (Y_CHEF_2)",
         "Cook Alpha (A_COOK)",

@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="{{ page_copy.html_lang }}">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Monthly Scheduling Workspace</title>
+  <title>{{ page_copy.page_title }}</title>
   <style>
     :root {
       --bg-top: #f4f7fb;
@@ -94,6 +94,12 @@
       min-width: 0;
     }
 
+    .hero-side {
+      display: grid;
+      gap: 14px;
+      justify-items: start;
+    }
+
     h1,
     h2 {
       font-family: var(--font-heading);
@@ -136,6 +142,44 @@
       color: var(--text-main);
       font-size: 0.94rem;
       font-weight: 600;
+    }
+
+    .locale-toggle {
+      display: grid;
+      gap: 8px;
+    }
+
+    .locale-toggle-label {
+      font-size: 0.84rem;
+      font-weight: 700;
+      color: var(--text-soft);
+    }
+
+    .locale-toggle-links {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .locale-toggle-link {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 38px;
+      padding: 0 12px;
+      border-radius: 999px;
+      border: 1px solid rgba(44, 106, 130, 0.18);
+      background: rgba(255, 255, 255, 0.78);
+      color: var(--text-main);
+      font-size: 0.92rem;
+      font-weight: 700;
+      text-decoration: none;
+    }
+
+    .locale-toggle-link.is-selected {
+      background: var(--accent);
+      border-color: var(--accent);
+      color: white;
     }
 
     .messages {
@@ -593,17 +637,27 @@
 <body>
   <main class="page-shell workspace">
     <section class="panel hero">
-      <p class="eyebrow">Monthly planning workspace</p>
+      <p class="eyebrow">{{ page_copy.hero.eyebrow }}</p>
       <div class="hero-grid">
         <div>
-          <h1>Monthly Scheduling Workspace</h1>
-          <p>Review one month at a time: add leave, preview a candidate, apply the working copy, save a version, and inspect the monthly people grid without leaving the core scheduling surface.</p>
+          <h1>{{ page_copy.hero.title }}</h1>
+          <p>{{ page_copy.hero.description }}</p>
         </div>
-        <ul class="workflow-list">
-          {% for step in workflow_steps %}
-          <li class="workflow-chip">{{ step }}</li>
-          {% endfor %}
-        </ul>
+        <div class="hero-side">
+          <div class="locale-toggle" aria-label="{{ page_copy.toggle.aria_label }}">
+            <span class="locale-toggle-label">{{ page_copy.toggle.label }}</span>
+            <div class="locale-toggle-links">
+              {% for option in language_options %}
+              <a class="locale-toggle-link{% if option.selected %} is-selected{% endif %}" href="{{ option.href }}">{{ option.label }}</a>
+              {% endfor %}
+            </div>
+          </div>
+          <ul class="workflow-list">
+            {% for step in workflow_steps %}
+            <li class="workflow-chip">{{ step }}</li>
+            {% endfor %}
+          </ul>
+        </div>
       </div>
     </section>
 
@@ -618,16 +672,17 @@
     <section class="panel">
       <div class="section-head">
         <div>
-          <div class="section-kicker">Month selection</div>
-          <h2>Open the monthly workspace</h2>
-          <p>Keep the familiar month picker flow while choosing the workspace scope.</p>
+          <div class="section-kicker">{{ page_copy.scope.kicker }}</div>
+          <h2>{{ page_copy.scope.title }}</h2>
+          <p>{{ page_copy.scope.description }}</p>
         </div>
       </div>
       <form method="get" class="scope-form">
+        <input type="hidden" name="ui_lang" value="{{ ui_lang }}">
         <div class="scope-grid">
           {% if tenant_options|length > 1 %}
           <label>
-            Workspace
+            {{ page_copy.scope.workspace_label }}
             <select name="tenant_slug">
               {% for tenant in tenant_options %}
               <option value="{{ tenant.slug }}"{% if tenant.selected %} selected{% endif %}>{{ tenant.name }}</option>
@@ -636,25 +691,25 @@
           </label>
           {% elif selected_tenant %}
           <label>
-            Workspace
+            {{ page_copy.scope.workspace_label }}
             <span class="tenant-pill">{{ selected_tenant.name }}</span>
             <input type="hidden" name="tenant_slug" value="{{ selected_tenant.slug }}">
           </label>
           {% else %}
           <label>
-            Workspace
-            <span class="tenant-pill">No tenant data available</span>
+            {{ page_copy.scope.workspace_label }}
+            <span class="tenant-pill">{{ page_copy.scope.no_tenant }}</span>
           </label>
           {% endif %}
 
           <label>
-            Month
+            {{ page_copy.scope.month_label }}
             <input type="month" name="month_scope" value="{{ month_value }}">
           </label>
 
           <label>
             &nbsp;
-            <button type="submit" class="btn btn-secondary">Open month</button>
+            <button type="submit" class="btn btn-secondary">{{ page_copy.scope.submit }}</button>
           </label>
         </div>
       </form>
@@ -663,23 +718,24 @@
     <section class="panel">
       <div class="section-head">
         <div>
-          <div class="section-kicker">Leave requests</div>
-          <h2>Keep leave visible in the workflow</h2>
-          <p>Use the same reviewer-facing leave flow before previewing the month.</p>
+          <div class="section-kicker">{{ page_copy.leave.kicker }}</div>
+          <h2>{{ page_copy.leave.title }}</h2>
+          <p>{{ page_copy.leave.description }}</p>
         </div>
       </div>
       <div class="leave-layout">
         <form method="post" class="leave-form">
           <input type="hidden" name="form_action" value="add_leave">
+          <input type="hidden" name="ui_lang" value="{{ ui_lang }}">
           {% if selected_tenant %}
           <input type="hidden" name="tenant_slug" value="{{ selected_tenant.slug }}">
           {% endif %}
           <input type="hidden" name="month_scope" value="{{ month_value }}">
           <div class="leave-grid">
             <label>
-              Person
+              {{ page_copy.leave.person_label }}
               <select name="worker_id">
-                <option value="">Select employee</option>
+                <option value="">{{ page_copy.leave.select_worker }}</option>
                 {% for worker in worker_options %}
                 <option value="{{ worker.id }}"{% if worker.selected %} selected{% endif %}>{{ worker.label }}</option>
                 {% endfor %}
@@ -687,19 +743,19 @@
             </label>
 
             <label>
-              Leave date
+              {{ page_copy.leave.date_label }}
               <input type="date" name="leave_date" value="{{ leave_date_value }}">
             </label>
 
             <label>
               &nbsp;
-              <button type="submit" class="btn btn-soft">Add leave</button>
+              <button type="submit" class="btn btn-soft">{{ page_copy.leave.submit }}</button>
             </label>
           </div>
         </form>
 
         <div>
-          <p class="muted-note">Current leave summary for {{ month_label }}</p>
+          <p class="muted-note">{{ leave_summary_note }}</p>
           {% if leave_summary %}
           <div class="leave-summary-grid">
             {% for item in leave_summary %}
@@ -718,7 +774,7 @@
             {% endfor %}
           </ul>
           {% else %}
-          <div class="empty-state">No leave requests have been added for {{ month_label }}.</div>
+          <div class="empty-state">{{ leave_empty_text }}</div>
           {% endif %}
         </div>
       </div>
@@ -727,68 +783,71 @@
     <section class="panel">
       <div class="section-head">
         <div>
-          <div class="section-kicker">Primary actions</div>
-          <h2>Preview, apply, and save</h2>
-          <p>Keep the main workflow tight and readable, with secondary details kept out of the way.</p>
+          <div class="section-kicker">{{ page_copy.actions.kicker }}</div>
+          <h2>{{ page_copy.actions.title }}</h2>
+          <p>{{ page_copy.actions.description }}</p>
         </div>
       </div>
       <div class="actions-stack">
         <div class="action-grid">
           <form method="post" class="action-card preview-form">
             <input type="hidden" name="form_action" value="preview">
+            <input type="hidden" name="ui_lang" value="{{ ui_lang }}">
             {% if selected_tenant %}
             <input type="hidden" name="tenant_slug" value="{{ selected_tenant.slug }}">
             {% endif %}
             <input type="hidden" name="month_scope" value="{{ month_value }}">
             <div>
-              <h3>Preview</h3>
-              <p>Build a fresh candidate from the selected month and leave inputs.</p>
+              <h3>{{ page_copy.actions.preview_title }}</h3>
+              <p>{{ page_copy.actions.preview_description }}</p>
             </div>
-            <button type="submit" class="btn btn-primary">Preview month</button>
+            <button type="submit" class="btn btn-primary">{{ page_copy.actions.preview_submit }}</button>
           </form>
 
           <form method="post" class="action-card apply-form">
             <input type="hidden" name="form_action" value="apply">
+            <input type="hidden" name="ui_lang" value="{{ ui_lang }}">
             {% if selected_tenant %}
             <input type="hidden" name="tenant_slug" value="{{ selected_tenant.slug }}">
             {% endif %}
             <input type="hidden" name="month_scope" value="{{ month_value }}">
             <input type="hidden" name="candidate_result_json" value="{{ candidate_result_json }}">
             <div>
-              <h3>Apply</h3>
-              <p>Promote the visible candidate preview into the current mutable workspace.</p>
+              <h3>{{ page_copy.actions.apply_title }}</h3>
+              <p>{{ page_copy.actions.apply_description }}</p>
             </div>
-            <button type="submit" class="btn btn-primary"{% if apply_disabled %} disabled{% endif %}>Apply preview</button>
+            <button type="submit" class="btn btn-primary"{% if apply_disabled %} disabled{% endif %}>{{ page_copy.actions.apply_submit }}</button>
           </form>
 
           <form method="post" class="action-card save-form">
             <input type="hidden" name="form_action" value="save">
+            <input type="hidden" name="ui_lang" value="{{ ui_lang }}">
             {% if selected_tenant %}
             <input type="hidden" name="tenant_slug" value="{{ selected_tenant.slug }}">
             {% endif %}
             <input type="hidden" name="month_scope" value="{{ month_value }}">
             <input type="hidden" name="candidate_result_json" value="{{ candidate_result_json }}">
             <div>
-              <h3>Save</h3>
-              <p>Snapshot the current workspace as an immutable saved version.</p>
+              <h3>{{ page_copy.actions.save_title }}</h3>
+              <p>{{ page_copy.actions.save_description }}</p>
             </div>
             <label>
-              Version label
-              <input type="text" name="save_label" value="{{ save_label_value }}" placeholder="Optional reviewer-facing label">
+              {{ page_copy.actions.save_label }}
+              <input type="text" name="save_label" value="{{ save_label_value }}" placeholder="{{ page_copy.actions.save_placeholder }}">
             </label>
-            <button type="submit" class="btn btn-secondary"{% if save_disabled %} disabled{% endif %}>Save version</button>
+            <button type="submit" class="btn btn-secondary"{% if save_disabled %} disabled{% endif %}>{{ page_copy.actions.save_submit }}</button>
           </form>
         </div>
-        <p class="muted-note">Preview is read-only. Apply updates the current workspace. Save creates immutable history for the selected month.</p>
+        <p class="muted-note">{{ page_copy.actions.footer_note }}</p>
       </div>
     </section>
 
     <section class="panel">
       <div class="section-head">
         <div>
-          <div class="section-kicker">Workspace state</div>
-          <h2>Keep the current system state obvious</h2>
-          <p>A light summary helps reviewers understand what exists in this workspace without exposing planner config toggles.</p>
+          <div class="section-kicker">{{ page_copy.state.kicker }}</div>
+          <h2>{{ page_copy.state.title }}</h2>
+          <p>{{ page_copy.state.description }}</p>
         </div>
       </div>
       <div class="state-grid">
@@ -805,9 +864,9 @@
     <section class="panel">
       <div class="section-head">
         <div>
-          <div class="section-kicker">Monthly schedule result</div>
-          <h2>Review the people grid</h2>
-          <p>Keep the month grid readable on narrow screens by favoring horizontal scrolling over compressed cells.</p>
+          <div class="section-kicker">{{ page_copy.result.kicker }}</div>
+          <h2>{{ page_copy.result.title }}</h2>
+          <p>{{ page_copy.result.description }}</p>
         </div>
       </div>
 
@@ -824,7 +883,7 @@
         <table class="result-grid">
           <thead>
             <tr>
-              <th scope="col">Person</th>
+              <th scope="col">{{ page_copy.result.person_header }}</th>
               {% for day in display_surface.days %}
               <th scope="col">{{ day }}</th>
               {% endfor %}
@@ -851,16 +910,16 @@
         </table>
       </div>
       {% else %}
-      <div class="empty-state">No candidate preview or current workspace is visible for {{ month_label }} yet.</div>
+      <div class="empty-state">{{ result_empty_text }}</div>
       {% endif %}
     </section>
 
     <section class="panel">
       <div class="section-head">
         <div>
-          <div class="section-kicker">Warnings</div>
-          <h2>Keep reviewer-facing warnings readable</h2>
-          <p>Preview warnings remain visible here without claiming anything more advanced than the current backend supports.</p>
+          <div class="section-kicker">{{ page_copy.warnings.kicker }}</div>
+          <h2>{{ page_copy.warnings.title }}</h2>
+          <p>{{ page_copy.warnings.description }}</p>
         </div>
       </div>
 
@@ -869,7 +928,7 @@
         {% for warning in warnings %}
         <li class="warning-item">
           <div class="warning-title">{{ warning.title }}</div>
-          <div class="warning-meta">Date: {{ warning.date }} / Worker: {{ warning.worker }}</div>
+          <div class="warning-meta">{{ page_copy.warnings.date_label }}: {{ warning.date }} / {{ page_copy.warnings.worker_label }}: {{ warning.worker }}</div>
           <p><strong>{{ warning.message }}</strong></p>
           <p>{{ warning.details }}</p>
         </li>
@@ -883,15 +942,15 @@
     <section class="panel reserved">
       <div class="section-head">
         <div>
-          <div class="section-kicker">Refine / explain</div>
-          <h2>Reserved for a later phase</h2>
-          <p>Keep the space visible without pretending the natural-language adjustment flow is finished in this PR.</p>
+          <div class="section-kicker">{{ page_copy.refine.kicker }}</div>
+          <h2>{{ page_copy.refine.title }}</h2>
+          <p>{{ page_copy.refine.description }}</p>
         </div>
       </div>
       <div class="reserved-box">
-        <p>Natural-language refine and explain are intentionally left as an honest placeholder here. This page reserves the workspace area, but it does not fake a completed implementation.</p>
-        <textarea disabled placeholder="Reserved: natural-language adjustment and explanation will land in a later phase."></textarea>
-        <button type="button" class="btn btn-secondary" disabled>Reserved for later phase</button>
+        <p>{{ page_copy.refine.body }}</p>
+        <textarea disabled placeholder="{{ page_copy.refine.placeholder }}"></textarea>
+        <button type="button" class="btn btn-secondary" disabled>{{ page_copy.refine.button }}</button>
       </div>
     </section>
   </main>
