@@ -12,6 +12,7 @@ from app.infra.django_app.models import (
     MonthlyAssignment,
     MonthlyPlanVersion,
     MonthlyWorkspace,
+    RefineRequest,
     ShiftDefinition,
     Station,
     Tenant,
@@ -22,6 +23,7 @@ from app.infra.django_app.models import (
 
 @pytest.fixture(autouse=True)
 def _clear_scheduler_tables() -> None:
+    RefineRequest.objects.all().delete()
     LeaveRequest.objects.all().delete()
     ConstraintConfig.objects.all().delete()
     MonthlyAssignment.objects.all().delete()
@@ -48,6 +50,7 @@ def test_initial_migration_creates_expected_tables() -> None:
         "scheduler_infra_monthlyworkspace",
         "scheduler_infra_monthlyassignment",
         "scheduler_infra_monthlyplanversion",
+        "scheduler_infra_refinerequest",
     }.issubset(table_names)
 
 
@@ -127,6 +130,14 @@ def test_monthly_persistence_models_support_apply_and_save_shape() -> None:
             "assignment_ids": [assignment.id],
         },
     )
+    refine_request = RefineRequest.objects.create(
+        tenant=tenant,
+        workspace=workspace,
+        request_text="请把 W1 安排到 2026-04-01 的 DAY 在 GRILL",
+        status="completed",
+        parsed_intent_json={"request_language": "zh"},
+        result_preview_json={"summary": {"total_assignments": 1}},
+    )
 
     workspace.source_version = plan_version
     workspace.save()
@@ -140,6 +151,8 @@ def test_monthly_persistence_models_support_apply_and_save_shape() -> None:
     assert workspace.source_version_id == plan_version.id
     assert workspace.assignments.get().id == assignment.id
     assert workspace.plan_versions.get().id == plan_version.id
+    assert tenant.refine_requests.get().id == refine_request.id
+    assert workspace.refine_requests.get().id == refine_request.id
 
 
 def test_unique_constraints_are_enforced_for_core_slice() -> None:

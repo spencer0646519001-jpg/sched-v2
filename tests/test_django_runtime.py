@@ -22,6 +22,7 @@ from app.infra.django_app.models import (
     MonthlyAssignment as DjangoMonthlyAssignment,
     MonthlyPlanVersion as DjangoMonthlyPlanVersion,
     MonthlyWorkspace as DjangoMonthlyWorkspace,
+    RefineRequest as DjangoRefineRequest,
     ShiftDefinition as DjangoShiftDefinition,
     Station as DjangoStation,
     Tenant as DjangoTenant,
@@ -32,6 +33,7 @@ from app.infra.django_app.models import (
 
 @pytest.fixture(autouse=True)
 def _clear_scheduler_tables() -> None:
+    DjangoRefineRequest.objects.all().delete()
     DjangoLeaveRequest.objects.all().delete()
     DjangoConstraintConfig.objects.all().delete()
     DjangoMonthlyAssignment.objects.all().delete()
@@ -44,18 +46,20 @@ def _clear_scheduler_tables() -> None:
     DjangoTenant.objects.all().delete()
 
 
-def test_runtime_slice_registers_only_preview_apply_save_routes() -> None:
+def test_runtime_slice_registers_preview_apply_save_and_refine_routes() -> None:
     patterns = build_django_monthly_schedule_urlpatterns()
 
     assert [pattern.name for pattern in patterns] == [
         "preview_month_schedule",
         "apply_month_schedule",
         "save_month_schedule",
+        "refine_month_schedule",
     ]
     assert [str(pattern.pattern) for pattern in patterns] == [
         "v2/monthly-schedules/preview",
         "v2/monthly-schedules/apply",
         "v2/monthly-schedules/save",
+        "v2/monthly-schedules/refine",
     ]
 
 
@@ -190,6 +194,101 @@ def test_django_runtime_preview_apply_save_flow_uses_real_persistence() -> None:
     assert len(version.snapshot_json["assignments"]) == 30
     assert version.snapshot_json["assignments"][0]["assignment_date"] == "2026-04-01"
     assert version.snapshot_json["assignments"][-1]["assignment_date"] == "2026-04-30"
+
+
+def test_django_runtime_refine_returns_candidate_preview_without_mutating_current_workspace() -> None:
+    tenant = _seed_month_context()
+    DjangoShiftDefinition.objects.create(
+        tenant=tenant,
+        code="EVE",
+        name="Evening",
+        paid_hours=Decimal("6.00"),
+        is_off_shift=False,
+    )
+    views = {
+        pattern.name: pattern.callback
+        for pattern in build_django_monthly_schedule_urlpatterns()
+    }
+
+    preview_payload = _post_json(
+        views["preview_month_schedule"],
+        path="/v2/monthly-schedules/preview",
+        payload={
+            "tenant_slug": tenant.slug,
+            "year": 2026,
+            "month": 4,
+        },
+    )
+    _post_json(
+        views["apply_month_schedule"],
+        path="/v2/monthly-schedules/apply",
+        payload={
+            "tenant_slug": tenant.slug,
+            "year": 2026,
+            "month": 4,
+            "result": preview_payload["result"],
+        },
+    )
+    refine_request_text = (
+        f"\u8bf7\u628a {PRIMARY_DEMO_WORKER.code} "
+        f"\u5b89\u6392\u5230 2026-04-01 \u7684 EVE \u5728 "
+        f"{PRIMARY_DEMO_STATION.code}"
+    )
+
+    refine_payload = _post_json(
+        views["refine_month_schedule"],
+        path="/v2/monthly-schedules/refine",
+        payload={
+            "tenant_slug": tenant.slug,
+            "year": 2026,
+            "month": 4,
+            "request_text": (
+                f"请把 {PRIMARY_DEMO_WORKER.code} 安排到 2026-04-01 的 EVE 在 "
+                f"{PRIMARY_DEMO_STATION.code}"
+            ),
+            "request_text": refine_request_text,
+        },
+    )
+
+    current_workspace = DjangoMonthlyWorkspace.objects.get(
+        tenant=tenant,
+        year=2026,
+        month=4,
+    )
+    current_first_assignment = DjangoMonthlyAssignment.objects.get(
+        workspace=current_workspace,
+        assignment_date=dt.date(2026, 4, 1),
+        worker__code=PRIMARY_DEMO_WORKER.code,
+    )
+    refine_request = DjangoRefineRequest.objects.get(
+        workspace=current_workspace,
+    )
+    refined_first_day_assignment = next(
+        assignment
+        for assignment in refine_payload["candidate_result"]["assignments"]
+        if assignment["date"] == "2026-04-01"
+        and assignment["worker_code"] == PRIMARY_DEMO_WORKER.code
+    )
+
+    assert refine_payload["status"] == "completed"
+    assert refine_payload["request_language"] == "zh"
+    assert refine_payload["outcome"]["status"] == "preview_ready"
+    assert refine_payload["outcome"]["message_key"] == "refine_preview_ready_set"
+    assert refine_payload["parsed_intent_json"]["intent_type"] == "set_assignment"
+    assert refine_payload["parsed_intent_json"]["preview_executed"] is True
+    assert refine_payload["candidate_result"]["metadata"]["refinement_applied"] is True
+    assert refined_first_day_assignment == {
+        "date": "2026-04-01",
+        "worker_code": PRIMARY_DEMO_WORKER.code,
+        "shift_code": "EVE",
+        "source": "adjustment_patch",
+        "station_code": PRIMARY_DEMO_STATION.code,
+        "note": "langgraph_refine_preview",
+    }
+    assert current_first_assignment.shift_definition.code == PRIMARY_DEMO_SHIFT.code
+    assert current_first_assignment.assignment_source == "apply"
+    assert DjangoMonthlyAssignment.objects.filter(workspace=current_workspace).count() == 30
+    assert refine_request.result_preview_json is not None
 
 
 def test_django_runtime_preview_returns_planner_warnings_without_persisting() -> None:

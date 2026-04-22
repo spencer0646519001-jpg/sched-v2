@@ -304,3 +304,24 @@ class MonthlyPlanVersion(models.Model):
                 name="sched_plan_version_number_gte_1",
             ),
         ]
+
+
+class RefineRequest(models.Model):
+    """One bounded refine instruction plus parsed preview metadata."""
+
+    tenant = models.ForeignKey(
+        Tenant,
+        on_delete=models.CASCADE,
+        related_name="refine_requests",
+    )
+    workspace = models.ForeignKey(
+        MonthlyWorkspace,
+        on_delete=models.CASCADE,
+        related_name="refine_requests",
+    )
+    request_text = models.TextField()
+    status = models.CharField(max_length=32)
+    parsed_intent_json = models.JSONField(null=True, blank=True)
+    result_preview_json = models.JSONField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)

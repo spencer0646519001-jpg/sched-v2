@@ -1,14 +1,17 @@
-"""Refine orchestration for natural-language monthly schedule adjustments.
+"""Refine orchestration for bounded monthly schedule adjustments.
 
-The refine service accepts a free-form adjustment request, stores it as a
-`RefineRequest`, delegates interpretation to a parser boundary, reruns the
-engine with a lightweight adjustment patch, and persists the candidate preview.
-It does not mutate the current workspace and it does not create saved versions.
+The refine service accepts a natural-language adjustment request, stores it as a
+`RefineRequest`, delegates interpretation plus preview generation to a small
+workflow boundary, and persists the resulting candidate preview when one is
+available. It does not mutate the current workspace and it does not create
+saved versions.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
+from datetime import date
+from decimal import Decimal
 from typing import Protocol
 
 from app.engine.contracts import (
@@ -17,7 +20,6 @@ from app.engine.contracts import (
     MonthPlanningInput,
     MonthPlanningResult,
 )
-from app.engine.evaluation import attach_month_planning_evaluation
 from app.infra.models import JsonObject, RecordId, RefineRequest, Tenant
 from app.infra.repositories import (
     ConstraintConfigRepository,
@@ -36,17 +38,76 @@ REFINE_STATUS_RECEIVED = "received"
 REFINE_STATUS_PARSED = "parsed"
 REFINE_STATUS_COMPLETED = "completed"
 
+_REFINE_OUTCOME_TEMPLATES: dict[str, dict[str, str]] = {
+    "zh": {
+        "refine_preview_ready_set": (
+            "\u5df2\u751f\u6210\u8c03\u6574\u9884\u89c8\u3002"
+        ),
+        "refine_preview_ready_remove": (
+            "\u5df2\u751f\u6210\u79fb\u9664\u9884\u89c8\u3002"
+        ),
+        "refine_unsupported_language": (
+            "\u6682\u4e0d\u652f\u6301\u8fd9\u7c7b\u8f93\u5165\u8bed\u8a00\u3002"
+        ),
+        "refine_unsupported_intent": (
+            "\u6682\u4e0d\u652f\u6301\u8fd9\u7c7b\u8c03\u6574\u8bf7\u6c42\u3002"
+        ),
+        "refine_ambiguous_reference": (
+            "\u65e0\u6cd5\u5b89\u5168\u89e3\u6790\u8fd9\u6761\u8c03\u6574\u8bf7\u6c42\u3002"
+        ),
+    },
+    "ja": {
+        "refine_preview_ready_set": (
+            "\u8abf\u6574\u30d7\u30ec\u30d3\u30e5\u30fc\u3092"
+            "\u751f\u6210\u3057\u307e\u3057\u305f\u3002"
+        ),
+        "refine_preview_ready_remove": (
+            "\u524a\u9664\u30d7\u30ec\u30d3\u30e5\u30fc\u3092"
+            "\u751f\u6210\u3057\u307e\u3057\u305f\u3002"
+        ),
+        "refine_unsupported_language": (
+            "\u3053\u306e\u5165\u529b\u8a00\u8a9e\u306f\u307e\u3060"
+            "\u5bfe\u5fdc\u3057\u3066\u3044\u307e\u305b\u3093\u3002"
+        ),
+        "refine_unsupported_intent": (
+            "\u3053\u306e\u8abf\u6574\u4f9d\u983c\u306b\u306f\u307e\u3060"
+            "\u5bfe\u5fdc\u3057\u3066\u3044\u307e\u305b\u3093\u3002"
+        ),
+        "refine_ambiguous_reference": (
+            "\u3053\u306e\u8abf\u6574\u4f9d\u983c\u3092\u5b89\u5168\u306b"
+            "\u89e3\u91c8\u3067\u304d\u307e\u305b\u3093\u3067\u3057\u305f\u3002"
+        ),
+    },
+    "unknown": {
+        "refine_preview_ready_set": "Refine preview generated.",
+        "refine_preview_ready_remove": "Remove preview generated.",
+        "refine_unsupported_language": "Unsupported request language.",
+        "refine_unsupported_intent": "Unsupported refine request.",
+        "refine_ambiguous_reference": "Unable to safely resolve this refine request.",
+    },
+}
+
 
 class MonthlyScheduleRefineEngine(Protocol):
-    """Callable engine boundary used to compute the candidate refined preview."""
+    """Callable engine boundary used to compute a refined candidate preview."""
 
     def __call__(self, planning_input: MonthPlanningInput) -> MonthPlanningResult:
         ...
 
 
 @dataclass(slots=True)
-class RefineParserRequest:
-    """Context passed to the parser boundary for one refine instruction."""
+class RefineOutcome:
+    """Structured bounded outcome that can later be rendered per language."""
+
+    language: str
+    status: str
+    message_key: str
+    message_values: JsonObject = field(default_factory=dict)
+
+
+@dataclass(slots=True)
+class RefineWorkflowRequest:
+    """Context passed to the workflow boundary for one refine instruction."""
 
     tenant_slug: str
     year: int
@@ -57,17 +118,20 @@ class RefineParserRequest:
 
 
 @dataclass(slots=True)
-class RefineParserResult:
-    """Structured parser output consumed by the refine service."""
+class RefineWorkflowResult:
+    """Structured workflow result consumed by the refine service."""
 
-    intent_json: JsonObject
+    request_language: str
+    outcome: RefineOutcome
+    parsed_intent_json: JsonObject
     adjustment_patch: list[AssignmentPatchInput] | None = None
+    candidate_result: MonthPlanningResult | None = None
 
 
-class RefineParser(Protocol):
-    """Optional AI or rule-based parser boundary for natural-language refine."""
+class RefineWorkflow(Protocol):
+    """Bounded workflow boundary for request understanding plus preview."""
 
-    def __call__(self, request: RefineParserRequest) -> RefineParserResult:
+    def __call__(self, request: RefineWorkflowRequest) -> RefineWorkflowResult:
         ...
 
 
@@ -83,7 +147,7 @@ class RefineMonthScheduleRequest:
 
 @dataclass(slots=True)
 class RefineMonthScheduleResponse:
-    """Small refine result containing the stored request and candidate preview."""
+    """Small refine result containing stored metadata and an optional preview."""
 
     tenant_slug: str
     year: int
@@ -91,17 +155,19 @@ class RefineMonthScheduleResponse:
     workspace_id: RecordId
     refine_request_id: RecordId
     status: str
+    request_language: str
+    outcome: RefineOutcome
     parsed_intent_json: JsonObject
-    candidate_result: MonthPlanningResult
+    candidate_result: MonthPlanningResult | None
 
 
 @dataclass(slots=True)
 class RefineMonthScheduleService:
-    """Coordinates natural-language refine into a stored candidate preview.
+    """Coordinates bounded refine requests into an optional candidate preview.
 
     Refine stays separate from preview/apply/save on purpose:
     - preview computes a read-only month result from persisted inputs
-    - refine adds one structured adjustment layer and stores its candidate result
+    - refine adds one structured adjustment layer when supported
     - apply is still required to mutate current workspace state
     - save is still required to create immutable version history
     """
@@ -114,14 +180,13 @@ class RefineMonthScheduleService:
     constraint_config_repository: ConstraintConfigRepository
     workspace_repository: WorkspaceRepository
     refine_request_repository: RefineRequestRepository
-    parser: RefineParser
-    engine_runner: MonthlyScheduleRefineEngine
+    workflow: RefineWorkflow
 
     def refine_month_schedule(
         self,
         request: RefineMonthScheduleRequest,
     ) -> RefineMonthScheduleResponse:
-        """Create a refine request, parse intent, and store a candidate preview."""
+        """Create a refine request, run the workflow, and store preview data."""
 
         _validate_request(request)
 
@@ -165,8 +230,8 @@ class RefineMonthScheduleService:
             label="refine_request.id",
         )
 
-        parser_result = self.parser(
-            RefineParserRequest(
+        workflow_result = self.workflow(
+            RefineWorkflowRequest(
                 tenant_slug=tenant.slug,
                 year=request.year,
                 month=request.month,
@@ -175,7 +240,7 @@ class RefineMonthScheduleService:
                 planning_input=base_planning_input,
             )
         )
-        parsed_intent_json = _build_persisted_intent_json(parser_result)
+        parsed_intent_json = _build_persisted_intent_json(workflow_result)
         parsed_refine_request = self.refine_request_repository.update_parsed_preview(
             refine_request_id,
             status=REFINE_STATUS_PARSED,
@@ -186,14 +251,11 @@ class RefineMonthScheduleService:
                 f"Refine request not found after create: {refine_request_id!r}"
             )
 
-        refined_planning_input = _build_refined_planning_input(
-            base_planning_input,
-            parser_result,
+        result_preview_json = (
+            _serialize_month_planning_result(workflow_result.candidate_result)
+            if workflow_result.candidate_result is not None
+            else None
         )
-        candidate_result = attach_month_planning_evaluation(
-            self.engine_runner(refined_planning_input)
-        )
-        result_preview_json = _serialize_month_planning_result(candidate_result)
         completed_refine_request = self.refine_request_repository.update_parsed_preview(
             refine_request_id,
             status=REFINE_STATUS_COMPLETED,
@@ -213,8 +275,10 @@ class RefineMonthScheduleService:
             workspace_id=workspace_id,
             refine_request_id=refine_request_id,
             status=completed_refine_request.status,
+            request_language=workflow_result.request_language,
+            outcome=workflow_result.outcome,
             parsed_intent_json=parsed_intent_json,
-            candidate_result=candidate_result,
+            candidate_result=workflow_result.candidate_result,
         )
 
     def _load_monthly_persistence_bundle(
@@ -265,19 +329,41 @@ def refine_month_schedule(
     return service.refine_month_schedule(request)
 
 
+def render_refine_outcome(outcome: RefineOutcome) -> str:
+    """Render one bounded outcome message in the request language."""
+
+    templates = _REFINE_OUTCOME_TEMPLATES.get(
+        outcome.language,
+        _REFINE_OUTCOME_TEMPLATES["unknown"],
+    )
+    template = templates.get(
+        outcome.message_key,
+        _REFINE_OUTCOME_TEMPLATES["unknown"]["refine_ambiguous_reference"],
+    )
+    safe_values = {
+        key: _render_value(value)
+        for key, value in outcome.message_values.items()
+    }
+    return template.format(**safe_values)
+
+
+def _render_value(value: object) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, (date, Decimal)):
+        return str(value)
+    return str(value)
+
+
 def _build_refined_planning_input(
     base_planning_input: MonthPlanningInput,
-    parser_result: RefineParserResult,
+    adjustment_patch: list[AssignmentPatchInput] | None,
 ) -> MonthPlanningInput:
-    """Attach the parsed adjustment patch to a preview-style planning input.
-
-    Patch policy intentionally stays simple for now: refine contributes a
-    normalized overlay patch and the engine decides how to interpret it.
-    """
+    """Attach the normalized adjustment patch to a preview-style planning input."""
 
     merged_adjustment_patch = _merge_adjustment_patch(
         base_planning_input.adjustment_patch,
-        parser_result.adjustment_patch,
+        adjustment_patch,
     )
     return replace(
         base_planning_input,
@@ -289,7 +375,7 @@ def _merge_adjustment_patch(
     base_patch: list[AssignmentPatchInput] | None,
     refine_patch: list[AssignmentPatchInput] | None,
 ) -> list[AssignmentPatchInput] | None:
-    """Placeholder patch merge strategy for the first refine skeleton."""
+    """Keep the first refine merge policy explicit and deterministic."""
 
     if not base_patch and not refine_patch:
         return None
@@ -300,19 +386,43 @@ def _merge_adjustment_patch(
     return [*base_patch, *refine_patch]
 
 
-def _build_persisted_intent_json(parser_result: RefineParserResult) -> JsonObject:
-    """Prepare JSON-safe parser output for refine-request persistence."""
+def _build_persisted_intent_json(
+    workflow_result: RefineWorkflowResult,
+) -> JsonObject:
+    """Prepare JSON-safe workflow output for refine-request persistence."""
 
-    intent_json = dict(parser_result.intent_json)
-    if parser_result.adjustment_patch:
+    intent_json = dict(workflow_result.parsed_intent_json)
+    intent_json.setdefault("request_language", workflow_result.request_language)
+    persisted_outcome = _serialize_refine_outcome(workflow_result.outcome)
+    existing_outcome = intent_json.get("outcome")
+    if isinstance(existing_outcome, dict):
+        merged_outcome = dict(existing_outcome)
+        for key, value in persisted_outcome.items():
+            merged_outcome.setdefault(key, value)
+        intent_json["outcome"] = merged_outcome
+    else:
+        intent_json["outcome"] = persisted_outcome
+    if workflow_result.adjustment_patch:
         intent_json.setdefault(
             "adjustment_patch",
             [
                 _serialize_assignment_patch_input(patch)
-                for patch in parser_result.adjustment_patch
+                for patch in workflow_result.adjustment_patch
             ],
         )
     return intent_json
+
+
+def _serialize_refine_outcome(outcome: RefineOutcome) -> JsonObject:
+    """Serialize one bounded refine outcome into a JSON-safe shape."""
+
+    return {
+        "language": outcome.language,
+        "status": outcome.status,
+        "message_key": outcome.message_key,
+        "message_values": dict(outcome.message_values),
+        "message_text": render_refine_outcome(outcome),
+    }
 
 
 def _serialize_assignment_patch_input(
@@ -430,11 +540,17 @@ def _require_record_id(record_id: RecordId | None, *, label: str) -> RecordId:
 
 __all__ = [
     "MonthlyScheduleRefineEngine",
+    "REFINE_STATUS_COMPLETED",
+    "REFINE_STATUS_PARSED",
+    "REFINE_STATUS_RECEIVED",
     "RefineMonthScheduleRequest",
     "RefineMonthScheduleResponse",
     "RefineMonthScheduleService",
-    "RefineParser",
-    "RefineParserRequest",
-    "RefineParserResult",
+    "RefineOutcome",
+    "RefineWorkflow",
+    "RefineWorkflowRequest",
+    "RefineWorkflowResult",
+    "_build_refined_planning_input",
     "refine_month_schedule",
+    "render_refine_outcome",
 ]

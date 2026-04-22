@@ -13,6 +13,7 @@ from app.infra.django_app.models import (
     MonthlyAssignment as DjangoMonthlyAssignment,
     MonthlyPlanVersion as DjangoMonthlyPlanVersion,
     MonthlyWorkspace as DjangoMonthlyWorkspace,
+    RefineRequest as DjangoRefineRequest,
     ShiftDefinition as DjangoShiftDefinition,
     Station as DjangoStation,
     Tenant as DjangoTenant,
@@ -23,6 +24,7 @@ from app.infra.django_repositories import (
     DjangoConstraintConfigRepository,
     DjangoLeaveRequestRepository,
     DjangoPlanVersionRepository,
+    DjangoRefineRequestRepository,
     DjangoShiftRepository,
     DjangoStationRepository,
     DjangoTenantRepository,
@@ -33,6 +35,7 @@ from app.infra.django_repositories import (
 
 @pytest.fixture(autouse=True)
 def _clear_scheduler_tables() -> None:
+    DjangoRefineRequest.objects.all().delete()
     DjangoLeaveRequest.objects.all().delete()
     DjangoConstraintConfig.objects.all().delete()
     DjangoMonthlyAssignment.objects.all().delete()
@@ -578,3 +581,48 @@ def test_plan_version_repository_persists_and_queries_month_history() -> None:
     assert loaded == saved
     assert listed[0].id == str(existing_version.id)
     assert DjangoMonthlyPlanVersion.objects.get(pk=int(saved.id)).label is None
+
+
+def test_refine_request_repository_persists_and_updates_preview_payloads() -> None:
+    tenant = DjangoTenant.objects.create(
+        slug="tenant-a",
+        name="Tenant A",
+        default_locale="en-US",
+    )
+    workspace = DjangoMonthlyWorkspace.objects.create(
+        tenant=tenant,
+        year=2026,
+        month=4,
+        status="draft",
+        source_type="preview",
+    )
+    repository = DjangoRefineRequestRepository()
+
+    created = repository.create(
+        infra_models.RefineRequest(
+            tenant_id=str(tenant.id),
+            workspace_id=str(workspace.id),
+            request_text="2026-04-01 の W1 を外して",
+            status="received",
+        )
+    )
+    updated = repository.update_parsed_preview(
+        created.id or "",
+        status="completed",
+        parsed_intent_json={
+            "request_language": "ja",
+            "intent_type": "remove_assignment",
+        },
+        result_preview_json={"summary": {"total_assignments": 0}},
+    )
+    listed = repository.list_for_workspace(str(workspace.id))
+
+    assert created.id is not None
+    assert updated is not None
+    assert updated.status == "completed"
+    assert updated.parsed_intent_json == {
+        "request_language": "ja",
+        "intent_type": "remove_assignment",
+    }
+    assert updated.result_preview_json == {"summary": {"total_assignments": 0}}
+    assert listed == [updated]

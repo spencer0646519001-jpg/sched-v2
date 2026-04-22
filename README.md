@@ -15,7 +15,9 @@ The current scaffold includes persistence models, repository and service boundar
 - `ai`: pluggable AI interfaces and future natural-language refinement integration
 - `api`: thin transport layer for schemas, framework-neutral route translation, and Django-first runtime adapters
 
-Business rules, repository-backed runtime wiring, database migrations, scheduling logic, and LangGraph flows are intentionally deferred.
+The runtime now includes a small LangGraph-backed refine-preview slice. Broader
+natural-language coverage, UI wiring for refine, and larger agent behaviors
+remain intentionally deferred.
 
 ## Local Manual Review
 

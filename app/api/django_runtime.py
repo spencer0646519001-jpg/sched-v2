@@ -6,8 +6,8 @@ existing boundaries:
 - services remain framework-neutral
 - Django ORM usage stays inside repository adapters
 
-Only the first vertical slice is wired here for now: preview, apply, and save.
-Refine and export remain deferred to later PRs.
+The current runtime wires preview/apply/save plus a bounded refine-preview
+slice. Export remains deferred to a later PR.
 """
 
 from __future__ import annotations
@@ -22,6 +22,7 @@ from app.infra.django_repositories import (
     DjangoConstraintConfigRepository,
     DjangoLeaveRequestRepository,
     DjangoPlanVersionRepository,
+    DjangoRefineRequestRepository,
     DjangoShiftRepository,
     DjangoStationRepository,
     DjangoTenantRepository,
@@ -33,6 +34,8 @@ from app.services.preview import (
     MonthlySchedulePreviewEngine,
     PreviewMonthScheduleService,
 )
+from app.services.refine import RefineMonthScheduleService
+from app.services.refine_langgraph import LangGraphRefineWorkflow
 from app.services.save import SaveMonthScheduleService
 
 
@@ -40,7 +43,7 @@ def build_django_monthly_schedule_routes(
     *,
     preview_engine: MonthlySchedulePreviewEngine | None = None,
 ) -> MonthlyScheduleRoutes:
-    """Compose the first Django-backed runtime slice for preview/apply/save."""
+    """Compose the Django-backed runtime slice for preview/apply/save/refine."""
 
     tenant_repository = DjangoTenantRepository()
     worker_repository = DjangoWorkerRepository()
@@ -49,6 +52,9 @@ def build_django_monthly_schedule_routes(
     leave_request_repository = DjangoLeaveRequestRepository()
     constraint_config_repository = DjangoConstraintConfigRepository()
     workspace_repository = DjangoWorkspaceRepository()
+    resolved_preview_engine = (
+        preview_engine if preview_engine is not None else generate_month_plan
+    )
 
     return build_month_schedule_routes(
         preview_service=PreviewMonthScheduleService(
@@ -58,11 +64,7 @@ def build_django_monthly_schedule_routes(
             shift_repository=shift_repository,
             leave_request_repository=leave_request_repository,
             constraint_config_repository=constraint_config_repository,
-            engine_runner=(
-                preview_engine
-                if preview_engine is not None
-                else generate_month_plan
-            ),
+            engine_runner=resolved_preview_engine,
         ),
         apply_service=ApplyMonthScheduleService(
             tenant_repository=tenant_repository,
@@ -75,6 +77,19 @@ def build_django_monthly_schedule_routes(
             tenant_repository=tenant_repository,
             workspace_repository=workspace_repository,
             plan_version_repository=DjangoPlanVersionRepository(),
+        ),
+        refine_service=RefineMonthScheduleService(
+            tenant_repository=tenant_repository,
+            worker_repository=worker_repository,
+            station_repository=station_repository,
+            shift_repository=shift_repository,
+            leave_request_repository=leave_request_repository,
+            constraint_config_repository=constraint_config_repository,
+            workspace_repository=workspace_repository,
+            refine_request_repository=DjangoRefineRequestRepository(),
+            workflow=LangGraphRefineWorkflow(
+                engine_runner=resolved_preview_engine
+            ),
         ),
     )
 

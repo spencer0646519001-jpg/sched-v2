@@ -19,6 +19,7 @@ from app.infra.django_app.models import (
     MonthlyAssignment as DjangoMonthlyAssignment,
     MonthlyPlanVersion as DjangoMonthlyPlanVersion,
     MonthlyWorkspace as DjangoMonthlyWorkspace,
+    RefineRequest as DjangoRefineRequest,
     ShiftDefinition as DjangoShiftDefinition,
     Station as DjangoStation,
     Tenant as DjangoTenant,
@@ -27,11 +28,13 @@ from app.infra.django_app.models import (
 )
 from app.infra.models import (
     ConstraintConfig,
+    JsonObject,
     LeaveRequest,
     MonthlyAssignment,
     MonthlyPlanVersion,
     MonthlyWorkspace,
     RecordId,
+    RefineRequest,
     ShiftDefinition,
     Station,
     Tenant,
@@ -210,6 +213,28 @@ def _plan_version_from_model(model: DjangoMonthlyPlanVersion) -> MonthlyPlanVers
         workspace_id=_serialize_record_id(model.workspace_id),
         summary=model.summary,
         created_at=model.created_at,
+    )
+
+
+def _refine_request_from_model(model: DjangoRefineRequest) -> RefineRequest:
+    return RefineRequest(
+        id=_serialize_record_id(model.pk),
+        tenant_id=_serialize_record_id(model.tenant_id),
+        workspace_id=_serialize_record_id(model.workspace_id),
+        request_text=model.request_text,
+        status=model.status,
+        parsed_intent_json=(
+            deepcopy(model.parsed_intent_json)
+            if model.parsed_intent_json is not None
+            else None
+        ),
+        result_preview_json=(
+            deepcopy(model.result_preview_json)
+            if model.result_preview_json is not None
+            else None
+        ),
+        created_at=model.created_at,
+        updated_at=model.updated_at,
     )
 
 
@@ -514,10 +539,78 @@ class DjangoPlanVersionRepository:
         return _plan_version_from_model(version)
 
 
+class DjangoRefineRequestRepository:
+    """Persist bounded refine requests and later enrich them with preview data."""
+
+    def create(self, request: RefineRequest) -> RefineRequest:
+        persisted = DjangoRefineRequest.objects.create(
+            tenant_id=_parse_record_id(request.tenant_id, label="request.tenant_id"),
+            workspace_id=_parse_record_id(
+                request.workspace_id,
+                label="request.workspace_id",
+            ),
+            request_text=request.request_text,
+            status=request.status,
+            parsed_intent_json=(
+                deepcopy(request.parsed_intent_json)
+                if request.parsed_intent_json is not None
+                else None
+            ),
+            result_preview_json=(
+                deepcopy(request.result_preview_json)
+                if request.result_preview_json is not None
+                else None
+            ),
+        )
+        return _refine_request_from_model(persisted)
+
+    def list_for_workspace(self, workspace_id: RecordId) -> list[RefineRequest]:
+        requests = DjangoRefineRequest.objects.filter(
+            workspace_id=_parse_record_id(workspace_id, label="workspace_id")
+        ).order_by("created_at", "id")
+        return [_refine_request_from_model(request) for request in requests]
+
+    def update_parsed_preview(
+        self,
+        refine_request_id: RecordId,
+        *,
+        status: str,
+        parsed_intent_json: JsonObject | None = None,
+        result_preview_json: JsonObject | None = None,
+    ) -> RefineRequest | None:
+        request = DjangoRefineRequest.objects.filter(
+            pk=_parse_record_id(refine_request_id, label="refine_request_id")
+        ).first()
+        if request is None:
+            return None
+
+        request.status = status
+        request.parsed_intent_json = (
+            deepcopy(parsed_intent_json)
+            if parsed_intent_json is not None
+            else None
+        )
+        request.result_preview_json = (
+            deepcopy(result_preview_json)
+            if result_preview_json is not None
+            else None
+        )
+        request.save(
+            update_fields=[
+                "status",
+                "parsed_intent_json",
+                "result_preview_json",
+                "updated_at",
+            ]
+        )
+        return _refine_request_from_model(request)
+
+
 __all__ = [
     "DjangoConstraintConfigRepository",
     "DjangoLeaveRequestRepository",
     "DjangoPlanVersionRepository",
+    "DjangoRefineRequestRepository",
     "DjangoShiftRepository",
     "DjangoStationRepository",
     "DjangoTenantRepository",

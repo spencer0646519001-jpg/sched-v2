@@ -52,10 +52,8 @@ Home for thin transport adapters such as request/response schemas, route transla
 
 ## Intentional Deferrals
 
-- No scheduling business logic yet
-- No repository-backed Django runtime wiring yet
-- No full Django project/settings integration yet
-- No migration framework yet
-- No LangGraph flow yet
+- No broad natural-language parsing beyond the bounded refine slice
+- No long-running or memoryful agent loop
+- No tool-using or autonomous apply/save refine flow
 - No import workflow yet
 - No API/file download export behavior yet

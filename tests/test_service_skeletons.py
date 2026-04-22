@@ -50,7 +50,8 @@ from app.services.preview import (
 from app.services.refine import (
     RefineMonthScheduleRequest,
     RefineMonthScheduleService,
-    RefineParserResult,
+    RefineOutcome,
+    RefineWorkflowResult,
 )
 from app.services.save import (
     SaveMonthScheduleRequest,
@@ -64,6 +65,7 @@ SERVICE_MODULES = (
     "app.services.apply",
     "app.services.save",
     "app.services.refine",
+    "app.services.refine_langgraph",
     "app.services.export",
 )
 DISALLOWED_IMPORT_PREFIXES = (
@@ -242,9 +244,15 @@ def test_save_service_smoke_flow_persists_snapshot() -> None:
 
 def test_refine_service_smoke_flow_stores_candidate_preview() -> None:
     ctx = _sample_context()
-    parser = _RecordingCallable(
-        RefineParserResult(
-            intent_json={"parser_hint": "adjustment"},
+    workflow = _RecordingCallable(
+        RefineWorkflowResult(
+            request_language="zh",
+            outcome=RefineOutcome(
+                language="zh",
+                status="preview_ready",
+                message_key="refine_preview_ready_set",
+            ),
+            parsed_intent_json={"intent_type": "set_assignment"},
             adjustment_patch=[
                 AssignmentPatchInput(
                     operation="set",
@@ -255,10 +263,11 @@ def test_refine_service_smoke_flow_stores_candidate_preview() -> None:
                     note="Refine smoke test",
                 )
             ],
+            candidate_result=_sample_result(
+                source_type="refine",
+                refinement_applied=True,
+            ),
         )
-    )
-    engine = _RecordingCallable(
-        _sample_result(source_type="refine", refinement_applied=True)
     )
     refine_request_repository = _refine_request_repo()
     service = RefineMonthScheduleService(
@@ -272,8 +281,7 @@ def test_refine_service_smoke_flow_stores_candidate_preview() -> None:
             CurrentWorkspaceState(workspace=ctx.workspace, assignments=[])
         ),
         refine_request_repository=refine_request_repository,
-        parser=parser,
-        engine_runner=engine,
+        workflow=workflow,
     )
 
     response = service.refine_month_schedule(
@@ -286,10 +294,12 @@ def test_refine_service_smoke_flow_stores_candidate_preview() -> None:
     )
 
     assert response.status
+    assert response.request_language == "zh"
+    assert response.outcome.status == "preview_ready"
     assert response.parsed_intent_json
     assert any(key != "adjustment_patch" for key in response.parsed_intent_json)
-    assert parser.requests[0].workspace_id == ctx.workspace.id
-    assert engine.requests[0].adjustment_patch is not None
+    assert workflow.requests[0].workspace_id == ctx.workspace.id
+    assert response.candidate_result is not None
     assert (
         refine_request_repository.requests[response.refine_request_id].result_preview_json
         is not None

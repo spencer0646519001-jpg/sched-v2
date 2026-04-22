@@ -29,6 +29,7 @@ from app.api.schemas import (
     MonthPlanningWarningSchema,
     PreviewMonthScheduleRequestSchema,
     PreviewMonthScheduleResponseSchema,
+    RefineOutcomeSchema,
     RefineMonthScheduleRequestSchema,
     RefineMonthScheduleResponseSchema,
     SaveMonthScheduleRequestSchema,
@@ -359,9 +360,19 @@ def _map_refine_response_to_api(
         workspace_id=response.workspace_id,
         refine_request_id=response.refine_request_id,
         status=response.status,
+        request_language=response.request_language,
+        outcome=RefineOutcomeSchema(
+            language=response.outcome.language,
+            status=response.outcome.status,
+            message_key=response.outcome.message_key,
+            message_values=dict(response.outcome.message_values),
+            message_text=response.parsed_intent_json["outcome"]["message_text"],
+        ),
         parsed_intent_json=_copy_json_object(response.parsed_intent_json),
-        candidate_result=_map_month_planning_result_to_schema(
-            response.candidate_result
+        candidate_result=(
+            _map_month_planning_result_to_schema(response.candidate_result)
+            if response.candidate_result is not None
+            else None
         ),
     )
 

@@ -166,14 +166,26 @@ class RefineMonthScheduleRequestSchema(TenantMonthScopeSchema):
         return value
 
 
+class RefineOutcomeSchema(ApiSchema):
+    """Structured same-language refine outcome for bounded preview responses."""
+
+    language: str = Field(min_length=1)
+    status: str = Field(min_length=1)
+    message_key: str = Field(min_length=1)
+    message_values: ApiJsonObject = Field(default_factory=dict)
+    message_text: str = Field(min_length=1)
+
+
 class RefineMonthScheduleResponseSchema(TenantMonthScopeSchema):
     """Transport response with stored refine metadata and candidate result."""
 
     workspace_id: str = Field(min_length=1)
     refine_request_id: str = Field(min_length=1)
     status: str = Field(min_length=1)
+    request_language: str = Field(min_length=1)
+    outcome: RefineOutcomeSchema
     parsed_intent_json: ApiJsonObject
-    candidate_result: MonthPlanningResultSchema
+    candidate_result: MonthPlanningResultSchema | None = None
 
 
 class ExportMonthScheduleRequestSchema(TenantMonthScopeSchema):
@@ -219,6 +231,7 @@ __all__ = [
     "MonthPlanningWarningSchema",
     "PreviewMonthScheduleRequestSchema",
     "PreviewMonthScheduleResponseSchema",
+    "RefineOutcomeSchema",
     "RefineMonthScheduleRequestSchema",
     "RefineMonthScheduleResponseSchema",
     "SaveMonthScheduleRequestSchema",
