@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import datetime as dt
 import html
+import json
 import re
 from decimal import Decimal
 
@@ -264,6 +265,170 @@ def test_workspace_preview_post_preserves_selected_japanese_ui_lang() -> None:
     assert "候補プレビューの準備ができました。適用前に確認できます。" in html_text
     assert 'name="ui_lang" value="ja"' in html_text
     assert '>月をプレビュー<' in html_text
+
+
+def test_workspace_page_replaces_refine_placeholder_with_working_form() -> None:
+    tenant = _seed_month_context()
+    view = {
+        pattern.name: pattern.callback
+        for pattern in build_django_monthly_workspace_page_urlpatterns()
+    }["monthly_schedule_workspace"]
+
+    response = view(
+        RequestFactory().get(
+            "/v2/monthly-workspace",
+            data={"tenant_slug": tenant.slug, "month_scope": "2026-04"},
+        )
+    )
+    html_text = response.content.decode()
+
+    assert response.status_code == 200
+    assert 'name="form_action" value="refine"' in html_text
+    assert 'name="request_text"' in html_text
+    assert "请先把当前计划应用到月度工作区，再运行细化预览。" in html_text
+    assert (
+        '<button type="submit" class="btn btn-secondary" disabled>'
+        "生成细化预览</button>"
+    ) in html_text
+
+
+def test_workspace_refine_post_supports_bounded_chinese_preview_without_mutating_current_workspace() -> None:
+    tenant = _seed_month_context()
+    DjangoShiftDefinition.objects.create(
+        tenant=tenant,
+        code="EVE",
+        name="Evening",
+        paid_hours=Decimal("6.00"),
+        is_off_shift=False,
+    )
+    view = {
+        pattern.name: pattern.callback
+        for pattern in build_django_monthly_workspace_page_urlpatterns()
+    }["monthly_schedule_workspace"]
+    _apply_current_workspace_via_page(view, tenant=tenant, ui_lang="zh")
+
+    response = view(
+        RequestFactory().post(
+            "/v2/monthly-workspace",
+            data={
+                "form_action": "refine",
+                "tenant_slug": tenant.slug,
+                "month_scope": "2026-04",
+                "ui_lang": "zh",
+                "request_text": (
+                    f"请把 {PRIMARY_DEMO_WORKER.code} "
+                    f"安排到 2026-04-01 的 EVE 在 {PRIMARY_DEMO_STATION.code}"
+                ),
+            },
+        )
+    )
+    html_text = response.content.decode()
+    candidate_result = json.loads(_extract_candidate_result_json(html_text))
+    refined_first_day_assignment = next(
+        assignment
+        for assignment in candidate_result["assignments"]
+        if assignment["date"] == "2026-04-01"
+        and assignment["worker_code"] == PRIMARY_DEMO_WORKER.code
+    )
+    current_workspace = DjangoMonthlyWorkspace.objects.get(
+        tenant=tenant,
+        year=2026,
+        month=4,
+    )
+    current_first_assignment = DjangoMonthlyAssignment.objects.get(
+        workspace=current_workspace,
+        assignment_date=dt.date(2026, 4, 1),
+        worker__code=PRIMARY_DEMO_WORKER.code,
+    )
+
+    assert response.status_code == 200
+    assert "已生成调整预览。" in html_text
+    assert 'name="ui_lang" value="zh"' in html_text
+    assert "规范化意图" in html_text
+    assert "预览变更" in html_text
+    assert refined_first_day_assignment == {
+        "date": "2026-04-01",
+        "worker_code": PRIMARY_DEMO_WORKER.code,
+        "shift_code": "EVE",
+        "source": "adjustment_patch",
+        "station_code": PRIMARY_DEMO_STATION.code,
+        "note": "langgraph_refine_preview",
+    }
+    assert current_first_assignment.shift_definition.code == PRIMARY_DEMO_SHIFT.code
+    assert current_first_assignment.assignment_source == "apply"
+    assert DjangoMonthlyAssignment.objects.filter(workspace=current_workspace).count() == 30
+
+
+def test_workspace_refine_post_supports_bounded_japanese_remove_preview() -> None:
+    tenant = _seed_month_context()
+    view = {
+        pattern.name: pattern.callback
+        for pattern in build_django_monthly_workspace_page_urlpatterns()
+    }["monthly_schedule_workspace"]
+    _apply_current_workspace_via_page(view, tenant=tenant, ui_lang="ja")
+
+    response = view(
+        RequestFactory().post(
+            "/v2/monthly-workspace",
+            data={
+                "form_action": "refine",
+                "tenant_slug": tenant.slug,
+                "month_scope": "2026-04",
+                "ui_lang": "ja",
+                "request_text": f"2026-04-01 の {PRIMARY_DEMO_WORKER.code} を外して",
+            },
+        )
+    )
+    html_text = response.content.decode()
+    candidate_result = json.loads(_extract_candidate_result_json(html_text))
+    current_workspace = DjangoMonthlyWorkspace.objects.get(
+        tenant=tenant,
+        year=2026,
+        month=4,
+    )
+
+    assert response.status_code == 200
+    assert "削除プレビューを生成しました。" in html_text
+    assert 'name="ui_lang" value="ja"' in html_text
+    assert not any(
+        assignment["date"] == "2026-04-01"
+        and assignment["worker_code"] == PRIMARY_DEMO_WORKER.code
+        for assignment in candidate_result["assignments"]
+    )
+    assert DjangoMonthlyAssignment.objects.filter(workspace=current_workspace).count() == 30
+
+
+def test_workspace_refine_post_shows_safe_same_language_unsupported_state() -> None:
+    tenant = _seed_month_context()
+    view = {
+        pattern.name: pattern.callback
+        for pattern in build_django_monthly_workspace_page_urlpatterns()
+    }["monthly_schedule_workspace"]
+    _apply_current_workspace_via_page(view, tenant=tenant, ui_lang="ja")
+
+    response = view(
+        RequestFactory().post(
+            "/v2/monthly-workspace",
+            data={
+                "form_action": "refine",
+                "tenant_slug": tenant.slug,
+                "month_scope": "2026-04",
+                "ui_lang": "ja",
+                "request_text": f"2026-04-01 の {PRIMARY_DEMO_WORKER.code} を確認して",
+            },
+        )
+    )
+    html_text = response.content.decode()
+    current_workspace = DjangoMonthlyWorkspace.objects.get(
+        tenant=tenant,
+        year=2026,
+        month=4,
+    )
+
+    assert response.status_code == 200
+    assert "この調整依頼にはまだ対応していません。" in html_text
+    assert 'name="candidate_result_json" value=""' in html_text
+    assert DjangoMonthlyAssignment.objects.filter(workspace=current_workspace).count() == 30
 
 
 def test_workspace_page_orders_people_leave_and_grid_rows_chef_first() -> None:
@@ -533,6 +698,39 @@ def _build_preview_result(*assignments: AssignmentOutput) -> MonthPlanningResult
             notes=["ui-test"],
         ),
     )
+
+
+def _apply_current_workspace_via_page(view, *, tenant: DjangoTenant, ui_lang: str) -> None:
+    preview_response = view(
+        RequestFactory().post(
+            "/v2/monthly-workspace",
+            data={
+                "form_action": "preview",
+                "tenant_slug": tenant.slug,
+                "month_scope": "2026-04",
+                "ui_lang": ui_lang,
+            },
+        )
+    )
+    candidate_result_json = _extract_candidate_result_json(
+        preview_response.content.decode()
+    )
+
+    apply_response = view(
+        RequestFactory().post(
+            "/v2/monthly-workspace",
+            data={
+                "form_action": "apply",
+                "tenant_slug": tenant.slug,
+                "month_scope": "2026-04",
+                "ui_lang": ui_lang,
+                "candidate_result_json": candidate_result_json,
+            },
+        )
+    )
+
+    assert preview_response.status_code == 200
+    assert apply_response.status_code == 200
 
 
 def _extract_worker_option_labels(html_text: str) -> list[str]:

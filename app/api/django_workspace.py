@@ -39,6 +39,7 @@ from app.infra.django_repositories import (
     DjangoConstraintConfigRepository,
     DjangoLeaveRequestRepository,
     DjangoPlanVersionRepository,
+    DjangoRefineRequestRepository,
     DjangoShiftRepository,
     DjangoStationRepository,
     DjangoTenantRepository,
@@ -53,6 +54,13 @@ from app.services.preview import (
     PreviewMonthScheduleRequest,
     PreviewMonthScheduleService,
 )
+from app.services.refine import (
+    RefineMonthScheduleRequest,
+    RefineMonthScheduleResponse,
+    RefineMonthScheduleService,
+    render_refine_outcome,
+)
+from app.services.refine_langgraph import LangGraphRefineWorkflow
 from app.services.save import SaveMonthScheduleRequest, SaveMonthScheduleService
 
 _TEMPLATE_ENGINE = Engine(
@@ -70,6 +78,7 @@ class MonthlyWorkspacePageDependencies:
     preview_service: PreviewMonthScheduleService
     apply_service: ApplyMonthScheduleService
     save_service: SaveMonthScheduleService
+    refine_service: RefineMonthScheduleService
     worker_repository: DjangoWorkerRepository
     station_repository: DjangoStationRepository
     shift_repository: DjangoShiftRepository
@@ -125,6 +134,7 @@ def build_django_monthly_workspace_view(
             messages,
             page_copy=page_copy,
         )
+        refine_result: dict[str, Any] | None = None
         prefer_current_result = False
 
         if request.method == "POST":
@@ -182,6 +192,18 @@ def build_django_monthly_workspace_view(
                     messages=messages,
                     page_copy=page_copy,
                 )
+            elif action == "refine":
+                candidate_result, refine_result = _handle_refine(
+                    request=request,
+                    tenant=selected_tenant,
+                    year=scope["year"],
+                    month=scope["month"],
+                    ui_lang=ui_lang,
+                    refine_service=dependencies.refine_service,
+                    workspace_repository=dependencies.workspace_repository,
+                    messages=messages,
+                    page_copy=page_copy,
+                )
             elif action:
                 messages.append(
                     _message("error", page_copy["messages"]["unknown_action"])
@@ -195,6 +217,7 @@ def build_django_monthly_workspace_view(
             ui_lang=ui_lang,
             page_copy=page_copy,
             candidate_result=candidate_result,
+            refine_result=refine_result,
             prefer_current_result=prefer_current_result,
             dependencies=dependencies,
             messages=messages,
@@ -221,6 +244,11 @@ def _build_page_dependencies(
     station_repository = DjangoStationRepository()
     shift_repository = DjangoShiftRepository()
     workspace_repository = DjangoWorkspaceRepository()
+    leave_request_repository = DjangoLeaveRequestRepository()
+    constraint_config_repository = DjangoConstraintConfigRepository()
+    resolved_preview_engine = (
+        preview_engine if preview_engine is not None else generate_month_plan
+    )
 
     return MonthlyWorkspacePageDependencies(
         preview_service=PreviewMonthScheduleService(
@@ -228,12 +256,10 @@ def _build_page_dependencies(
             worker_repository=worker_repository,
             station_repository=station_repository,
             shift_repository=shift_repository,
-            leave_request_repository=DjangoLeaveRequestRepository(),
-            constraint_config_repository=DjangoConstraintConfigRepository(),
+            leave_request_repository=leave_request_repository,
+            constraint_config_repository=constraint_config_repository,
             engine_runner=(
-                preview_engine
-                if preview_engine is not None
-                else generate_month_plan
+                resolved_preview_engine
             ),
         ),
         apply_service=ApplyMonthScheduleService(
@@ -247,6 +273,19 @@ def _build_page_dependencies(
             tenant_repository=tenant_repository,
             workspace_repository=workspace_repository,
             plan_version_repository=DjangoPlanVersionRepository(),
+        ),
+        refine_service=RefineMonthScheduleService(
+            tenant_repository=tenant_repository,
+            worker_repository=worker_repository,
+            station_repository=station_repository,
+            shift_repository=shift_repository,
+            leave_request_repository=leave_request_repository,
+            constraint_config_repository=constraint_config_repository,
+            workspace_repository=workspace_repository,
+            refine_request_repository=DjangoRefineRequestRepository(),
+            workflow=LangGraphRefineWorkflow(
+                engine_runner=resolved_preview_engine
+            ),
         ),
         worker_repository=worker_repository,
         station_repository=station_repository,
@@ -483,6 +522,63 @@ def _handle_save(
     )
 
 
+def _handle_refine(
+    *,
+    request: HttpRequest,
+    tenant: DjangoTenant,
+    year: int,
+    month: int,
+    ui_lang: str,
+    refine_service: RefineMonthScheduleService,
+    workspace_repository: DjangoWorkspaceRepository,
+    messages: list[dict[str, str]],
+    page_copy: dict[str, Any],
+) -> tuple[MonthPlanningResultSchema | None, dict[str, Any] | None]:
+    messages_copy = page_copy["messages"]
+    request_text = (request.POST.get("request_text") or "").strip()
+    if not request_text:
+        messages.append(
+            _message("error", messages_copy["refine_request_required"])
+        )
+        return None, None
+
+    tenant_id = str(tenant.pk)
+    current_state = workspace_repository.load_current(tenant_id, year, month)
+    if current_state is None:
+        messages.append(
+            _message("info", messages_copy["refine_requires_current_workspace"])
+        )
+        return None, None
+
+    try:
+        response = refine_service.refine_month_schedule(
+            RefineMonthScheduleRequest(
+                tenant_slug=tenant.slug,
+                year=year,
+                month=month,
+                request_text=request_text,
+            )
+        )
+    except (LookupError, ValueError) as exc:
+        messages.append(_message("error", str(exc)))
+        return None, None
+
+    candidate_result = (
+        MonthPlanningResultSchema.model_validate(
+            response.candidate_result,
+            from_attributes=True,
+        )
+        if response.candidate_result is not None
+        else None
+    )
+    return candidate_result, _build_refine_result_context(
+        response=response,
+        candidate_result=candidate_result,
+        ui_lang=ui_lang,
+        page_copy=page_copy,
+    )
+
+
 def _build_workspace_context(
     *,
     request: HttpRequest,
@@ -492,6 +588,7 @@ def _build_workspace_context(
     ui_lang: str,
     page_copy: dict[str, Any],
     candidate_result: MonthPlanningResultSchema | None,
+    refine_result: dict[str, Any] | None,
     prefer_current_result: bool,
     dependencies: MonthlyWorkspacePageDependencies,
     messages: list[dict[str, str]],
@@ -511,6 +608,7 @@ def _build_workspace_context(
     ]
     selected_worker_id = (request.POST.get("worker_id") or "").strip()
     save_label_value = (request.POST.get("save_label") or "").strip()
+    refine_request_text = (request.POST.get("request_text") or "").strip()
     leave_summary_note = page_copy["leave"]["summary_note"].format(
         month_label=month_label
     )
@@ -560,6 +658,10 @@ def _build_workspace_context(
             "apply_disabled": True,
             "save_disabled": True,
             "save_label_value": save_label_value,
+            "refine_request_text": refine_request_text,
+            "refine_result": refine_result,
+            "refine_disabled": True,
+            "refine_disabled_note": page_copy["messages"]["no_tenant"],
             "workflow_steps": _workflow_steps(page_copy),
         }
 
@@ -601,6 +703,12 @@ def _build_workspace_context(
 
     warnings = _build_warning_rows(candidate_result, page_copy=page_copy)
     warnings_note = page_copy["warnings"]["empty_with_current"]
+    refine_disabled = current_state is None
+    refine_disabled_note = (
+        page_copy["refine"]["requires_current_workspace"]
+        if refine_disabled
+        else ""
+    )
 
     return {
         "messages": messages,
@@ -638,8 +746,204 @@ def _build_workspace_context(
         "apply_disabled": candidate_result is None,
         "save_disabled": current_state is None,
         "save_label_value": save_label_value,
+        "refine_request_text": refine_request_text,
+        "refine_result": refine_result,
+        "refine_disabled": refine_disabled,
+        "refine_disabled_note": refine_disabled_note,
         "workflow_steps": _workflow_steps(page_copy),
     }
+
+
+def _build_refine_result_context(
+    *,
+    response: RefineMonthScheduleResponse,
+    candidate_result: MonthPlanningResultSchema | None,
+    ui_lang: str,
+    page_copy: dict[str, Any],
+) -> dict[str, Any]:
+    refine_copy = page_copy["refine"]
+    parsed_intent_json = response.parsed_intent_json
+    outcome_json = parsed_intent_json.get("outcome")
+    outcome_message_values: dict[str, Any] = {}
+    if isinstance(outcome_json, dict):
+        message_values = outcome_json.get("message_values")
+        if isinstance(message_values, dict):
+            outcome_message_values = dict(message_values)
+    preview_executed = bool(parsed_intent_json.get("preview_executed"))
+    intent_status = str(
+        parsed_intent_json.get("intent_status") or response.outcome.status
+    )
+    intent_type = parsed_intent_json.get("intent_type")
+    canonical_intent = parsed_intent_json.get("canonical_intent")
+    adjustment_patch = parsed_intent_json.get("adjustment_patch")
+
+    meta_items = [
+        {
+            "label": refine_copy["request_language_label"],
+            "value": _localize_refine_value(
+                response.request_language,
+                refine_copy["language_values"],
+            ),
+        },
+        {
+            "label": refine_copy["intent_status_label"],
+            "value": _localize_refine_value(
+                intent_status,
+                refine_copy["intent_status_values"],
+            ),
+        },
+        {
+            "label": refine_copy["preview_executed_label"],
+            "value": (
+                refine_copy["boolean_yes"]
+                if preview_executed
+                else refine_copy["boolean_no"]
+            ),
+        },
+        {
+            "label": refine_copy["candidate_result_label"],
+            "value": (
+                refine_copy["boolean_yes"]
+                if candidate_result is not None
+                else refine_copy["boolean_no"]
+            ),
+        },
+    ]
+    if isinstance(intent_type, str) and intent_type:
+        meta_items.insert(
+            2,
+            {
+                "label": refine_copy["intent_type_label"],
+                "value": _localize_refine_value(
+                    intent_type,
+                    refine_copy["intent_type_values"],
+                ),
+            },
+        )
+    reason_code = outcome_message_values.get("reason_code")
+    if isinstance(reason_code, str) and reason_code:
+        meta_items.append(
+            {
+                "label": refine_copy["reason_label"],
+                "value": _localize_refine_value(
+                    reason_code,
+                    refine_copy["reason_values"],
+                ),
+            }
+        )
+
+    return {
+        "message_tone": _refine_result_message_tone(response.outcome.status),
+        "message_text": _render_page_refine_outcome(
+            response=response,
+            ui_lang=ui_lang,
+        ),
+        "meta": meta_items,
+        "canonical_items": _build_refine_canonical_items(
+            canonical_intent=canonical_intent,
+            page_copy=page_copy,
+        ),
+        "adjustment_items": _build_refine_adjustment_items(
+            adjustment_patch=adjustment_patch,
+            page_copy=page_copy,
+        ),
+        "candidate_note": (
+            refine_copy["candidate_ready_note"]
+            if candidate_result is not None
+            else refine_copy["candidate_missing_note"]
+        ),
+    }
+
+
+def _render_page_refine_outcome(
+    *,
+    response: RefineMonthScheduleResponse,
+    ui_lang: str,
+) -> str:
+    if response.outcome.language in {"zh", "ja"}:
+        return render_refine_outcome(response.outcome)
+    return render_refine_outcome(
+        replace(
+            response.outcome,
+            language=ui_lang,
+        )
+    )
+
+
+def _refine_result_message_tone(status: str) -> str:
+    if status == "preview_ready":
+        return "message-success"
+    if status == "ambiguous":
+        return "message-info"
+    return "message-error"
+
+
+def _build_refine_canonical_items(
+    *,
+    canonical_intent: object,
+    page_copy: dict[str, Any],
+) -> list[dict[str, str]]:
+    if not isinstance(canonical_intent, dict):
+        return []
+
+    field_labels = page_copy["refine"]["field_labels"]
+    items: list[dict[str, str]] = []
+    for field_name in ("date", "worker_code", "shift_code", "station_code"):
+        value = canonical_intent.get(field_name)
+        if value in (None, ""):
+            continue
+        items.append(
+            {
+                "label": field_labels.get(field_name, field_name),
+                "value": str(value),
+            }
+        )
+    return items
+
+
+def _build_refine_adjustment_items(
+    *,
+    adjustment_patch: object,
+    page_copy: dict[str, Any],
+) -> list[dict[str, str]]:
+    if not isinstance(adjustment_patch, list):
+        return []
+
+    refine_copy = page_copy["refine"]
+    field_labels = refine_copy["field_labels"]
+    items: list[dict[str, str]] = []
+    for patch in adjustment_patch:
+        if not isinstance(patch, dict):
+            continue
+        operation = str(patch.get("operation") or "")
+        summary_parts: list[str] = []
+        for field_name in ("date", "worker_code", "shift_code", "station_code"):
+            value = patch.get(field_name)
+            if value in (None, ""):
+                continue
+            summary_parts.append(
+                f"{field_labels.get(field_name, field_name)}: {value}"
+            )
+        items.append(
+            {
+                "title": _localize_refine_value(
+                    operation,
+                    refine_copy["operation_values"],
+                ),
+                "summary": " / ".join(summary_parts),
+            }
+        )
+    return items
+
+
+def _localize_refine_value(
+    value: str,
+    mapping: dict[str, str],
+) -> str:
+    localized = mapping.get(value)
+    if localized:
+        return localized
+    return value
 
 
 def _workflow_steps(page_copy: dict[str, Any]) -> list[str]:

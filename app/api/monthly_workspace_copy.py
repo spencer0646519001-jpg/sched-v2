@@ -105,14 +105,70 @@ _MONTHLY_WORKSPACE_COPY: dict[str, dict[str, Any]] = {
         },
         "refine": {
             "kicker": "细化 / 说明",
-            "title": "为后续阶段预留",
-            "description": "保留这块区域，但不假装本 PR 已完成自然语言调整流程。",
+            "title": "预览细化请求",
+            "description": "在当前月度工作区上提交受限的自然语言细化请求，并查看候选预览。",
             "body": (
-                "自然语言细化和说明目前仍是一个诚实的占位区。这个页面会先预留工作区"
-                "位置，但不会伪装成已完成实现。"
+                "这里会把中文或日文的细化请求送入现有的受限后端流程，"
+                "只返回解析结果和候选预览，不会自动应用，也不会自动保存。"
             ),
-            "placeholder": "预留：自然语言调整与说明将在后续阶段加入。",
-            "button": "后续阶段开放",
+            "request_label": "细化请求",
+            "placeholder": "例如：请把 SPENCER 安排到 2026-04-01 的 EVE 在 GRILL",
+            "button": "生成细化预览",
+            "preview_only_note": (
+                "这里只生成候选预览，不会自动应用，也不会自动保存。"
+            ),
+            "result_empty": (
+                "提交中文或日文的细化请求后，这里会显示解析结果和预览状态。"
+            ),
+            "requires_current_workspace": (
+                "请先把当前计划应用到月度工作区，再运行细化预览。"
+            ),
+            "request_language_label": "请求语言",
+            "intent_status_label": "解析状态",
+            "intent_type_label": "意图类型",
+            "preview_executed_label": "已执行预览",
+            "candidate_result_label": "候选预览",
+            "reason_label": "未完成原因",
+            "canonical_title": "规范化意图",
+            "adjustment_title": "预览变更",
+            "candidate_ready_note": (
+                "候选预览已生成；如需写入当前工作区，请单独点击“应用预览”。"
+            ),
+            "candidate_missing_note": (
+                "这次请求没有生成候选预览；当前工作区不会被修改。"
+            ),
+            "language_values": {
+                "zh": "中文",
+                "ja": "日文",
+                "unknown": "未识别",
+            },
+            "intent_status_values": {
+                "supported": "可解析",
+                "unsupported": "不支持",
+                "ambiguous": "需澄清",
+            },
+            "intent_type_values": {
+                "set_assignment": "设置排班",
+                "remove_assignment": "移除排班",
+            },
+            "operation_values": {
+                "set": "设置",
+                "remove": "移除",
+            },
+            "reason_values": {
+                "date_required": "缺少日期",
+                "worker_required": "缺少员工",
+                "shift_required": "缺少班次",
+                "station_required": "缺少岗位",
+            },
+            "field_labels": {
+                "date": "日期",
+                "worker_code": "员工",
+                "shift_code": "班次",
+                "station_code": "岗位",
+            },
+            "boolean_yes": "是",
+            "boolean_no": "否",
         },
         "messages": {
             "invalid_scope": "月份选择必须使用 YYYY-MM 月份选择器格式。",
@@ -129,6 +185,10 @@ _MONTHLY_WORKSPACE_COPY: dict[str, dict[str, Any]] = {
             "candidate_ready": "候选预览已生成，可在应用前先进行审核。",
             "applied_candidate": "已将候选预览应用到当前工作区（{assignment_count} 条排班）。",
             "saved_version": "已保存 {month_value} 的版本 {version_number}。",
+            "refine_request_required": "请输入细化请求。",
+            "refine_requires_current_workspace": (
+                "当前月份还没有已应用的工作区计划，暂时无法生成细化预览。"
+            ),
         },
         "state_cards": {
             "candidate_preview_label": "候选预览",
@@ -253,14 +313,70 @@ _MONTHLY_WORKSPACE_COPY: dict[str, dict[str, Any]] = {
         },
         "refine": {
             "kicker": "調整 / 説明",
-            "title": "後続フェーズ用の予約領域",
-            "description": "自然言語による調整フローがこの PR で完成しているかのようには見せません。",
+            "title": "調整依頼プレビュー",
+            "description": "現在の月次ワークスペースに対して、制約付きの自然言語調整依頼を送り、候補プレビューを確認します。",
             "body": (
-                "自然言語の調整と説明は、今のところ正直なプレースホルダーのままです。"
-                "このページでは領域だけ確保し、完成済みの実装を装いません。"
+                "ここでは中国語または日本語の調整依頼を、既存の制約付きバックエンドへ送ります。"
+                "返るのは解析結果と候補プレビューだけで、自動適用も自動保存もしません。"
             ),
-            "placeholder": "予約済み: 自然言語による調整と説明は後続フェーズで追加されます。",
-            "button": "後続フェーズで対応",
+            "request_label": "調整依頼",
+            "placeholder": "例: 2026-04-01 の SPENCER を外して",
+            "button": "調整プレビューを生成",
+            "preview_only_note": (
+                "ここでは候補プレビューだけを生成します。自動適用も自動保存もしません。"
+            ),
+            "result_empty": (
+                "中国語または日本語の調整依頼を送信すると、ここに解析結果とプレビュー状態を表示します。"
+            ),
+            "requires_current_workspace": (
+                "先に現在ワークスペースへ月次計画を適用してから、調整プレビューを実行してください。"
+            ),
+            "request_language_label": "依頼言語",
+            "intent_status_label": "解析状態",
+            "intent_type_label": "意図種別",
+            "preview_executed_label": "プレビュー実行",
+            "candidate_result_label": "候補プレビュー",
+            "reason_label": "未完了の理由",
+            "canonical_title": "正規化された意図",
+            "adjustment_title": "プレビュー差分",
+            "candidate_ready_note": (
+                "候補プレビューを生成しました。現在ワークスペースへ反映するには、別途「プレビューを適用」を実行してください。"
+            ),
+            "candidate_missing_note": (
+                "今回は候補プレビューを生成していません。現在ワークスペースは変更されません。"
+            ),
+            "language_values": {
+                "zh": "中国語",
+                "ja": "日本語",
+                "unknown": "未判定",
+            },
+            "intent_status_values": {
+                "supported": "解析可能",
+                "unsupported": "未対応",
+                "ambiguous": "要確認",
+            },
+            "intent_type_values": {
+                "set_assignment": "割り当て設定",
+                "remove_assignment": "割り当て削除",
+            },
+            "operation_values": {
+                "set": "設定",
+                "remove": "削除",
+            },
+            "reason_values": {
+                "date_required": "日付指定が必要",
+                "worker_required": "スタッフ指定が必要",
+                "shift_required": "シフト指定が必要",
+                "station_required": "持ち場指定が必要",
+            },
+            "field_labels": {
+                "date": "日付",
+                "worker_code": "スタッフ",
+                "shift_code": "シフト",
+                "station_code": "持ち場",
+            },
+            "boolean_yes": "はい",
+            "boolean_no": "いいえ",
         },
         "messages": {
             "invalid_scope": "月の選択には YYYY-MM 形式の月ピッカー値を使用してください。",
@@ -277,6 +393,10 @@ _MONTHLY_WORKSPACE_COPY: dict[str, dict[str, Any]] = {
             "candidate_ready": "候補プレビューの準備ができました。適用前に確認できます。",
             "applied_candidate": "候補プレビューを現在ワークスペースへ適用しました（{assignment_count} 件の割り当て）。",
             "saved_version": "{month_value} のバージョン {version_number} を保存しました。",
+            "refine_request_required": "調整依頼を入力してください。",
+            "refine_requires_current_workspace": (
+                "この月にはまだ現在ワークスペースがないため、調整プレビューを生成できません。"
+            ),
         },
         "state_cards": {
             "candidate_preview_label": "候補プレビュー",
