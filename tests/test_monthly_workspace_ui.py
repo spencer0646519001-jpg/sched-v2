@@ -216,13 +216,13 @@ def test_workspace_csv_export_returns_attachment_for_current_workspace() -> None
         response["Content-Disposition"]
         == f'attachment; filename="{tenant.slug}-2026-04-workspace.csv"'
     )
-    assert csv_rows[0][:4] == ["worker", "role", "1", "2"]
-    assert csv_rows[0][-1] == "30"
+    assert csv_rows[0][:4] == ["worker", "role", "4/1", "4/2"]
+    assert csv_rows[0][-1] == "4/30"
     assert csv_rows[1][:4] == [
         PRIMARY_DEMO_WORKER.name,
         PRIMARY_DEMO_WORKER.role,
-        f"{PRIMARY_DEMO_SHIFT.code} | {PRIMARY_DEMO_STATION.code}",
-        f"{PRIMARY_DEMO_SHIFT.code} | {PRIMARY_DEMO_STATION.code}",
+        f"{PRIMARY_DEMO_SHIFT.code} / Gateau",
+        f"{PRIMARY_DEMO_SHIFT.code} / Gateau",
     ]
 
 
@@ -271,10 +271,10 @@ def test_workspace_csv_export_renders_grid_cells_for_worker_and_chef_rows() -> N
     csv_rows = list(csv.reader(io.StringIO(response.content.decode())))
 
     assert response.status_code == 200
-    assert csv_rows[0][:5] == ["worker", "role", "1", "2", "3"]
-    assert csv_rows[0][-1] == "30"
-    assert csv_rows[1][:4] == ["Chef Anna", "chef", "WORK | chef attendance", "--"]
-    assert csv_rows[2][:4] == ["Cook Ben", "employee", "DAY | GRILL", "--"]
+    assert csv_rows[0][:5] == ["worker", "role", "4/1", "4/2", "4/3"]
+    assert csv_rows[0][-1] == "4/30"
+    assert csv_rows[1][:4] == ["Chef Anna", "chef", "WORK", "--"]
+    assert csv_rows[2][:4] == ["Cook Ben", "employee", "DAY / Grill", "--"]
 
 
 def test_workspace_csv_export_returns_not_found_without_current_workspace() -> None:

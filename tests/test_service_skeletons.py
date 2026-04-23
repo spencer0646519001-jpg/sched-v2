@@ -337,9 +337,60 @@ def test_export_service_smoke_flow_builds_rows_and_csv() -> None:
     assert response.rows[0].station_code == ctx.station.code
     csv_rows = list(csv.reader(io.StringIO(response.csv_text)))
 
-    assert csv_rows[0][:4] == ["worker", "role", "1", "2"]
-    assert csv_rows[0][-1] == "30"
-    assert csv_rows[1][:4] == ["Alex", "cook", "DAY | GRILL", "--"]
+    assert csv_rows[0][:4] == ["worker", "role", "4/1", "4/2"]
+    assert csv_rows[0][-1] == "4/30"
+    assert csv_rows[1][:4] == ["Alex", "cook", "DAY / Grill", "--"]
+
+
+def test_export_service_csv_shortens_slug_like_station_labels() -> None:
+    ctx = _sample_context()
+    slug_station = replace(
+        ctx.station,
+        code="glaze_and_fruit",
+        name="glaze_and_fruit",
+    )
+    short_shift = replace(
+        ctx.shift,
+        code="D",
+        name="D",
+    )
+    service = ExportMonthScheduleService(
+        tenant_repository=_tenant_repo(ctx.tenant),
+        worker_repository=_worker_repo(ctx, include_skills=False),
+        station_repository=SimpleNamespace(
+            list_for_tenant=lambda tenant_id: [slug_station]
+        ),
+        shift_repository=SimpleNamespace(
+            list_for_tenant=lambda tenant_id: [short_shift]
+        ),
+        workspace_repository=_workspace_repo(
+            CurrentWorkspaceState(
+                workspace=ctx.workspace,
+                assignments=[
+                    replace(
+                        ctx.assignment,
+                        shift_definition_id=short_shift.id or "",
+                        station_id=slug_station.id or "",
+                    )
+                ],
+            )
+        ),
+    )
+
+    response = export_month_schedule(
+        ExportMonthScheduleRequest(
+            tenant_slug=ctx.tenant.slug,
+            year=2026,
+            month=4,
+        ),
+        service=service,
+    )
+
+    csv_rows = list(csv.reader(io.StringIO(response.csv_text)))
+
+    assert csv_rows[0][:4] == ["worker", "role", "4/1", "4/2"]
+    assert csv_rows[0][-1] == "4/30"
+    assert csv_rows[1][2] == "D / Glaze"
 
 
 def _collect_imported_modules(source_path: Path) -> set[str]:

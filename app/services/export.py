@@ -267,7 +267,10 @@ def _serialize_current_workspace_to_csv(
     buffer = StringIO(newline="")
     writer = csv.writer(buffer)
     writer.writerow(
-        [*_GRID_EXPORT_FIXED_COLUMNS, *[str(day) for day in day_numbers]]
+        [
+            *_GRID_EXPORT_FIXED_COLUMNS,
+            *[_format_grid_csv_day_header(month=month, day=day) for day in day_numbers],
+        ]
     )
 
     seen_worker_codes: set[str] = set()
@@ -322,9 +325,7 @@ def _build_grid_assignments_by_worker_day(
         _require_record_id(shift.id, label="shift.id"): shift.code for shift in shifts
     }
     stations_by_id = {
-        _require_record_id(station.id, label="station.id"): _resolve_station_code(
-            station
-        )
+        _require_record_id(station.id, label="station.id"): station
         for station in stations
     }
 
@@ -343,10 +344,10 @@ def _build_grid_assignments_by_worker_day(
                 f"{assignment.shift_definition_id!r}."
             )
 
-        station_code: str | None = None
+        station: Station | None = None
         if assignment.station_id is not None:
-            station_code = stations_by_id.get(assignment.station_id)
-            if station_code is None:
+            station = stations_by_id.get(assignment.station_id)
+            if station is None:
                 raise LookupError(
                     f"Monthly assignment references unknown station_id "
                     f"{assignment.station_id!r}."
@@ -356,7 +357,7 @@ def _build_grid_assignments_by_worker_day(
         day = assignment.assignment_date.day
         worker_day_map = assignments_by_worker_day.setdefault(worker_code, {})
         main_value = _build_grid_cell_main_value(shift_code, assignment.note)
-        subvalue = _build_grid_cell_subvalue(station_code, assignment.note)
+        subvalue = _build_grid_cell_subvalue(station, assignment.note)
         cell = worker_day_map.get(day)
         if cell is None:
             worker_day_map[day] = {"value": main_value, "subvalue": subvalue}
@@ -380,7 +381,7 @@ def _render_grid_csv_cell(cell: dict[str, str] | None) -> str:
     if cell is None:
         return _EMPTY_GRID_CELL
     if cell["subvalue"]:
-        return f"{cell['value']} | {cell['subvalue']}"
+        return f"{cell['value']} / {cell['subvalue']}"
     return cell["value"]
 
 
@@ -396,17 +397,42 @@ def _build_grid_cell_main_value(
 
 
 def _build_grid_cell_subvalue(
-    station_code: object | None,
+    station: Station | None,
     note: object | None,
 ) -> str:
     """Render only human-facing sublabels for CSV cells."""
 
     note_text = str(note) if note else ""
     if note_text == _REQUIRED_CHEF_NOTE:
-        return "chef attendance"
-    if station_code:
-        return str(station_code)
+        return ""
+    if station is not None:
+        return _build_grid_cell_station_label(station)
     return ""
+
+
+def _format_grid_csv_day_header(*, month: int, day: int) -> str:
+    """Render one month/day header for the grid CSV."""
+
+    return f"{month}/{day}"
+
+
+def _build_grid_cell_station_label(station: Station) -> str:
+    """Prefer a short human-readable station label for CSV cells."""
+
+    raw_label = station.name or _resolve_station_code(station)
+    return _shorten_grid_csv_label(raw_label)
+
+
+def _shorten_grid_csv_label(value: object | None) -> str:
+    """Compress slug-like station values into Excel-friendly labels."""
+
+    normalized = " ".join(str(value or "").replace("_", " ").replace("-", " ").split())
+    if not normalized:
+        return ""
+    first_token = normalized.split(" ", maxsplit=1)[0]
+    if first_token.isupper() or first_token.islower():
+        return first_token.capitalize()
+    return first_token
 
 
 def _build_worker_display_name(worker: Worker) -> str:

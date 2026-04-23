@@ -197,13 +197,13 @@ def test_django_runtime_preview_apply_save_flow_uses_real_persistence() -> None:
         "station_name": PRIMARY_DEMO_STATION.name,
     }
     csv_rows = list(csv.reader(io.StringIO(export_payload["csv_text"])))
-    assert csv_rows[0][:4] == ["worker", "role", "1", "2"]
-    assert csv_rows[0][-1] == "30"
+    assert csv_rows[0][:4] == ["worker", "role", "4/1", "4/2"]
+    assert csv_rows[0][-1] == "4/30"
     assert csv_rows[1][:4] == [
         PRIMARY_DEMO_WORKER.name,
         PRIMARY_DEMO_WORKER.role,
-        f"{PRIMARY_DEMO_SHIFT.code} | {PRIMARY_DEMO_STATION.code}",
-        f"{PRIMARY_DEMO_SHIFT.code} | {PRIMARY_DEMO_STATION.code}",
+        f"{PRIMARY_DEMO_SHIFT.code} / Gateau",
+        f"{PRIMARY_DEMO_SHIFT.code} / Gateau",
     ]
 
     save_payload = _post_json(
