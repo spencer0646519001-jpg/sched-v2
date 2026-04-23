@@ -16,13 +16,23 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlencode
 
+from django.core.files.uploadedfile import UploadedFile
 from django.http import HttpRequest, HttpResponse
 from django.template import Context, Engine
 from django.urls import URLPattern, path
 from django.views.decorators.http import require_http_methods
 from pydantic import ValidationError
 
-from app.ai.openai_client import build_structured_output_model_client_from_env
+from app.ai.interfaces import (
+    AudioTranscriptionClient,
+    AudioTranscriptionRequest,
+    AudioTranscriptionResult,
+    ModelUnavailableError,
+)
+from app.ai.openai_client import (
+    build_audio_transcription_client_from_env,
+    build_structured_output_model_client_from_env,
+)
 from app.api.monthly_workspace_copy import (
     MONTHLY_WORKSPACE_UI_LANGUAGE_LABELS,
     format_monthly_workspace_month_label,
@@ -78,6 +88,33 @@ _TEMPLATE_ENGINE = Engine(
 )
 
 _REQUIRED_CHEF_NOTE = "required_chef"
+_VOICE_ALLOWED_AUDIO_EXTENSIONS = {
+    ".m4a",
+    ".mp3",
+    ".mp4",
+    ".mpeg",
+    ".mpga",
+    ".ogg",
+    ".wav",
+    ".webm",
+}
+_VOICE_ALLOWED_CONTENT_TYPES = {
+    "audio/m4a",
+    "audio/mp3",
+    "audio/mp4",
+    "audio/mpeg",
+    "audio/mpga",
+    "audio/ogg",
+    "audio/wav",
+    "audio/webm",
+    "video/mp4",
+}
+_VOICE_MAX_AUDIO_BYTES = 25 * 1024 * 1024
+_VOICE_TRANSCRIPTION_PROMPT = (
+    "Transcribe one restaurant scheduling request verbatim. "
+    "Preserve worker codes, shift codes, station codes, and dates exactly. "
+    "Do not translate."
+)
 
 
 @dataclass(slots=True)
@@ -89,6 +126,7 @@ class MonthlyWorkspacePageDependencies:
     save_service: SaveMonthScheduleService
     explain_service: ExplainDayScheduleService
     refine_service: RefineMonthScheduleService
+    transcription_client: AudioTranscriptionClient
     worker_repository: DjangoWorkerRepository
     station_repository: DjangoStationRepository
     shift_repository: DjangoShiftRepository
@@ -99,13 +137,17 @@ class MonthlyWorkspacePageDependencies:
 def build_django_monthly_workspace_urlpatterns(
     *,
     preview_engine: MonthlySchedulePreviewEngine | None = None,
+    transcription_client: AudioTranscriptionClient | None = None,
 ) -> list[URLPattern]:
     """Build the reviewer-visible monthly workspace page route."""
 
     return [
         path(
             "v2/monthly-workspace",
-            build_django_monthly_workspace_view(preview_engine=preview_engine),
+            build_django_monthly_workspace_view(
+                preview_engine=preview_engine,
+                transcription_client=transcription_client,
+            ),
             name="monthly_schedule_workspace",
         )
     ]
@@ -114,10 +156,14 @@ def build_django_monthly_workspace_urlpatterns(
 def build_django_monthly_workspace_view(
     *,
     preview_engine: MonthlySchedulePreviewEngine | None = None,
+    transcription_client: AudioTranscriptionClient | None = None,
 ) -> Any:
     """Build the Django-rendered monthly workspace page view."""
 
-    dependencies = _build_page_dependencies(preview_engine=preview_engine)
+    dependencies = _build_page_dependencies(
+        preview_engine=preview_engine,
+        transcription_client=transcription_client,
+    )
 
     @require_http_methods(["GET", "POST"])
     def view(request: HttpRequest) -> HttpResponse:
@@ -146,6 +192,8 @@ def build_django_monthly_workspace_view(
         )
         explain_result: dict[str, Any] | None = None
         refine_result: dict[str, Any] | None = None
+        explain_request_text_override: str | None = None
+        refine_request_text_override: str | None = None
         prefer_current_result = False
 
         if request.method == "POST":
@@ -215,6 +263,28 @@ def build_django_monthly_workspace_view(
                     messages=messages,
                     page_copy=page_copy,
                 )
+            elif action == "explain_voice":
+                transcription_result = _transcribe_voice_request(
+                    request=request,
+                    field_name="explain_audio",
+                    transcription_client=dependencies.transcription_client,
+                    messages=messages,
+                    mode_label="explain",
+                )
+                if transcription_result is not None:
+                    explain_request_text_override = transcription_result.text
+                    explain_result = _handle_explain(
+                        request=request,
+                        tenant=selected_tenant,
+                        year=scope["year"],
+                        month=scope["month"],
+                        ui_lang=ui_lang,
+                        candidate_result=candidate_result,
+                        explain_service=dependencies.explain_service,
+                        messages=messages,
+                        page_copy=page_copy,
+                        request_text_override=transcription_result.text,
+                    )
             elif action == "refine":
                 candidate_result, refine_result = _handle_refine(
                     request=request,
@@ -227,6 +297,28 @@ def build_django_monthly_workspace_view(
                     messages=messages,
                     page_copy=page_copy,
                 )
+            elif action == "refine_voice":
+                transcription_result = _transcribe_voice_request(
+                    request=request,
+                    field_name="refine_audio",
+                    transcription_client=dependencies.transcription_client,
+                    messages=messages,
+                    mode_label="refine",
+                )
+                if transcription_result is not None:
+                    refine_request_text_override = transcription_result.text
+                    candidate_result, refine_result = _handle_refine(
+                        request=request,
+                        tenant=selected_tenant,
+                        year=scope["year"],
+                        month=scope["month"],
+                        ui_lang=ui_lang,
+                        refine_service=dependencies.refine_service,
+                        workspace_repository=dependencies.workspace_repository,
+                        messages=messages,
+                        page_copy=page_copy,
+                        request_text_override=transcription_result.text,
+                    )
             elif action:
                 messages.append(
                     _message("error", page_copy["messages"]["unknown_action"])
@@ -245,6 +337,8 @@ def build_django_monthly_workspace_view(
             prefer_current_result=prefer_current_result,
             dependencies=dependencies,
             messages=messages,
+            explain_request_text_override=explain_request_text_override,
+            refine_request_text_override=refine_request_text_override,
         )
         html = _TEMPLATE_ENGINE.get_template("monthly_workspace.html").render(
             Context(context)
@@ -262,6 +356,7 @@ def build_django_monthly_workspace_view(
 def _build_page_dependencies(
     *,
     preview_engine: MonthlySchedulePreviewEngine | None = None,
+    transcription_client: AudioTranscriptionClient | None = None,
 ) -> MonthlyWorkspacePageDependencies:
     tenant_repository = DjangoTenantRepository()
     worker_repository = DjangoWorkerRepository()
@@ -322,6 +417,11 @@ def _build_page_dependencies(
             workflow=LangGraphRefineWorkflow(
                 engine_runner=resolved_preview_engine
             ),
+        ),
+        transcription_client=(
+            transcription_client
+            if transcription_client is not None
+            else build_audio_transcription_client_from_env()
         ),
         worker_repository=worker_repository,
         station_repository=station_repository,
@@ -569,9 +669,14 @@ def _handle_refine(
     workspace_repository: DjangoWorkspaceRepository,
     messages: list[dict[str, str]],
     page_copy: dict[str, Any],
+    request_text_override: str | None = None,
 ) -> tuple[MonthPlanningResultSchema | None, dict[str, Any] | None]:
     messages_copy = page_copy["messages"]
-    request_text = (request.POST.get("request_text") or "").strip()
+    request_text = (
+        request_text_override
+        if request_text_override is not None
+        else (request.POST.get("request_text") or "").strip()
+    )
     if not request_text:
         messages.append(
             _message("error", messages_copy["refine_request_required"])
@@ -626,6 +731,7 @@ def _handle_explain(
     explain_service: ExplainDayScheduleService,
     messages: list[dict[str, str]],
     page_copy: dict[str, Any],
+    request_text_override: str | None = None,
 ) -> dict[str, Any] | None:
     messages_copy = page_copy["messages"]
     explain_day_raw = (request.POST.get("explain_day") or "").strip()
@@ -656,7 +762,11 @@ def _handle_explain(
                 year=year,
                 month=month,
                 target_date=target_date,
-                request_text=(request.POST.get("explain_request_text") or "").strip(),
+                request_text=(
+                    request_text_override
+                    if request_text_override is not None
+                    else (request.POST.get("explain_request_text") or "").strip()
+                ),
                 response_language=ui_lang,
                 candidate_result=candidate_result,
             )
@@ -669,6 +779,108 @@ def _handle_explain(
         response=response,
         page_copy=page_copy,
     )
+
+
+def _transcribe_voice_request(
+    *,
+    request: HttpRequest,
+    field_name: str,
+    transcription_client: AudioTranscriptionClient,
+    messages: list[dict[str, str]],
+    mode_label: str,
+) -> AudioTranscriptionResult | None:
+    uploaded_file = request.FILES.get(field_name)
+    if uploaded_file is None:
+        messages.append(
+            _message(
+                "error",
+                "Select an audio file before using the voice input path.",
+            )
+        )
+        return None
+
+    try:
+        transcription_request = _build_audio_transcription_request(uploaded_file)
+        transcription_result = transcription_client.transcribe_audio(
+            request=transcription_request
+        )
+    except (ModelUnavailableError, ValueError) as exc:
+        messages.append(_message("error", str(exc)))
+        return None
+
+    normalized_text = _normalize_transcription_text(transcription_result.text)
+    if not normalized_text:
+        messages.append(
+            _message(
+                "error",
+                "The audio could not be transcribed into a usable scheduling request.",
+            )
+        )
+        return None
+
+    messages.append(
+        _message(
+            "success",
+            (
+                f"Voice {mode_label} request transcribed via "
+                f"{transcription_result.model}: {_clip_transcript_preview(normalized_text)}"
+            ),
+        )
+    )
+    return AudioTranscriptionResult(
+        text=normalized_text,
+        language=transcription_result.language,
+        model=transcription_result.model,
+        provider=transcription_result.provider,
+    )
+
+
+def _build_audio_transcription_request(
+    uploaded_file: UploadedFile,
+) -> AudioTranscriptionRequest:
+    filename = Path(uploaded_file.name or "").name
+    if not filename:
+        raise ValueError("Voice input requires a named audio upload.")
+
+    content_type = str(uploaded_file.content_type or "").split(";", 1)[0].lower()
+    extension = Path(filename).suffix.lower()
+    if (
+        extension not in _VOICE_ALLOWED_AUDIO_EXTENSIONS
+        and content_type not in _VOICE_ALLOWED_CONTENT_TYPES
+    ):
+        raise ValueError(
+            "Voice input supports mp3, mp4, m4a, ogg, wav, and webm files only."
+        )
+
+    size = uploaded_file.size
+    if size is not None and size > _VOICE_MAX_AUDIO_BYTES:
+        raise ValueError("Voice input files must be 25 MB or smaller.")
+
+    audio_bytes = uploaded_file.read()
+    if not audio_bytes:
+        raise ValueError("The uploaded audio file is empty.")
+    if len(audio_bytes) > _VOICE_MAX_AUDIO_BYTES:
+        raise ValueError("Voice input files must be 25 MB or smaller.")
+
+    return AudioTranscriptionRequest(
+        filename=filename,
+        content_type=content_type or None,
+        audio_bytes=audio_bytes,
+        prompt=_VOICE_TRANSCRIPTION_PROMPT,
+    )
+
+
+def _normalize_transcription_text(text: str) -> str:
+    normalized = " ".join(text.split()).strip()
+    if not any(character.isalnum() for character in normalized):
+        return ""
+    return normalized
+
+
+def _clip_transcript_preview(text: str, *, limit: int = 160) -> str:
+    if len(text) <= limit:
+        return text
+    return f"{text[: limit - 3].rstrip()}..."
 
 
 def _build_workspace_context(
@@ -685,6 +897,8 @@ def _build_workspace_context(
     prefer_current_result: bool,
     dependencies: MonthlyWorkspacePageDependencies,
     messages: list[dict[str, str]],
+    explain_request_text_override: str | None = None,
+    refine_request_text_override: str | None = None,
 ) -> dict[str, Any]:
     month_label = format_monthly_workspace_month_label(
         scope["year"],
@@ -705,8 +919,16 @@ def _build_workspace_context(
         scope["year"],
         scope["month"],
     )
-    explain_request_text = (request.POST.get("explain_request_text") or "").strip()
-    refine_request_text = (request.POST.get("request_text") or "").strip()
+    explain_request_text = (
+        explain_request_text_override
+        if explain_request_text_override is not None
+        else (request.POST.get("explain_request_text") or "").strip()
+    )
+    refine_request_text = (
+        refine_request_text_override
+        if refine_request_text_override is not None
+        else (request.POST.get("request_text") or "").strip()
+    )
     leave_summary_note = page_copy["leave"]["summary_note"].format(
         month_label=month_label
     )

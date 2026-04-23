@@ -7,11 +7,13 @@ import re
 from decimal import Decimal
 
 import pytest
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import RequestFactory
 
 from app.api.django_workspace import _build_explain_result_context
 from app.api.django_runtime import build_django_monthly_workspace_page_urlpatterns
 from app.api.monthly_workspace_copy import get_monthly_workspace_copy
+from app.ai.interfaces import AudioTranscriptionRequest, AudioTranscriptionResult, ModelUnavailableError
 from app.engine.contracts import (
     AssignmentOutput,
     MonthPlanningMetadata,
@@ -296,10 +298,11 @@ def test_workspace_page_replaces_refine_placeholder_with_working_form() -> None:
     assert 'name="form_action" value="refine"' in html_text
     assert 'name="request_text"' in html_text
     assert "请先把当前计划应用到月度工作区，再运行细化预览。" in html_text
+    assert "生成细化预览" in html_text
     assert (
-        '<button type="submit" class="btn btn-secondary" disabled>'
-        "生成细化预览</button>"
-    ) in html_text
+        'class="btn btn-secondary" name="form_action" value="refine" disabled'
+        in html_text
+    )
 
 
 def test_workspace_page_renders_bounded_day_explain_form() -> None:
@@ -322,10 +325,35 @@ def test_workspace_page_renders_bounded_day_explain_form() -> None:
     assert 'name="explain_day"' in html_text
     assert 'name="explain_request_text"' in html_text
     assert "请先生成候选预览或应用当前工作区，再请求当日说明。" in html_text
+    assert "生成当日说明" in html_text
     assert (
-        '<button type="submit" class="btn btn-secondary" disabled>'
-        "生成当日说明</button>"
-    ) in html_text
+        'class="btn btn-secondary" name="form_action" value="explain" disabled'
+        in html_text
+    )
+
+
+def test_workspace_page_renders_bounded_voice_upload_controls() -> None:
+    tenant = _seed_month_context()
+    view = {
+        pattern.name: pattern.callback
+        for pattern in build_django_monthly_workspace_page_urlpatterns()
+    }["monthly_schedule_workspace"]
+
+    response = view(
+        RequestFactory().get(
+            "/v2/monthly-workspace",
+            data={"tenant_slug": tenant.slug, "month_scope": "2026-04"},
+        )
+    )
+    html_text = response.content.decode()
+
+    assert response.status_code == 200
+    assert html_text.count('enctype="multipart/form-data"') >= 2
+    assert 'name="explain_audio"' in html_text
+    assert 'name="refine_audio"' in html_text
+    assert "Voice input (Whisper)" in html_text
+    assert "Transcribe &amp; Explain" in html_text
+    assert "Transcribe &amp; Preview" in html_text
 
 
 @pytest.mark.parametrize(
@@ -516,6 +544,229 @@ def test_workspace_explain_post_rejects_non_scheduling_request() -> None:
     assert response.status_code == 200
     assert "この画面では排班関連の日別説明のみ対応しています。" in html_text
     assert DjangoMonthlyAssignment.objects.filter(workspace=current_workspace).count() == 30
+
+
+def test_workspace_voice_refine_upload_transcribes_and_routes_into_preview_only_flow() -> None:
+    tenant = _seed_month_context()
+    DjangoShiftDefinition.objects.create(
+        tenant=tenant,
+        code="EVE",
+        name="Evening",
+        paid_hours=Decimal("6.00"),
+        is_off_shift=False,
+    )
+    transcriber = _RecordingAudioTranscriptionClient(
+        text=(
+            f"请把 {PRIMARY_DEMO_WORKER.code} "
+            f"安排到 2026-04-01 的 EVE 在 {PRIMARY_DEMO_STATION.code}"
+        ),
+        language="zh",
+    )
+    view = {
+        pattern.name: pattern.callback
+        for pattern in build_django_monthly_workspace_page_urlpatterns(
+            transcription_client=transcriber
+        )
+    }["monthly_schedule_workspace"]
+    _apply_current_workspace_via_page(view, tenant=tenant, ui_lang="zh")
+
+    response = view(
+        RequestFactory().post(
+            "/v2/monthly-workspace",
+            data={
+                "form_action": "refine_voice",
+                "tenant_slug": tenant.slug,
+                "month_scope": "2026-04",
+                "ui_lang": "zh",
+                "refine_audio": _audio_upload("refine.wav"),
+            },
+        )
+    )
+    html_text = response.content.decode()
+    candidate_result = json.loads(_extract_candidate_result_json(html_text))
+    refined_first_day_assignment = next(
+        assignment
+        for assignment in candidate_result["assignments"]
+        if assignment["date"] == "2026-04-01"
+        and assignment["worker_code"] == PRIMARY_DEMO_WORKER.code
+    )
+    current_workspace = DjangoMonthlyWorkspace.objects.get(
+        tenant=tenant,
+        year=2026,
+        month=4,
+    )
+    current_first_assignment = DjangoMonthlyAssignment.objects.get(
+        workspace=current_workspace,
+        assignment_date=dt.date(2026, 4, 1),
+        worker__code=PRIMARY_DEMO_WORKER.code,
+    )
+
+    assert response.status_code == 200
+    assert len(transcriber.calls) == 1
+    assert "Voice refine request transcribed via whisper-1" in html_text
+    assert "安排到 2026-04-01 的 EVE" in html_text
+    assert refined_first_day_assignment == {
+        "date": "2026-04-01",
+        "worker_code": PRIMARY_DEMO_WORKER.code,
+        "shift_code": "EVE",
+        "source": "adjustment_patch",
+        "station_code": PRIMARY_DEMO_STATION.code,
+        "note": "langgraph_refine_preview",
+    }
+    assert current_first_assignment.shift_definition.code == PRIMARY_DEMO_SHIFT.code
+    assert current_first_assignment.assignment_source == "apply"
+    assert DjangoMonthlyAssignment.objects.filter(workspace=current_workspace).count() == 30
+
+
+def test_workspace_voice_explain_upload_transcribes_and_routes_into_existing_gate() -> None:
+    tenant = _seed_month_context()
+    transcriber = _RecordingAudioTranscriptionClient(
+        text="Why was 4/1 scheduled this way?",
+        language="en",
+    )
+    view = {
+        pattern.name: pattern.callback
+        for pattern in build_django_monthly_workspace_page_urlpatterns(
+            transcription_client=transcriber
+        )
+    }["monthly_schedule_workspace"]
+    _apply_current_workspace_via_page(view, tenant=tenant, ui_lang="zh")
+
+    response = view(
+        RequestFactory().post(
+            "/v2/monthly-workspace",
+            data={
+                "form_action": "explain_voice",
+                "tenant_slug": tenant.slug,
+                "month_scope": "2026-04",
+                "ui_lang": "zh",
+                "explain_day": "2026-04-01",
+                "explain_audio": _audio_upload("explain.wav"),
+            },
+        )
+    )
+    html_text = response.content.decode()
+    current_workspace = DjangoMonthlyWorkspace.objects.get(
+        tenant=tenant,
+        year=2026,
+        month=4,
+    )
+
+    assert response.status_code == 200
+    assert len(transcriber.calls) == 1
+    assert "Voice explain request transcribed via whisper-1" in html_text
+    assert "Why was 4/1 scheduled this way?" in html_text
+    assert "Schedule explanation for 2026-04-01" in html_text
+    assert DjangoMonthlyAssignment.objects.filter(workspace=current_workspace).count() == 30
+
+
+def test_workspace_voice_explain_rejects_non_scheduling_transcript_through_existing_gate() -> None:
+    tenant = _seed_month_context()
+    transcriber = _RecordingAudioTranscriptionClient(
+        text="Write a marketing slogan for my restaurant.",
+        language="en",
+    )
+    view = {
+        pattern.name: pattern.callback
+        for pattern in build_django_monthly_workspace_page_urlpatterns(
+            transcription_client=transcriber
+        )
+    }["monthly_schedule_workspace"]
+    _apply_current_workspace_via_page(view, tenant=tenant, ui_lang="ja")
+
+    response = view(
+        RequestFactory().post(
+            "/v2/monthly-workspace",
+            data={
+                "form_action": "explain_voice",
+                "tenant_slug": tenant.slug,
+                "month_scope": "2026-04",
+                "ui_lang": "ja",
+                "explain_day": "2026-04-01",
+                "explain_audio": _audio_upload("explain.wav"),
+            },
+        )
+    )
+    html_text = response.content.decode()
+    current_workspace = DjangoMonthlyWorkspace.objects.get(
+        tenant=tenant,
+        year=2026,
+        month=4,
+    )
+
+    assert response.status_code == 200
+    assert len(transcriber.calls) == 1
+    assert (
+        "Only scheduling-related day explanation requests are supported here."
+        in html_text
+    )
+    assert DjangoMonthlyAssignment.objects.filter(workspace=current_workspace).count() == 30
+
+
+def test_workspace_voice_upload_rejects_invalid_audio_type_before_transcription() -> None:
+    tenant = _seed_month_context()
+    transcriber = _RecordingAudioTranscriptionClient(text="unused", language="en")
+    view = {
+        pattern.name: pattern.callback
+        for pattern in build_django_monthly_workspace_page_urlpatterns(
+            transcription_client=transcriber
+        )
+    }["monthly_schedule_workspace"]
+    _apply_current_workspace_via_page(view, tenant=tenant, ui_lang="zh")
+
+    response = view(
+        RequestFactory().post(
+            "/v2/monthly-workspace",
+            data={
+                "form_action": "refine_voice",
+                "tenant_slug": tenant.slug,
+                "month_scope": "2026-04",
+                "ui_lang": "zh",
+                "refine_audio": _audio_upload(
+                    "notes.txt",
+                    content=b"not audio",
+                    content_type="text/plain",
+                ),
+            },
+        )
+    )
+    html_text = response.content.decode()
+
+    assert response.status_code == 200
+    assert "Voice input supports mp3, mp4, m4a, ogg, wav, and webm files only." in html_text
+    assert transcriber.calls == []
+
+
+def test_workspace_voice_upload_reports_transcription_unavailable_safely() -> None:
+    tenant = _seed_month_context()
+    transcriber = _RecordingAudioTranscriptionClient(
+        fail_reason="Voice transcription is unavailable for this workspace."
+    )
+    view = {
+        pattern.name: pattern.callback
+        for pattern in build_django_monthly_workspace_page_urlpatterns(
+            transcription_client=transcriber
+        )
+    }["monthly_schedule_workspace"]
+    _apply_current_workspace_via_page(view, tenant=tenant, ui_lang="zh")
+
+    response = view(
+        RequestFactory().post(
+            "/v2/monthly-workspace",
+            data={
+                "form_action": "refine_voice",
+                "tenant_slug": tenant.slug,
+                "month_scope": "2026-04",
+                "ui_lang": "zh",
+                "refine_audio": _audio_upload("refine.wav"),
+            },
+        )
+    )
+    html_text = response.content.decode()
+
+    assert response.status_code == 200
+    assert "Voice transcription is unavailable for this workspace." in html_text
+    assert len(transcriber.calls) == 1
 
 
 def test_workspace_refine_post_supports_bounded_chinese_preview_without_mutating_current_workspace() -> None:
@@ -807,6 +1058,42 @@ def test_workspace_page_renders_required_chef_as_attendance_and_persists_note_on
     assert chef_assignment.station_id is None
 
 
+class _RecordingAudioTranscriptionClient:
+    def __init__(
+        self,
+        *,
+        text: str | None = None,
+        language: str | None = None,
+        fail_reason: str | None = None,
+    ) -> None:
+        self.text = text or ""
+        self.language = language
+        self.fail_reason = fail_reason
+        self.calls: list[dict[str, object]] = []
+
+    def transcribe_audio(
+        self,
+        *,
+        request: AudioTranscriptionRequest,
+    ) -> AudioTranscriptionResult:
+        self.calls.append(
+            {
+                "filename": request.filename,
+                "content_type": request.content_type,
+                "audio_size": len(request.audio_bytes),
+                "prompt": request.prompt,
+            }
+        )
+        if self.fail_reason is not None:
+            raise ModelUnavailableError(self.fail_reason)
+        return AudioTranscriptionResult(
+            text=self.text,
+            language=self.language,
+            model="whisper-1",
+            provider="openai",
+        )
+
+
 def _seed_month_context() -> DjangoTenant:
     tenant = DjangoTenant.objects.create(
         slug=DEMO_TENANT_SLUG,
@@ -957,6 +1244,15 @@ def _apply_current_workspace_via_page(view, *, tenant: DjangoTenant, ui_lang: st
 
     assert preview_response.status_code == 200
     assert apply_response.status_code == 200
+
+
+def _audio_upload(
+    filename: str,
+    *,
+    content: bytes = b"RIFFschedv2",
+    content_type: str = "audio/wav",
+) -> SimpleUploadedFile:
+    return SimpleUploadedFile(filename, content, content_type=content_type)
 
 
 def _extract_worker_option_labels(html_text: str) -> list[str]:

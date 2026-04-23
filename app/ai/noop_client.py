@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from app.ai.interfaces import (
+    AudioTranscriptionRequest,
+    AudioTranscriptionResult,
     ModelUnavailableError,
     StructuredJsonObject,
 )
@@ -26,4 +28,22 @@ class NoopStructuredOutputModelClient:
         raise ModelUnavailableError(self.reason)
 
 
-__all__ = ["NoopStructuredOutputModelClient"]
+@dataclass(slots=True)
+class NoopAudioTranscriptionClient:
+    """Always report that the transcription path is unavailable."""
+
+    reason: str = "Audio transcription client is not configured."
+
+    def transcribe_audio(
+        self,
+        *,
+        request: AudioTranscriptionRequest,
+    ) -> AudioTranscriptionResult:
+        del request
+        raise ModelUnavailableError(self.reason)
+
+
+__all__ = [
+    "NoopAudioTranscriptionClient",
+    "NoopStructuredOutputModelClient",
+]

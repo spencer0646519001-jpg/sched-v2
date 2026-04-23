@@ -281,6 +281,20 @@
       resize: vertical;
     }
 
+    .form-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+
+    .voice-note {
+      padding: 10px 12px;
+      border-radius: 12px;
+      background: rgba(44, 106, 130, 0.08);
+      color: var(--accent-strong);
+      font-size: 0.9rem;
+    }
+
     .btn {
       display: inline-flex;
       align-items: center;
@@ -991,7 +1005,7 @@
       </div>
 
       <div class="refine-layout">
-        <form method="post" class="refine-form">
+        <form method="post" class="refine-form" enctype="multipart/form-data">
           <input type="hidden" name="form_action" value="explain">
           <input type="hidden" name="ui_lang" value="{{ ui_lang }}">
           {% if selected_tenant %}
@@ -1010,10 +1024,18 @@
               <textarea name="explain_request_text" placeholder="{{ page_copy.explain.placeholder }}">{{ explain_request_text }}</textarea>
             </label>
             <p class="muted-note">{{ page_copy.explain.default_note }}</p>
+            <label>
+              Voice input (Whisper)
+              <input type="file" name="explain_audio" accept="audio/*,.m4a,.mp3,.mp4,.mpeg,.mpga,.ogg,.wav,.webm">
+            </label>
+            <div class="voice-note">Audio is transcribed to text first, then passed through the existing bounded day-explain flow.</div>
             {% if explain_disabled_note %}
             <div class="empty-state">{{ explain_disabled_note }}</div>
             {% endif %}
-            <button type="submit" class="btn btn-secondary"{% if explain_disabled %} disabled{% endif %}>{{ page_copy.explain.button }}</button>
+            <div class="form-actions">
+              <button type="submit" class="btn btn-secondary" name="form_action" value="explain"{% if explain_disabled %} disabled{% endif %}>{{ page_copy.explain.button }}</button>
+              <button type="submit" class="btn btn-soft" name="form_action" value="explain_voice"{% if explain_disabled %} disabled{% endif %}>Transcribe &amp; Explain</button>
+            </div>
           </div>
         </form>
 
@@ -1061,7 +1083,7 @@
       </div>
 
       <div class="refine-layout">
-        <form method="post" class="refine-form">
+        <form method="post" class="refine-form" enctype="multipart/form-data">
           <input type="hidden" name="form_action" value="refine">
           <input type="hidden" name="ui_lang" value="{{ ui_lang }}">
           {% if selected_tenant %}
@@ -1075,10 +1097,18 @@
               <textarea name="request_text" placeholder="{{ page_copy.refine.placeholder }}">{{ refine_request_text }}</textarea>
             </label>
             <p class="muted-note">{{ page_copy.refine.preview_only_note }}</p>
+            <label>
+              Voice input (Whisper)
+              <input type="file" name="refine_audio" accept="audio/*,.m4a,.mp3,.mp4,.mpeg,.mpga,.ogg,.wav,.webm">
+            </label>
+            <div class="voice-note">Audio is transcribed to text first, then passed through the existing preview-only refine flow.</div>
             {% if refine_disabled_note %}
             <div class="empty-state">{{ refine_disabled_note }}</div>
             {% endif %}
-            <button type="submit" class="btn btn-secondary"{% if refine_disabled %} disabled{% endif %}>{{ page_copy.refine.button }}</button>
+            <div class="form-actions">
+              <button type="submit" class="btn btn-secondary" name="form_action" value="refine"{% if refine_disabled %} disabled{% endif %}>{{ page_copy.refine.button }}</button>
+              <button type="submit" class="btn btn-soft" name="form_action" value="refine_voice"{% if refine_disabled %} disabled{% endif %}>Transcribe &amp; Preview</button>
+            </div>
           </div>
         </form>
 

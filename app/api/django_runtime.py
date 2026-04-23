@@ -17,6 +17,7 @@ from django.urls import URLPattern
 from app.api.django_workspace import build_django_monthly_workspace_urlpatterns
 from app.api.django_urls import build_monthly_schedule_urlpatterns
 from app.api.routes import MonthlyScheduleRoutes, build_month_schedule_routes
+from app.ai.interfaces import AudioTranscriptionClient
 from app.ai.openai_client import build_structured_output_model_client_from_env
 from app.engine.monthly import generate_month_plan
 from app.infra.django_repositories import (
@@ -123,11 +124,13 @@ def build_django_monthly_schedule_urlpatterns(
 def build_django_monthly_workspace_page_urlpatterns(
     *,
     preview_engine: MonthlySchedulePreviewEngine | None = None,
+    transcription_client: AudioTranscriptionClient | None = None,
 ) -> list[URLPattern]:
     """Build Django URL patterns for the reviewer-visible monthly workspace page."""
 
     return build_django_monthly_workspace_urlpatterns(
-        preview_engine=preview_engine
+        preview_engine=preview_engine,
+        transcription_client=transcription_client,
     )
 
 

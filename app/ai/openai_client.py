@@ -6,16 +6,26 @@ import json
 import os
 import urllib.error
 import urllib.request
+import uuid
 from dataclasses import dataclass
 
 from app.ai.interfaces import (
+    AudioTranscriptionRequest,
+    AudioTranscriptionResult,
     ModelUnavailableError,
     StructuredJsonObject,
 )
-from app.ai.noop_client import NoopStructuredOutputModelClient
+from app.ai.noop_client import (
+    NoopAudioTranscriptionClient,
+    NoopStructuredOutputModelClient,
+)
 
-_DEFAULT_BASE_URL = "https://api.openai.com/v1/chat/completions"
+_DEFAULT_CHAT_COMPLETIONS_BASE_URL = "https://api.openai.com/v1/chat/completions"
+_DEFAULT_AUDIO_TRANSCRIPTIONS_BASE_URL = (
+    "https://api.openai.com/v1/audio/transcriptions"
+)
 _DEFAULT_MODEL = "gpt-4o-mini"
+_DEFAULT_TRANSCRIPTION_MODEL = "whisper-1"
 
 
 @dataclass(slots=True)
@@ -24,7 +34,7 @@ class OpenAIChatCompletionsStructuredOutputClient:
 
     api_key: str
     model: str = _DEFAULT_MODEL
-    base_url: str = _DEFAULT_BASE_URL
+    base_url: str = _DEFAULT_CHAT_COMPLETIONS_BASE_URL
     timeout_seconds: float = 20.0
 
     def generate_json(
@@ -99,6 +109,80 @@ class OpenAIChatCompletionsStructuredOutputClient:
         return decoded_payload
 
 
+@dataclass(slots=True)
+class OpenAIWhisperAudioTranscriptionClient:
+    """Call the OpenAI audio transcription API for one bounded upload."""
+
+    api_key: str
+    model: str = _DEFAULT_TRANSCRIPTION_MODEL
+    base_url: str = _DEFAULT_AUDIO_TRANSCRIPTIONS_BASE_URL
+    timeout_seconds: float = 30.0
+
+    def transcribe_audio(
+        self,
+        *,
+        request: AudioTranscriptionRequest,
+    ) -> AudioTranscriptionResult:
+        if not request.audio_bytes:
+            raise ValueError("Audio transcription request must contain bytes.")
+
+        boundary = f"----schedv2-{uuid.uuid4().hex}"
+        encoded_body = _encode_multipart_form_data(
+            boundary=boundary,
+            fields=[
+                ("model", self.model),
+                ("response_format", "verbose_json"),
+                ("file", request.filename, request.content_type, request.audio_bytes),
+                *(
+                    [("prompt", request.prompt)]
+                    if request.prompt is not None and request.prompt.strip()
+                    else []
+                ),
+            ],
+        )
+        http_request = urllib.request.Request(
+            self.base_url,
+            data=encoded_body,
+            headers={
+                "Authorization": f"Bearer {self.api_key}",
+                "Content-Type": (
+                    f"multipart/form-data; boundary={boundary}"
+                ),
+            },
+            method="POST",
+        )
+
+        try:
+            with urllib.request.urlopen(
+                http_request,
+                timeout=self.timeout_seconds,
+            ) as response:
+                payload = json.loads(response.read().decode("utf-8"))
+        except urllib.error.HTTPError as exc:
+            detail = exc.read().decode("utf-8", errors="replace")
+            raise ModelUnavailableError(
+                f"OpenAI transcription request failed with HTTP {exc.code}: {detail}"
+            ) from exc
+        except urllib.error.URLError as exc:
+            raise ModelUnavailableError(
+                f"OpenAI transcription request could not be completed: {exc.reason}"
+            ) from exc
+
+        text = str(payload.get("text") or "").strip()
+        if not text:
+            raise ModelUnavailableError(
+                "OpenAI transcription returned empty text."
+            )
+
+        language = payload.get("language")
+        return AudioTranscriptionResult(
+            text=text,
+            language=str(language).strip() if language is not None else None,
+            model=self.model,
+            provider="openai",
+        )
+
+
 def build_structured_output_model_client_from_env():
     """Create the default structured-output model client for explain flows."""
 
@@ -109,7 +193,30 @@ def build_structured_output_model_client_from_env():
     return OpenAIChatCompletionsStructuredOutputClient(
         api_key=api_key,
         model=os.getenv("SCHED_V2_EXPLAIN_MODEL", "").strip() or _DEFAULT_MODEL,
-        base_url=os.getenv("OPENAI_BASE_URL", "").strip() or _DEFAULT_BASE_URL,
+        base_url=(
+            os.getenv("OPENAI_BASE_URL", "").strip()
+            or _DEFAULT_CHAT_COMPLETIONS_BASE_URL
+        ),
+    )
+
+
+def build_audio_transcription_client_from_env():
+    """Create the default bounded transcription client for voice inputs."""
+
+    api_key = os.getenv("OPENAI_API_KEY", "").strip()
+    if not api_key:
+        return NoopAudioTranscriptionClient()
+
+    return OpenAIWhisperAudioTranscriptionClient(
+        api_key=api_key,
+        model=(
+            os.getenv("SCHED_V2_TRANSCRIPTION_MODEL", "").strip()
+            or _DEFAULT_TRANSCRIPTION_MODEL
+        ),
+        base_url=(
+            os.getenv("OPENAI_AUDIO_TRANSCRIPTIONS_BASE_URL", "").strip()
+            or _DEFAULT_AUDIO_TRANSCRIPTIONS_BASE_URL
+        ),
     )
 
 
@@ -127,7 +234,52 @@ def _coerce_message_content(content: object) -> str:
     return ""
 
 
+def _encode_multipart_form_data(
+    *,
+    boundary: str,
+    fields: list[tuple[object, ...]],
+) -> bytes:
+    body = bytearray()
+    boundary_bytes = boundary.encode("ascii")
+    for field in fields:
+        if len(field) == 2:
+            name, value = field
+            body.extend(b"--" + boundary_bytes + b"\r\n")
+            body.extend(
+                f'Content-Disposition: form-data; name="{name}"\r\n\r\n'.encode(
+                    "utf-8"
+                )
+            )
+            body.extend(str(value).encode("utf-8"))
+            body.extend(b"\r\n")
+            continue
+
+        if len(field) != 4:
+            raise ValueError("Unsupported multipart field shape.")
+
+        name, filename, content_type, data = field
+        body.extend(b"--" + boundary_bytes + b"\r\n")
+        body.extend(
+            (
+                f'Content-Disposition: form-data; name="{name}"; '
+                f'filename="{filename}"\r\n'
+            ).encode("utf-8")
+        )
+        body.extend(
+            f"Content-Type: {content_type or 'application/octet-stream'}\r\n\r\n".encode(
+                "utf-8"
+            )
+        )
+        body.extend(bytes(data))
+        body.extend(b"\r\n")
+
+    body.extend(b"--" + boundary_bytes + b"--\r\n")
+    return bytes(body)
+
+
 __all__ = [
     "OpenAIChatCompletionsStructuredOutputClient",
+    "OpenAIWhisperAudioTranscriptionClient",
+    "build_audio_transcription_client_from_env",
     "build_structured_output_model_client_from_env",
 ]
