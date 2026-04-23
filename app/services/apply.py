@@ -114,6 +114,12 @@ class ApplyMonthScheduleService:
         workers = self.worker_repository.list_for_tenant(tenant_id)
         stations = self.station_repository.list_for_tenant(tenant_id)
         shifts = self.shift_repository.list_for_tenant(tenant_id)
+        _validate_candidate_assignments_against_tenant_scope(
+            planning_result.assignments,
+            workers=workers,
+            stations=stations,
+            shifts=shifts,
+        )
 
         current_state = self.workspace_repository.load_current(
             tenant_id,
@@ -169,6 +175,24 @@ def apply_month_schedule(
     """Thin functional wrapper around the apply service boundary."""
 
     return service.apply_month_schedule(request)
+
+
+def _validate_candidate_assignments_against_tenant_scope(
+    assignments: Sequence[AssignmentOutput],
+    *,
+    workers: Sequence[Worker],
+    stations: Sequence[Station],
+    shifts: Sequence[ShiftDefinition],
+) -> None:
+    """Fail before workspace mutation when candidate codes fall outside tenant scope."""
+
+    _translate_engine_assignments_to_persistence_rows(
+        assignments,
+        workspace_id="workspace-validation",
+        workers=workers,
+        stations=stations,
+        shifts=shifts,
+    )
 
 
 def _prepare_workspace_record(

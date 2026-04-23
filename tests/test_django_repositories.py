@@ -534,6 +534,67 @@ def test_workspace_repository_replaces_assignments_and_loads_current_state() -> 
     assert current.assignments == replacement
 
 
+def test_workspace_repository_rejects_cross_tenant_assignment_rows() -> None:
+    tenant = DjangoTenant.objects.create(
+        slug="tenant-a",
+        name="Tenant A",
+        default_locale="en-US",
+    )
+    other_tenant = DjangoTenant.objects.create(
+        slug="tenant-b",
+        name="Tenant B",
+        default_locale="en-US",
+    )
+    workspace = DjangoMonthlyWorkspace.objects.create(
+        tenant=tenant,
+        year=2026,
+        month=4,
+        status="draft",
+        source_type="preview",
+    )
+    other_worker = DjangoWorker.objects.create(
+        tenant=other_tenant,
+        code="W2",
+        name="Jordan",
+        role="cook",
+        is_active=True,
+    )
+    other_station = DjangoStation.objects.create(
+        tenant=other_tenant,
+        code="PREP",
+        name="Prep",
+        is_active=True,
+    )
+    other_shift = DjangoShiftDefinition.objects.create(
+        tenant=other_tenant,
+        code="EVE",
+        name="Evening",
+        paid_hours=Decimal("6.00"),
+        is_off_shift=False,
+    )
+
+    repository = DjangoWorkspaceRepository()
+
+    with pytest.raises(
+        LookupError,
+        match="assignment.worker_id must belong to the workspace tenant",
+    ):
+        repository.replace_assignments(
+            str(workspace.id),
+            [
+                infra_models.MonthlyAssignment(
+                    workspace_id=str(workspace.id),
+                    worker_id=str(other_worker.id),
+                    assignment_date=dt.date(2026, 4, 2),
+                    shift_definition_id=str(other_shift.id),
+                    station_id=str(other_station.id),
+                )
+            ],
+        )
+
+    assert DjangoMonthlyAssignment.objects.filter(workspace=workspace).count() == 0
+
+
 def test_plan_version_repository_persists_and_queries_month_history() -> None:
     tenant = DjangoTenant.objects.create(
         slug="tenant-a",
@@ -603,6 +664,45 @@ def test_plan_version_repository_persists_and_queries_month_history() -> None:
     assert DjangoMonthlyPlanVersion.objects.get(pk=int(saved.id)).label is None
 
 
+def test_plan_version_repository_rejects_cross_tenant_workspace_reference() -> None:
+    tenant = DjangoTenant.objects.create(
+        slug="tenant-a",
+        name="Tenant A",
+        default_locale="en-US",
+    )
+    other_tenant = DjangoTenant.objects.create(
+        slug="tenant-b",
+        name="Tenant B",
+        default_locale="en-US",
+    )
+    other_workspace = DjangoMonthlyWorkspace.objects.create(
+        tenant=other_tenant,
+        year=2026,
+        month=4,
+        status="draft",
+        source_type="preview",
+    )
+    repository = DjangoPlanVersionRepository()
+
+    with pytest.raises(
+        LookupError,
+        match="version.workspace_id does not belong to version.tenant_id",
+    ):
+        repository.save(
+            infra_models.MonthlyPlanVersion(
+                tenant_id=str(tenant.id),
+                year=2026,
+                month=4,
+                version_number=1,
+                snapshot_json={"workspace_id": str(other_workspace.id)},
+                workspace_id=str(other_workspace.id),
+                summary="Cross-tenant save should fail",
+            )
+        )
+
+    assert DjangoMonthlyPlanVersion.objects.count() == 0
+
+
 def test_refine_request_repository_persists_and_updates_preview_payloads() -> None:
     tenant = DjangoTenant.objects.create(
         slug="tenant-a",
@@ -646,3 +746,39 @@ def test_refine_request_repository_persists_and_updates_preview_payloads() -> No
     }
     assert updated.result_preview_json == {"summary": {"total_assignments": 0}}
     assert listed == [updated]
+
+
+def test_refine_request_repository_rejects_cross_tenant_workspace_reference() -> None:
+    tenant = DjangoTenant.objects.create(
+        slug="tenant-a",
+        name="Tenant A",
+        default_locale="en-US",
+    )
+    other_tenant = DjangoTenant.objects.create(
+        slug="tenant-b",
+        name="Tenant B",
+        default_locale="en-US",
+    )
+    other_workspace = DjangoMonthlyWorkspace.objects.create(
+        tenant=other_tenant,
+        year=2026,
+        month=4,
+        status="draft",
+        source_type="preview",
+    )
+    repository = DjangoRefineRequestRepository()
+
+    with pytest.raises(
+        LookupError,
+        match="request.workspace_id does not belong to request.tenant_id",
+    ):
+        repository.create(
+            infra_models.RefineRequest(
+                tenant_id=str(tenant.id),
+                workspace_id=str(other_workspace.id),
+                request_text="Move W1 to DAY.",
+                status="received",
+            )
+        )
+
+    assert DjangoRefineRequest.objects.count() == 0

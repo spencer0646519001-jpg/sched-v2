@@ -267,6 +267,59 @@ def _normalize_constraint_config_json(config_json: object) -> dict[str, object]:
     return normalized
 
 
+def _require_workspace_model(
+    workspace_id: RecordId,
+    *,
+    label: str,
+) -> DjangoMonthlyWorkspace:
+    """Load one workspace row or fail with a lookup-safe error."""
+
+    workspace = DjangoMonthlyWorkspace.objects.filter(
+        pk=_parse_record_id(workspace_id, label=label)
+    ).first()
+    if workspace is None:
+        raise LookupError(f"{label} was not found.")
+    return workspace
+
+
+def _assert_workspace_matches_tenant(
+    workspace: DjangoMonthlyWorkspace,
+    *,
+    tenant_id: RecordId,
+    tenant_label: str,
+    workspace_label: str,
+) -> None:
+    """Ensure a workspace row stays inside the expected tenant boundary."""
+
+    tenant_pk = _parse_record_id(tenant_id, label=tenant_label)
+    if workspace.tenant_id != tenant_pk:
+        raise LookupError(f"{workspace_label} does not belong to {tenant_label}.")
+
+
+def _assert_record_ids_belong_to_tenant(
+    model: type[
+        DjangoWorker | DjangoShiftDefinition | DjangoStation
+    ],
+    record_ids: set[int],
+    *,
+    tenant_pk: int,
+    record_label: str,
+) -> None:
+    """Reject related record ids that fall outside the workspace tenant."""
+
+    if not record_ids:
+        return
+
+    matching_ids = set(
+        model.objects.filter(pk__in=record_ids, tenant_id=tenant_pk).values_list(
+            "pk",
+            flat=True,
+        )
+    )
+    if matching_ids != record_ids:
+        raise LookupError(f"{record_label} must belong to the workspace tenant.")
+
+
 class DjangoTenantRepository:
     """Django-backed tenant lookups for service entry points."""
 
@@ -412,8 +465,9 @@ class DjangoWorkspaceRepository:
         )
 
     def save_current_workspace(self, workspace: MonthlyWorkspace) -> MonthlyWorkspace:
+        tenant_pk = _parse_record_id(workspace.tenant_id, label="workspace.tenant_id")
         persisted, _created = DjangoMonthlyWorkspace.objects.update_or_create(
-            tenant_id=_parse_record_id(workspace.tenant_id, label="workspace.tenant_id"),
+            tenant_id=tenant_pk,
             year=workspace.year,
             month=workspace.month,
             defaults={
@@ -436,33 +490,69 @@ class DjangoWorkspaceRepository:
         workspace_id: RecordId,
         assignments: Sequence[MonthlyAssignment],
     ) -> list[MonthlyAssignment]:
-        workspace_pk = _parse_record_id(workspace_id, label="workspace_id")
+        workspace = _require_workspace_model(workspace_id, label="workspace_id")
+        workspace_pk = workspace.pk
+        tenant_pk = workspace.tenant_id
+        parsed_assignments: list[tuple[MonthlyAssignment, int, int, int | None]] = []
+        worker_ids: set[int] = set()
+        shift_ids: set[int] = set()
+        station_ids: set[int] = set()
+
         create_rows: list[DjangoMonthlyAssignment] = []
         for assignment in assignments:
             if assignment.workspace_id != workspace_id:
                 raise ValueError(
                     "All replacement assignments must belong to the target workspace."
                 )
+            worker_pk = _parse_record_id(
+                assignment.worker_id,
+                label="assignment.worker_id",
+            )
+            shift_pk = _parse_record_id(
+                assignment.shift_definition_id,
+                label="assignment.shift_definition_id",
+            )
+            station_pk = (
+                _parse_record_id(
+                    assignment.station_id,
+                    label="assignment.station_id",
+                )
+                if assignment.station_id is not None
+                else None
+            )
+            worker_ids.add(worker_pk)
+            shift_ids.add(shift_pk)
+            if station_pk is not None:
+                station_ids.add(station_pk)
+            parsed_assignments.append((assignment, worker_pk, shift_pk, station_pk))
+
+        _assert_record_ids_belong_to_tenant(
+            DjangoWorker,
+            worker_ids,
+            tenant_pk=tenant_pk,
+            record_label="assignment.worker_id",
+        )
+        _assert_record_ids_belong_to_tenant(
+            DjangoShiftDefinition,
+            shift_ids,
+            tenant_pk=tenant_pk,
+            record_label="assignment.shift_definition_id",
+        )
+        _assert_record_ids_belong_to_tenant(
+            DjangoStation,
+            station_ids,
+            tenant_pk=tenant_pk,
+            record_label="assignment.station_id",
+        )
+
+        for assignment, worker_pk, shift_pk, station_pk in parsed_assignments:
             create_rows.append(
                 DjangoMonthlyAssignment(
                     workspace_id=workspace_pk,
                     assignment_date=assignment.assignment_date,
-                    worker_id=_parse_record_id(
-                        assignment.worker_id,
-                        label="assignment.worker_id",
-                    ),
-                    shift_definition_id=_parse_record_id(
-                        assignment.shift_definition_id,
-                        label="assignment.shift_definition_id",
-                    ),
-                    station_id=(
-                        _parse_record_id(
-                            assignment.station_id,
-                            label="assignment.station_id",
-                        )
-                        if assignment.station_id is not None
-                        else None
-                    ),
+                    worker_id=worker_pk,
+                    shift_definition_id=shift_pk,
+                    station_id=station_pk,
                     assignment_source="apply",
                     note=assignment.note,
                 )
@@ -497,11 +587,18 @@ class DjangoPlanVersionRepository:
         return current_max + 1
 
     def save(self, version: MonthlyPlanVersion) -> MonthlyPlanVersion:
+        workspace = _require_workspace_model(
+            version.workspace_id,
+            label="version.workspace_id",
+        )
+        _assert_workspace_matches_tenant(
+            workspace,
+            tenant_id=version.tenant_id,
+            tenant_label="version.tenant_id",
+            workspace_label="version.workspace_id",
+        )
         persisted = DjangoMonthlyPlanVersion.objects.create(
-            workspace_id=_parse_record_id(
-                version.workspace_id,
-                label="version.workspace_id",
-            ),
+            workspace_id=workspace.pk,
             tenant_id=_parse_record_id(version.tenant_id, label="version.tenant_id"),
             version_number=version.version_number,
             label=None,
@@ -547,12 +644,19 @@ class DjangoRefineRequestRepository:
     """Persist bounded refine requests and later enrich them with preview data."""
 
     def create(self, request: RefineRequest) -> RefineRequest:
+        workspace = _require_workspace_model(
+            request.workspace_id,
+            label="request.workspace_id",
+        )
+        _assert_workspace_matches_tenant(
+            workspace,
+            tenant_id=request.tenant_id,
+            tenant_label="request.tenant_id",
+            workspace_label="request.workspace_id",
+        )
         persisted = DjangoRefineRequest.objects.create(
             tenant_id=_parse_record_id(request.tenant_id, label="request.tenant_id"),
-            workspace_id=_parse_record_id(
-                request.workspace_id,
-                label="request.workspace_id",
-            ),
+            workspace_id=workspace.pk,
             request_text=request.request_text,
             status=request.status,
             parsed_intent_json=(

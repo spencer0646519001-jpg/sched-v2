@@ -295,6 +295,55 @@ def test_workspace_csv_export_returns_not_found_without_current_workspace() -> N
     assert "No current workspace found" in response.content.decode()
 
 
+def test_workspace_page_selected_tenant_does_not_show_other_tenant_current_workspace() -> None:
+    tenant = _seed_named_month_context(
+        slug="tenant-a",
+        name="Tenant A",
+        worker_code="ALEX_A",
+        worker_name="Alex A",
+        station_code="GRILL_A",
+        station_name="Grill A",
+        shift_code="DAY_A",
+        shift_name="Day A",
+    )
+    other_tenant = _seed_named_month_context(
+        slug="tenant-b",
+        name="Tenant B",
+        worker_code="BLAIR_B",
+        worker_name="Blair B",
+        station_code="GRILL_B",
+        station_name="Grill B",
+        shift_code="DAY_B",
+        shift_name="Day B",
+    )
+    page_copy = get_monthly_workspace_copy("zh")
+    view = {
+        pattern.name: pattern.callback
+        for pattern in build_django_monthly_workspace_page_urlpatterns()
+    }["monthly_schedule_workspace"]
+    _apply_current_workspace_via_page(view, tenant=other_tenant, ui_lang="zh")
+
+    response = view(
+        RequestFactory().get(
+            "/v2/monthly-workspace",
+            data={
+                "tenant_slug": tenant.slug,
+                "month_scope": "2026-04",
+                "ui_lang": "zh",
+            },
+        )
+    )
+    html_text = response.content.decode()
+
+    assert response.status_code == 200
+    assert "Alex A" in html_text
+    assert "Blair B" not in html_text
+    assert page_copy["actions"]["export_requires_current_workspace"] in html_text
+    assert html.escape(
+        f"/v2/monthly-workspace/export.csv?tenant_slug={tenant.slug}&month_scope=2026-04"
+    ) not in html_text
+
+
 def test_workspace_page_css_keeps_overflow_scoped_to_grid_and_state_cards_wrapping() -> None:
     tenant = _seed_month_context()
     view = {
@@ -873,6 +922,65 @@ def test_workspace_voice_refine_upload_transcribes_and_routes_into_preview_only_
     assert DjangoMonthlyAssignment.objects.filter(workspace=current_workspace).count() == 30
 
 
+def test_workspace_voice_refine_does_not_use_other_tenant_current_workspace() -> None:
+    tenant = _seed_named_month_context(
+        slug="tenant-a",
+        name="Tenant A",
+        worker_code="ALEX_A",
+        worker_name="Alex A",
+        station_code="GRILL_A",
+        station_name="Grill A",
+        shift_code="DAY_A",
+        shift_name="Day A",
+    )
+    other_tenant = _seed_named_month_context(
+        slug="tenant-b",
+        name="Tenant B",
+        worker_code="BLAIR_B",
+        worker_name="Blair B",
+        station_code="GRILL_B",
+        station_name="Grill B",
+        shift_code="DAY_B",
+        shift_name="Day B",
+    )
+    page_copy = get_monthly_workspace_copy("zh")
+    transcriber = _RecordingAudioTranscriptionClient(
+        text="请把 ALEX_A 安排到 2026-04-01。",
+        language="zh",
+    )
+    view = {
+        pattern.name: pattern.callback
+        for pattern in build_django_monthly_workspace_page_urlpatterns(
+            transcription_client=transcriber
+        )
+    }["monthly_schedule_workspace"]
+    _apply_current_workspace_via_page(view, tenant=other_tenant, ui_lang="zh")
+
+    response = view(
+        RequestFactory().post(
+            "/v2/monthly-workspace",
+            data={
+                "form_action": "refine_voice",
+                "tenant_slug": tenant.slug,
+                "month_scope": "2026-04",
+                "ui_lang": "zh",
+                "refine_audio": _audio_upload(
+                    "refine.webm",
+                    content=b"\x1aE\xdf\xa3schedv2-refine-tenant-a",
+                    content_type="audio/webm",
+                ),
+            },
+        )
+    )
+    html_text = response.content.decode()
+
+    assert response.status_code == 200
+    assert len(transcriber.calls) == 1
+    assert "Voice refine request transcribed via whisper-1" in html_text
+    assert page_copy["messages"]["refine_requires_current_workspace"] in html_text
+    assert "Blair B" not in html_text
+
+
 def test_workspace_voice_explain_upload_transcribes_and_routes_into_existing_gate() -> None:
     tenant = _seed_month_context()
     transcriber = _RecordingAudioTranscriptionClient(
@@ -1388,6 +1496,59 @@ def _seed_month_context() -> DjangoTenant:
         scope_type="default",
         config_json={
             "stations": {PRIMARY_DEMO_STATION.code: 1},
+            "min_staff_weekday": 1,
+            "min_staff_weekend": 1,
+            "max_staff_per_day": 1,
+            "min_rest_days_per_month": 0,
+            "max_consecutive_days": 31,
+        },
+    )
+    return tenant
+
+
+def _seed_named_month_context(
+    *,
+    slug: str,
+    name: str,
+    worker_code: str,
+    worker_name: str,
+    station_code: str,
+    station_name: str,
+    shift_code: str,
+    shift_name: str,
+) -> DjangoTenant:
+    tenant = DjangoTenant.objects.create(
+        slug=slug,
+        name=name,
+        default_locale="en-US",
+    )
+    DjangoWorker.objects.create(
+        tenant=tenant,
+        code=worker_code,
+        name=worker_name,
+        role="cook",
+        is_active=True,
+    )
+    DjangoStation.objects.create(
+        tenant=tenant,
+        code=station_code,
+        name=station_name,
+        is_active=True,
+    )
+    DjangoShiftDefinition.objects.create(
+        tenant=tenant,
+        code=shift_code,
+        name=shift_name,
+        paid_hours=Decimal("8.00"),
+        start_time=None,
+        end_time=None,
+        is_off_shift=False,
+    )
+    DjangoConstraintConfig.objects.create(
+        tenant=tenant,
+        scope_type="default",
+        config_json={
+            "stations": {station_code: 1},
             "min_staff_weekday": 1,
             "min_staff_weekend": 1,
             "max_staff_per_day": 1,

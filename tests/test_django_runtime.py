@@ -239,6 +239,122 @@ def test_django_runtime_preview_apply_save_flow_uses_real_persistence() -> None:
     assert version.snapshot_json["assignments"][-1]["assignment_date"] == "2026-04-30"
 
 
+def test_django_runtime_apply_rejects_candidate_from_other_tenant_scope() -> None:
+    tenant = _seed_named_month_context(
+        slug="tenant-a",
+        name="Tenant A",
+        worker_code="ALEX_A",
+        worker_name="Alex A",
+        station_code="GRILL_A",
+        station_name="Grill A",
+        shift_code="DAY_A",
+        shift_name="Day A",
+    )
+    other_tenant = _seed_named_month_context(
+        slug="tenant-b",
+        name="Tenant B",
+        worker_code="BLAIR_B",
+        worker_name="Blair B",
+        station_code="GRILL_B",
+        station_name="Grill B",
+        shift_code="DAY_B",
+        shift_name="Day B",
+    )
+    views = {
+        pattern.name: pattern.callback
+        for pattern in build_django_monthly_schedule_urlpatterns()
+    }
+
+    other_preview_payload = _post_json(
+        views["preview_month_schedule"],
+        path="/v2/monthly-schedules/preview",
+        payload={
+            "tenant_slug": other_tenant.slug,
+            "year": 2026,
+            "month": 4,
+        },
+    )
+    response = _post_json_response(
+        views["apply_month_schedule"],
+        path="/v2/monthly-schedules/apply",
+        payload={
+            "tenant_slug": tenant.slug,
+            "year": 2026,
+            "month": 4,
+            "result": other_preview_payload["result"],
+        },
+    )
+
+    assert response.status_code == 404
+    assert "unknown worker_code" in response.content.decode()
+    assert not DjangoMonthlyWorkspace.objects.filter(
+        tenant=tenant,
+        year=2026,
+        month=4,
+    ).exists()
+
+
+def test_django_runtime_save_does_not_read_other_tenant_current_workspace() -> None:
+    tenant = _seed_named_month_context(
+        slug="tenant-a",
+        name="Tenant A",
+        worker_code="ALEX_A",
+        worker_name="Alex A",
+        station_code="GRILL_A",
+        station_name="Grill A",
+        shift_code="DAY_A",
+        shift_name="Day A",
+    )
+    other_tenant = _seed_named_month_context(
+        slug="tenant-b",
+        name="Tenant B",
+        worker_code="BLAIR_B",
+        worker_name="Blair B",
+        station_code="GRILL_B",
+        station_name="Grill B",
+        shift_code="DAY_B",
+        shift_name="Day B",
+    )
+    views = {
+        pattern.name: pattern.callback
+        for pattern in build_django_monthly_schedule_urlpatterns()
+    }
+
+    other_preview_payload = _post_json(
+        views["preview_month_schedule"],
+        path="/v2/monthly-schedules/preview",
+        payload={
+            "tenant_slug": other_tenant.slug,
+            "year": 2026,
+            "month": 4,
+        },
+    )
+    _post_json(
+        views["apply_month_schedule"],
+        path="/v2/monthly-schedules/apply",
+        payload={
+            "tenant_slug": other_tenant.slug,
+            "year": 2026,
+            "month": 4,
+            "result": other_preview_payload["result"],
+        },
+    )
+    response = _post_json_response(
+        views["save_month_schedule"],
+        path="/v2/monthly-schedules/save",
+        payload={
+            "tenant_slug": tenant.slug,
+            "year": 2026,
+            "month": 4,
+            "label": "Should fail",
+        },
+    )
+
+    assert response.status_code == 404
+    assert "No current workspace found" in response.content.decode()
+    assert not DjangoMonthlyPlanVersion.objects.filter(tenant=tenant).exists()
+
+
 def test_django_runtime_refine_returns_candidate_preview_without_mutating_current_workspace() -> None:
     tenant = _seed_month_context()
     DjangoShiftDefinition.objects.create(
@@ -334,6 +450,67 @@ def test_django_runtime_refine_returns_candidate_preview_without_mutating_curren
     assert refine_request.result_preview_json is not None
 
 
+def test_django_runtime_refine_does_not_read_other_tenant_current_workspace() -> None:
+    tenant = _seed_named_month_context(
+        slug="tenant-a",
+        name="Tenant A",
+        worker_code="ALEX_A",
+        worker_name="Alex A",
+        station_code="GRILL_A",
+        station_name="Grill A",
+        shift_code="DAY_A",
+        shift_name="Day A",
+    )
+    other_tenant = _seed_named_month_context(
+        slug="tenant-b",
+        name="Tenant B",
+        worker_code="BLAIR_B",
+        worker_name="Blair B",
+        station_code="GRILL_B",
+        station_name="Grill B",
+        shift_code="DAY_B",
+        shift_name="Day B",
+    )
+    views = {
+        pattern.name: pattern.callback
+        for pattern in build_django_monthly_schedule_urlpatterns()
+    }
+
+    other_preview_payload = _post_json(
+        views["preview_month_schedule"],
+        path="/v2/monthly-schedules/preview",
+        payload={
+            "tenant_slug": other_tenant.slug,
+            "year": 2026,
+            "month": 4,
+        },
+    )
+    _post_json(
+        views["apply_month_schedule"],
+        path="/v2/monthly-schedules/apply",
+        payload={
+            "tenant_slug": other_tenant.slug,
+            "year": 2026,
+            "month": 4,
+            "result": other_preview_payload["result"],
+        },
+    )
+    response = _post_json_response(
+        views["refine_month_schedule"],
+        path="/v2/monthly-schedules/refine",
+        payload={
+            "tenant_slug": tenant.slug,
+            "year": 2026,
+            "month": 4,
+            "request_text": "Please move Alex.",
+        },
+    )
+
+    assert response.status_code == 404
+    assert "No current workspace found" in response.content.decode()
+    assert not DjangoRefineRequest.objects.filter(tenant=tenant).exists()
+
+
 def test_django_runtime_explain_day_returns_bounded_day_explanation() -> None:
     tenant = _seed_month_context()
     DjangoShiftDefinition.objects.create(
@@ -408,6 +585,59 @@ def test_django_runtime_explain_day_returns_bounded_day_explanation() -> None:
     assert explain_payload["explanation"]["headline"]
 
 
+def test_django_runtime_explain_rejects_candidate_from_other_tenant_scope() -> None:
+    tenant = _seed_named_month_context(
+        slug="tenant-a",
+        name="Tenant A",
+        worker_code="ALEX_A",
+        worker_name="Alex A",
+        station_code="GRILL_A",
+        station_name="Grill A",
+        shift_code="DAY_A",
+        shift_name="Day A",
+    )
+    other_tenant = _seed_named_month_context(
+        slug="tenant-b",
+        name="Tenant B",
+        worker_code="BLAIR_B",
+        worker_name="Blair B",
+        station_code="GRILL_B",
+        station_name="Grill B",
+        shift_code="DAY_B",
+        shift_name="Day B",
+    )
+    views = {
+        pattern.name: pattern.callback
+        for pattern in build_django_monthly_schedule_urlpatterns()
+    }
+
+    other_preview_payload = _post_json(
+        views["preview_month_schedule"],
+        path="/v2/monthly-schedules/preview",
+        payload={
+            "tenant_slug": other_tenant.slug,
+            "year": 2026,
+            "month": 4,
+        },
+    )
+    response = _post_json_response(
+        views["explain_day_schedule"],
+        path="/v2/monthly-schedules/explain-day",
+        payload={
+            "tenant_slug": tenant.slug,
+            "year": 2026,
+            "month": 4,
+            "target_date": "2026-04-01",
+            "request_text": "What changed in this refine preview?",
+            "response_language": "en",
+            "candidate_result": other_preview_payload["result"],
+        },
+    )
+
+    assert response.status_code == 404
+    assert "outside the selected tenant scope" in response.content.decode()
+
+
 def test_django_runtime_explain_day_rejects_non_scheduling_requests() -> None:
     tenant = _seed_month_context()
     views = {
@@ -443,6 +673,65 @@ def test_django_runtime_explain_day_rejects_non_scheduling_requests() -> None:
     assert explain_payload["outcome"]["message_key"] == "explain_unsupported_request"
     assert explain_payload["parsed_request_json"]["reason_code"] == "unsupported_request"
     assert explain_payload["explanation"] is None
+
+
+def test_django_runtime_export_does_not_read_other_tenant_current_workspace() -> None:
+    tenant = _seed_named_month_context(
+        slug="tenant-a",
+        name="Tenant A",
+        worker_code="ALEX_A",
+        worker_name="Alex A",
+        station_code="GRILL_A",
+        station_name="Grill A",
+        shift_code="DAY_A",
+        shift_name="Day A",
+    )
+    other_tenant = _seed_named_month_context(
+        slug="tenant-b",
+        name="Tenant B",
+        worker_code="BLAIR_B",
+        worker_name="Blair B",
+        station_code="GRILL_B",
+        station_name="Grill B",
+        shift_code="DAY_B",
+        shift_name="Day B",
+    )
+    views = {
+        pattern.name: pattern.callback
+        for pattern in build_django_monthly_schedule_urlpatterns()
+    }
+
+    other_preview_payload = _post_json(
+        views["preview_month_schedule"],
+        path="/v2/monthly-schedules/preview",
+        payload={
+            "tenant_slug": other_tenant.slug,
+            "year": 2026,
+            "month": 4,
+        },
+    )
+    _post_json(
+        views["apply_month_schedule"],
+        path="/v2/monthly-schedules/apply",
+        payload={
+            "tenant_slug": other_tenant.slug,
+            "year": 2026,
+            "month": 4,
+            "result": other_preview_payload["result"],
+        },
+    )
+    response = _post_json_response(
+        views["export_month_schedule"],
+        path="/v2/monthly-schedules/export",
+        payload={
+            "tenant_slug": tenant.slug,
+            "year": 2026,
+            "month": 4,
+        },
+    )
+
+    assert response.status_code == 404
+    assert "No current workspace found" in response.content.decode()
 
 
 def test_django_runtime_preview_returns_planner_warnings_without_persisting() -> None:
@@ -922,6 +1211,62 @@ def _seed_month_context(*, worker_is_active: bool = True) -> DjangoTenant:
     return tenant
 
 
+def _seed_named_month_context(
+    *,
+    slug: str,
+    name: str,
+    worker_code: str,
+    worker_name: str,
+    station_code: str,
+    station_name: str,
+    shift_code: str,
+    shift_name: str,
+) -> DjangoTenant:
+    tenant = DjangoTenant.objects.create(
+        slug=slug,
+        name=name,
+        default_locale="en-US",
+    )
+    worker = DjangoWorker.objects.create(
+        tenant=tenant,
+        code=worker_code,
+        name=worker_name,
+        role="cook",
+        is_active=True,
+    )
+    station = DjangoStation.objects.create(
+        tenant=tenant,
+        code=station_code,
+        name=station_name,
+        is_active=True,
+    )
+    DjangoWorkerStationSkill.objects.create(
+        tenant=tenant,
+        worker=worker,
+        station=station,
+    )
+    DjangoShiftDefinition.objects.create(
+        tenant=tenant,
+        code=shift_code,
+        name=shift_name,
+        paid_hours=Decimal("8.00"),
+        is_off_shift=False,
+    )
+    DjangoConstraintConfig.objects.create(
+        tenant=tenant,
+        scope_type="default",
+        config_json={
+            "stations": {station_code: 1},
+            "min_staff_weekday": 1,
+            "min_staff_weekend": 1,
+            "max_staff_per_day": 1,
+            "min_rest_days_per_month": 0,
+            "max_consecutive_days": 31,
+        },
+    )
+    return tenant
+
+
 def _seed_morning_month_context(*, include_morning_shift: bool) -> DjangoTenant:
     tenant = DjangoTenant.objects.create(
         slug="morning-demo",
@@ -979,13 +1324,17 @@ def _seed_morning_month_context(*, include_morning_shift: bool) -> DjangoTenant:
 
 
 def _post_json(view, *, path: str, payload: dict[str, object]) -> dict[str, object]:
-    response = view(
+    response = _post_json_response(view, path=path, payload=payload)
+
+    assert response.status_code == 200
+    return json.loads(response.content)
+
+
+def _post_json_response(view, *, path: str, payload: dict[str, object]):
+    return view(
         RequestFactory().post(
             path,
             data=json.dumps(payload),
             content_type="application/json",
         )
     )
-
-    assert response.status_code == 200
-    return json.loads(response.content)

@@ -426,6 +426,13 @@ class ExplainDayScheduleService:
             year=request.year,
             month=request.month,
         )
+        if request.candidate_result is not None:
+            _validate_candidate_result_scope(
+                request.candidate_result,
+                workers=bundle.workers,
+                stations=bundle.stations,
+                shifts=bundle.shifts,
+            )
         planning_input = _translate_persistence_bundle_to_engine_input(bundle)
 
         workflow_result = self.workflow(
@@ -510,6 +517,96 @@ def explain_day_schedule(
     """Thin functional wrapper around the day explain service."""
 
     return service.explain_day_schedule(request)
+
+
+def _validate_candidate_result_scope(
+    candidate_result: MonthPlanningResult,
+    *,
+    workers: list[Any],
+    stations: list[Any],
+    shifts: list[Any],
+) -> None:
+    """Reject candidate previews that reference records outside tenant scope."""
+
+    allowed_worker_codes = {
+        _resolve_worker_scope_code(worker)
+        for worker in workers
+    }
+    allowed_station_codes = {
+        _resolve_station_scope_code(station)
+        for station in stations
+    }
+    allowed_shift_codes = {
+        str(shift.code)
+        for shift in shifts
+        if getattr(shift, "code", None)
+    }
+
+    for assignment in candidate_result.assignments:
+        if assignment.worker_code not in allowed_worker_codes:
+            raise LookupError(
+                "Candidate preview references a worker outside the selected tenant scope."
+            )
+        if assignment.shift_code not in allowed_shift_codes:
+            raise LookupError(
+                "Candidate preview references a shift outside the selected tenant scope."
+            )
+        if (
+            assignment.station_code is not None
+            and assignment.station_code not in allowed_station_codes
+        ):
+            raise LookupError(
+                "Candidate preview references a station outside the selected tenant scope."
+            )
+
+    for warning in candidate_result.warnings:
+        if (
+            warning.worker_code is not None
+            and warning.worker_code not in allowed_worker_codes
+        ):
+            raise LookupError(
+                "Candidate preview warning references a worker outside the selected tenant scope."
+            )
+        station_code = (
+            warning.details.get("station_code")
+            if isinstance(warning.details, dict)
+            else None
+        )
+        if (
+            station_code is not None
+            and str(station_code) not in allowed_station_codes
+        ):
+            raise LookupError(
+                "Candidate preview warning references a station outside the selected tenant scope."
+            )
+
+
+def _resolve_worker_scope_code(worker: Any) -> str:
+    """Choose the stable worker identifier used by tenant-bound explain validation."""
+
+    worker_code = getattr(worker, "code", None) or getattr(worker, "worker_code", None)
+    if worker_code:
+        return str(worker_code)
+    worker_id = getattr(worker, "id", None)
+    if worker_id:
+        return str(worker_id)
+    raise ValueError("Explain worker scope validation requires a worker code or id.")
+
+
+def _resolve_station_scope_code(station: Any) -> str:
+    """Choose the stable station identifier used by tenant-bound explain validation."""
+
+    station_code = getattr(station, "code", None) or getattr(
+        station,
+        "station_code",
+        None,
+    )
+    if station_code:
+        return str(station_code)
+    station_id = getattr(station, "id", None)
+    if station_id:
+        return str(station_id)
+    raise ValueError("Explain station scope validation requires a station code or id.")
 
 
 def render_explain_outcome(outcome: ExplainOutcome) -> str:
