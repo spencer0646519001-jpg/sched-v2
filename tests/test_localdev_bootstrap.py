@@ -147,6 +147,19 @@ def test_seed_monthly_workspace_demo_is_idempotent_and_reviewable() -> None:
     ).config_json
     assert seeded_config["morning_shifts"] == ["1"]
     assert seeded_config["stations_require_morning"] == {"gateau": 1}
+    assert seeded_config["required_chefs_weekday"] == 1
+    assert seeded_config["required_chefs_weekend"] == 2
+    assert seeded_config["allowed_auto_shifts_weekday"] == ["A", "B", "C", "D"]
+    assert seeded_config["allowed_auto_shifts_weekend"] == [
+        "1",
+        "2",
+        "3",
+        "4",
+        "A",
+        "B",
+        "C",
+        "D",
+    ]
     assert seeded_config == DEMO_CONSTRAINT_CONFIG
     assert (
         "http://127.0.0.1:8000/v2/monthly-workspace"

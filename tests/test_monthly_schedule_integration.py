@@ -375,10 +375,33 @@ def test_preview_flow_with_seeded_demo_data_eliminates_off_skill_station_fill() 
         for assignment in response.candidate_result.assignments
         if assignment.note == "fallback_station_skill_mismatch"
     ]
+    weekday_required_chefs = [
+        assignment
+        for assignment in response.candidate_result.assignments
+        if assignment.date == dt.date(2026, 4, 1)
+        and assignment.note == "required_chef"
+    ]
+    weekend_required_chefs = [
+        assignment
+        for assignment in response.candidate_result.assignments
+        if assignment.date == dt.date(2026, 4, 4)
+        and assignment.note == "required_chef"
+    ]
+    numeric_shift_assignments = [
+        assignment
+        for assignment in response.candidate_result.assignments
+        if assignment.shift_code in {"1", "2", "3", "4"}
+    ]
 
     assert off_skill_assignments == []
     assert fallback_assignments == []
-    assert response.candidate_result.summary.total_warnings == 11
+    assert len(weekday_required_chefs) == 1
+    assert len(weekend_required_chefs) == 2
+    assert numeric_shift_assignments
+    assert all(
+        assignment.date.weekday() >= 5
+        for assignment in numeric_shift_assignments
+    )
 
 
 def test_apply_flow_creates_current_workspace_from_preview_result() -> None:

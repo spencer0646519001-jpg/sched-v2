@@ -567,6 +567,167 @@ def test_generate_month_plan_require_one_chef_can_add_extra_daily_assignment() -
     assert chef_required_result.summary.total_warnings == 0
 
 
+def test_generate_month_plan_supports_required_chefs_by_day_kind() -> None:
+    result = generate_month_plan(
+        _build_planning_input(
+            workers=[
+                _worker("CHEF1", name="Morgan", role="chef"),
+                _worker("CHEF2", name="Taylor", role="chef"),
+                _worker("COOK1", name="Alex", station_skills=["GRILL"]),
+            ],
+            stations=[_station("GRILL", name="Grill")],
+            shifts=[_shift("DAY", name="Day", paid_hours="8")],
+            constraint_config={
+                "min_staff_weekday": 1,
+                "min_staff_weekend": 1,
+                "max_staff_per_day": 1,
+                "required_chefs_weekday": 1,
+                "required_chefs_weekend": 2,
+                "count_chefs_in_headcount": False,
+                "chefs_have_no_shift": True,
+            },
+        )
+    )
+
+    weekday_assignments = [
+        (
+            assignment.worker_code,
+            assignment.shift_code,
+            assignment.station_code,
+            assignment.note,
+        )
+        for assignment in result.assignments
+        if assignment.date == dt.date(2026, 4, 1)
+    ]
+    weekend_assignments = [
+        (
+            assignment.worker_code,
+            assignment.shift_code,
+            assignment.station_code,
+            assignment.note,
+        )
+        for assignment in result.assignments
+        if assignment.date == dt.date(2026, 4, 4)
+    ]
+
+    assert weekday_assignments == [
+        ("CHEF1", "DAY", None, "required_chef"),
+        ("COOK1", "DAY", "GRILL", None),
+    ]
+    assert weekend_assignments == [
+        ("CHEF1", "DAY", None, "required_chef"),
+        ("CHEF2", "DAY", None, "required_chef"),
+        ("COOK1", "DAY", "GRILL", None),
+    ]
+    assert result.summary.total_assignments == 68
+    assert result.summary.assignments_by_worker == {
+        "CHEF1": 19,
+        "CHEF2": 19,
+        "COOK1": 30,
+    }
+    assert result.summary.total_warnings == 0
+
+
+def test_generate_month_plan_required_chefs_by_day_kind_can_fill_station_slots() -> None:
+    result = generate_month_plan(
+        _build_planning_input(
+            workers=[
+                _worker("CHEF1", name="Morgan", role="chef", station_skills=["GRILL"]),
+                _worker("CHEF2", name="Taylor", role="chef", station_skills=["GRILL"]),
+            ],
+            stations=[_station("GRILL", name="Grill")],
+            shifts=[_shift("DAY", name="Day", paid_hours="8")],
+            constraint_config={
+                "min_staff_weekday": 1,
+                "min_staff_weekend": 2,
+                "max_staff_per_day": 2,
+                "required_chefs_weekday": 1,
+                "required_chefs_weekend": 2,
+                "count_chefs_in_headcount": False,
+                "chefs_have_no_shift": False,
+            },
+        )
+    )
+
+    weekday_assignments = [
+        (
+            assignment.worker_code,
+            assignment.shift_code,
+            assignment.station_code,
+            assignment.note,
+        )
+        for assignment in result.assignments
+        if assignment.date == dt.date(2026, 4, 1)
+    ]
+    weekend_assignments = [
+        (
+            assignment.worker_code,
+            assignment.shift_code,
+            assignment.station_code,
+            assignment.note,
+        )
+        for assignment in result.assignments
+        if assignment.date == dt.date(2026, 4, 4)
+    ]
+
+    assert weekday_assignments == [
+        ("CHEF1", "DAY", "GRILL", None),
+    ]
+    assert weekend_assignments == [
+        ("CHEF1", "DAY", "GRILL", None),
+        ("CHEF2", "DAY", "GRILL", None),
+    ]
+    assert result.summary.total_warnings == 0
+
+
+def test_generate_month_plan_restricts_auto_shifts_by_day_kind() -> None:
+    result = generate_month_plan(
+        _build_planning_input(
+            workers=[
+                _worker("W1", name="Alex", station_skills=["GATEAU"]),
+                _worker("W2", name="Casey", station_skills=["GATEAU"]),
+            ],
+            stations=[_station("GATEAU", name="Gateau")],
+            shifts=[
+                _shift("1", name="Morning 1", paid_hours="8"),
+                _shift("A", name="Day A", paid_hours="8"),
+                _shift("B", name="Day B", paid_hours="8"),
+            ],
+            constraint_config={
+                "stations": {"GATEAU": 2},
+                "morning_shifts": ["1"],
+                "stations_require_morning": {"GATEAU": 1},
+                "min_staff_weekday": 2,
+                "min_staff_weekend": 2,
+                "max_staff_per_day": 2,
+                "allowed_auto_shifts_weekday": ["A", "B"],
+                "allowed_auto_shifts_weekend": ["1", "A", "B"],
+            },
+        )
+    )
+
+    weekday_shift_codes = [
+        assignment.shift_code
+        for assignment in result.assignments
+        if assignment.date == dt.date(2026, 4, 1)
+    ]
+    weekend_shift_codes = [
+        assignment.shift_code
+        for assignment in result.assignments
+        if assignment.date == dt.date(2026, 4, 4)
+    ]
+
+    assert weekday_shift_codes == ["A", "B"]
+    assert weekend_shift_codes[0] == "1"
+    assert weekend_shift_codes[1] in {"A", "B"}
+    assert all(
+        assignment.date.weekday() >= 5
+        for assignment in result.assignments
+        if assignment.shift_code in {"1", "2", "3", "4"}
+    )
+    assert result.summary.total_warnings == 0
+
+
 def test_generate_month_plan_uses_configured_morning_shift_for_required_station() -> None:
     result = generate_month_plan(
         _build_planning_input(
@@ -732,7 +893,75 @@ def test_generate_month_plan_warns_when_required_chef_is_impossible() -> None:
     assert len(chef_warnings) == 30
     assert chef_warnings[0].date == dt.date(2026, 4, 1)
     assert chef_warnings[0].message_key == "missing_required_chef"
-    assert chef_warnings[0].details == {"required_role": "chef"}
+    assert chef_warnings[0].details == {
+        "required_role": "chef",
+        "required_count": 1,
+        "assigned_count": 0,
+        "missing_count": 1,
+    }
+
+
+def test_generate_month_plan_warns_when_weekend_requires_two_chefs_but_only_one_is_available() -> None:
+    result = generate_month_plan(
+        _build_planning_input(
+            workers=[
+                _worker("CHEF1", name="Morgan", role="chef"),
+                _worker("COOK1", name="Alex", station_skills=["GRILL"]),
+            ],
+            stations=[_station("GRILL", name="Grill")],
+            shifts=[_shift("DAY", name="Day", paid_hours="8")],
+            constraint_config={
+                "min_staff_weekday": 1,
+                "min_staff_weekend": 1,
+                "max_staff_per_day": 1,
+                "required_chefs_weekday": 1,
+                "required_chefs_weekend": 2,
+                "count_chefs_in_headcount": False,
+                "chefs_have_no_shift": True,
+            },
+        )
+    )
+
+    chef_warnings = [
+        warning for warning in result.warnings if warning.type == "missing_required_chef"
+    ]
+    weekday_assignments = [
+        (
+            assignment.worker_code,
+            assignment.shift_code,
+            assignment.station_code,
+            assignment.note,
+        )
+        for assignment in result.assignments
+        if assignment.date == dt.date(2026, 4, 1)
+    ]
+    weekend_assignments = [
+        (
+            assignment.worker_code,
+            assignment.shift_code,
+            assignment.station_code,
+            assignment.note,
+        )
+        for assignment in result.assignments
+        if assignment.date == dt.date(2026, 4, 4)
+    ]
+
+    assert weekday_assignments == [
+        ("CHEF1", "DAY", None, "required_chef"),
+        ("COOK1", "DAY", "GRILL", None),
+    ]
+    assert weekend_assignments == [
+        ("CHEF1", "DAY", None, "required_chef"),
+        ("COOK1", "DAY", "GRILL", None),
+    ]
+    assert len(chef_warnings) == 8
+    assert chef_warnings[0].date == dt.date(2026, 4, 4)
+    assert chef_warnings[0].details == {
+        "required_role": "chef",
+        "required_count": 2,
+        "assigned_count": 1,
+        "missing_count": 1,
+    }
 
 
 def test_generate_month_plan_keeps_extra_chefs_out_of_normal_station_slots() -> None:
@@ -872,6 +1101,49 @@ def test_generate_month_plan_applies_patch_override_after_baseline() -> None:
     assert result.summary.paid_hours_by_worker == {"W1": expected_paid_hours}
     assert result.metadata.refinement_applied is True
     assert "adjustment_patch_applied" in (result.metadata.notes or [])
+
+
+def test_generate_month_plan_allows_patch_override_of_weekday_numeric_shift() -> None:
+    result = generate_month_plan(
+        _build_planning_input(
+            workers=[_worker("W1", name="Alex", station_skills=["GATEAU"])],
+            stations=[_station("GATEAU", name="Gateau")],
+            shifts=[
+                _shift("1", name="Morning 1", paid_hours="8"),
+                _shift("A", name="Day A", paid_hours="8"),
+            ],
+            constraint_config={
+                "stations": {"GATEAU": 1},
+                "morning_shifts": ["1"],
+                "stations_require_morning": {"GATEAU": 1},
+                "min_staff_weekday": 1,
+                "min_staff_weekend": 1,
+                "max_staff_per_day": 1,
+                "allowed_auto_shifts_weekday": ["A"],
+                "allowed_auto_shifts_weekend": ["1", "A"],
+            },
+            adjustment_patch=[
+                AssignmentPatchInput(
+                    operation="set",
+                    date=dt.date(2026, 4, 1),
+                    worker_code="W1",
+                    shift_code="1",
+                    station_code="GATEAU",
+                    note="manual override",
+                )
+            ],
+        )
+    )
+
+    first_assignment = next(
+        assignment
+        for assignment in result.assignments
+        if assignment.date == dt.date(2026, 4, 1)
+    )
+
+    assert first_assignment.shift_code == "1"
+    assert first_assignment.source == "adjustment_patch"
+    assert first_assignment.note == "manual override"
 
 
 def _build_planning_input(

@@ -83,9 +83,22 @@ class _PlannerSettings:
     max_staff_per_day: int | None
     min_rest_days_per_month: int | None
     max_consecutive_days: int | None
+    required_chefs_weekday: int | None
+    required_chefs_weekend: int | None
+    allowed_auto_shifts_weekday: frozenset[str] | None
+    allowed_auto_shifts_weekend: frozenset[str] | None
     require_one_chef: bool
     count_chefs_in_headcount: bool
     chefs_have_no_shift: bool
+
+
+@dataclass(frozen=True, slots=True)
+class _AutoShiftAvailability:
+    default_shift: ShiftInput | None
+    morning_shift: ShiftInput | None
+    ordinary_shift_pool: tuple[ShiftInput, ...]
+    morning_station_requirements: dict[str, int]
+    morning_shift_codes: frozenset[str]
 
 
 def generate_month_plan(planning_input: MonthPlanningInput) -> MonthPlanningResult:
@@ -118,14 +131,6 @@ def generate_month_plan(planning_input: MonthPlanningInput) -> MonthPlanningResu
         active_station_codes=active_station_codes,
         available_shift_codes=[shift.shift_code for shift in working_shifts],
     )
-    morning_shift = _resolve_morning_shift(
-        settings.morning_shift_codes,
-        shifts_by_code=shifts_by_code,
-    )
-    ordinary_shift_pool = _resolve_ordinary_shift_pool(
-        working_shifts,
-        morning_shift_codes=settings.morning_shift_codes,
-    )
 
     notes = {_BASELINE_NOTE}
     if (
@@ -139,9 +144,7 @@ def generate_month_plan(planning_input: MonthPlanningInput) -> MonthPlanningResu
         planning_input=planning_input,
         active_workers=active_workers,
         active_station_codes=active_station_codes,
-        primary_shift=primary_shift,
-        morning_shift=morning_shift,
-        ordinary_shift_pool=ordinary_shift_pool,
+        working_shifts=working_shifts,
         leave_dates_by_worker=leave_dates_by_worker,
         worker_scheduling_states=worker_scheduling_states,
         settings=settings,
@@ -235,6 +238,20 @@ def _build_planner_settings(
         max_consecutive_days=_coerce_non_negative_int(
             constraint_config.get("max_consecutive_days")
         ),
+        required_chefs_weekday=_coerce_non_negative_int(
+            constraint_config.get("required_chefs_weekday")
+        ),
+        required_chefs_weekend=_coerce_non_negative_int(
+            constraint_config.get("required_chefs_weekend")
+        ),
+        allowed_auto_shifts_weekday=_resolve_allowed_auto_shifts(
+            constraint_config.get("allowed_auto_shifts_weekday"),
+            available_shift_codes=available_shift_codes,
+        ),
+        allowed_auto_shifts_weekend=_resolve_allowed_auto_shifts(
+            constraint_config.get("allowed_auto_shifts_weekend"),
+            available_shift_codes=available_shift_codes,
+        ),
         require_one_chef=_coerce_bool(
             constraint_config.get("require_one_chef")
         ),
@@ -252,9 +269,7 @@ def _build_baseline_assignments(
     planning_input: MonthPlanningInput,
     active_workers: list[WorkerInput],
     active_station_codes: list[str],
-    primary_shift: ShiftInput | None,
-    morning_shift: ShiftInput | None,
-    ordinary_shift_pool: tuple[ShiftInput, ...],
+    working_shifts: list[ShiftInput],
     leave_dates_by_worker: dict[str, set[dt.date]],
     worker_scheduling_states: dict[str, _WorkerSchedulingState],
     settings: _PlannerSettings,
@@ -269,7 +284,6 @@ def _build_baseline_assignments(
         if settings.chefs_have_no_shift
         else active_workers
     )
-    morning_shift_codes = set(settings.morning_shift_codes)
 
     assignment_counts = {
         worker.worker_code: 0 for worker in active_workers
@@ -279,49 +293,64 @@ def _build_baseline_assignments(
     }
 
     for assignment_date in _iter_month_dates(planning_input.year, planning_input.month):
+        auto_shift_availability = _resolve_auto_shift_availability(
+            assignment_date,
+            working_shifts=working_shifts,
+            settings=settings,
+        )
+        morning_shift_codes = set(auto_shift_availability.morning_shift_codes)
         assigned_today: set[str] = set()
         assigned_station_counts: Counter[str] = Counter()
         assigned_morning_station_counts: Counter[str] = Counter()
+        required_chef_count = _resolve_required_chef_count(
+            assignment_date,
+            settings=settings,
+        )
+        assigned_required_chefs = 0
         chef_assignment_counted_in_headcount = 0
         ordinary_shift_index = 0
 
-        if settings.require_one_chef and settings.chefs_have_no_shift:
-            chef_worker = _select_worker(
-                assignment_date,
-                candidate_workers=chef_workers,
-                assigned_today=assigned_today,
-                assignment_counts=assignment_counts,
-                assigned_dates_by_worker=assigned_dates_by_worker,
-                leave_dates_by_worker=leave_dates_by_worker,
-                worker_scheduling_states=worker_scheduling_states,
-                max_consecutive_days=settings.max_consecutive_days,
-                shift_code=primary_shift.shift_code if primary_shift is not None else None,
-            )
-            if chef_worker is None or primary_shift is None:
-                warnings.append(
-                    _build_missing_required_chef_warning(assignment_date)
-                )
-            else:
-                _append_assignment(
-                    assignments,
-                    assignment_date=assignment_date,
-                    worker=chef_worker,
-                    shift=primary_shift,
-                    station_code=None,
-                    note=_REQUIRED_CHEF_NOTE,
-                    assigned_today=assigned_today,
-                    assigned_station_counts=assigned_station_counts,
-                    assigned_morning_station_counts=assigned_morning_station_counts,
-                    assignment_counts=assignment_counts,
-                    assigned_dates_by_worker=assigned_dates_by_worker,
-                    morning_shift_codes=morning_shift_codes,
-                )
-                if settings.count_chefs_in_headcount:
-                    chef_assignment_counted_in_headcount = 1
+        if required_chef_count > 0 and settings.chefs_have_no_shift:
+            if auto_shift_availability.default_shift is not None:
+                for _ in range(required_chef_count):
+                    chef_worker = _select_worker(
+                        assignment_date,
+                        candidate_workers=chef_workers,
+                        assigned_today=assigned_today,
+                        assignment_counts=assignment_counts,
+                        assigned_dates_by_worker=assigned_dates_by_worker,
+                        leave_dates_by_worker=leave_dates_by_worker,
+                        worker_scheduling_states=worker_scheduling_states,
+                        max_consecutive_days=settings.max_consecutive_days,
+                        shift_code=auto_shift_availability.default_shift.shift_code,
+                    )
+                    if chef_worker is None:
+                        break
+
+                    _append_assignment(
+                        assignments,
+                        assignment_date=assignment_date,
+                        worker=chef_worker,
+                        shift=auto_shift_availability.default_shift,
+                        station_code=None,
+                        note=_REQUIRED_CHEF_NOTE,
+                        assigned_today=assigned_today,
+                        assigned_station_counts=assigned_station_counts,
+                        assigned_morning_station_counts=assigned_morning_station_counts,
+                        assignment_counts=assignment_counts,
+                        assigned_dates_by_worker=assigned_dates_by_worker,
+                        morning_shift_codes=morning_shift_codes,
+                    )
+                    assigned_required_chefs += 1
+            if settings.count_chefs_in_headcount:
+                chef_assignment_counted_in_headcount = assigned_required_chefs
 
         required_station_slots = _build_required_station_slots(
             assignment_date,
             active_station_codes=active_station_codes,
+            morning_station_requirements=(
+                auto_shift_availability.morning_station_requirements
+            ),
             settings=settings,
             headcount_credit=chef_assignment_counted_in_headcount,
         )
@@ -332,13 +361,13 @@ def _build_baseline_assignments(
         )
         if effective_max_staff is not None:
             fillable_station_slots = fillable_station_slots[:effective_max_staff]
-        if primary_shift is None or not active_station_codes:
+        if auto_shift_availability.default_shift is None or not active_station_codes:
             fillable_station_slots = []
 
         remaining_station_slots = fillable_station_slots
 
-        if settings.require_one_chef and not settings.chefs_have_no_shift:
-            if fillable_station_slots:
+        if required_chef_count > 0 and not settings.chefs_have_no_shift:
+            while assigned_required_chefs < required_chef_count:
                 eligible_chef_workers = _build_eligible_workers(
                     assignment_date,
                     candidate_workers=chef_workers,
@@ -349,68 +378,69 @@ def _build_baseline_assignments(
                     max_consecutive_days=settings.max_consecutive_days,
                 )
                 chef_slot_priority = _select_next_station_slot(
-                    remaining_station_slots=fillable_station_slots,
+                    remaining_station_slots=remaining_station_slots,
                     eligible_workers=eligible_chef_workers,
                 )
                 if chef_slot_priority is None:
-                    warnings.append(
-                        _build_missing_required_chef_warning(assignment_date)
-                    )
-                    remaining_station_slots = fillable_station_slots
-                else:
-                    chef_slot = chef_slot_priority.slot
-                    chef_shift = _resolve_station_slot_shift(
-                        chef_slot,
-                        assignment_date=assignment_date,
-                        ordinary_shift_index=ordinary_shift_index,
-                        morning_shift=morning_shift,
-                        ordinary_shift_pool=ordinary_shift_pool,
-                    )
-                    chef_selection = _select_station_worker(
-                        assignment_date,
-                        station_slot=chef_slot,
-                        slot_index=chef_slot_priority.slot_index,
-                        eligible_workers=eligible_chef_workers,
-                        remaining_station_slots=fillable_station_slots,
-                        assignment_counts=assignment_counts,
-                        assigned_dates_by_worker=assigned_dates_by_worker,
-                        worker_scheduling_states=worker_scheduling_states,
-                        slot_shift_code=(
-                            chef_shift.shift_code if chef_shift is not None else None
-                        ),
-                    )
-                    remaining_station_slots = (
-                        fillable_station_slots[: chef_slot_priority.slot_index]
-                        + fillable_station_slots[chef_slot_priority.slot_index + 1 :]
-                    )
-                    if chef_selection is None or chef_shift is None:
-                        warnings.append(
-                            _build_missing_required_chef_warning(assignment_date)
-                        )
-                    else:
-                        _append_assignment(
-                            assignments,
-                            assignment_date=assignment_date,
-                            worker=chef_selection.worker,
-                            shift=chef_shift,
-                            station_code=chef_slot.station_code,
-                            note=chef_selection.note,
-                            assigned_today=assigned_today,
-                            assigned_station_counts=assigned_station_counts,
-                            assigned_morning_station_counts=assigned_morning_station_counts,
-                            assignment_counts=assignment_counts,
-                            assigned_dates_by_worker=assigned_dates_by_worker,
-                            morning_shift_codes=morning_shift_codes,
-                        )
-                        if not _slot_uses_configured_morning_shift(
-                            chef_slot,
-                            morning_shift=morning_shift,
-                        ):
-                            ordinary_shift_index += 1
-            else:
-                warnings.append(
-                    _build_missing_required_chef_warning(assignment_date)
+                    break
+
+                chef_slot = chef_slot_priority.slot
+                chef_shift = _resolve_station_slot_shift(
+                    chef_slot,
+                    assignment_date=assignment_date,
+                    ordinary_shift_index=ordinary_shift_index,
+                    morning_shift=auto_shift_availability.morning_shift,
+                    ordinary_shift_pool=auto_shift_availability.ordinary_shift_pool,
                 )
+                chef_selection = _select_station_worker(
+                    assignment_date,
+                    station_slot=chef_slot,
+                    slot_index=chef_slot_priority.slot_index,
+                    eligible_workers=eligible_chef_workers,
+                    remaining_station_slots=remaining_station_slots,
+                    assignment_counts=assignment_counts,
+                    assigned_dates_by_worker=assigned_dates_by_worker,
+                    worker_scheduling_states=worker_scheduling_states,
+                    slot_shift_code=(
+                        chef_shift.shift_code if chef_shift is not None else None
+                    ),
+                )
+                remaining_station_slots = (
+                    remaining_station_slots[: chef_slot_priority.slot_index]
+                    + remaining_station_slots[chef_slot_priority.slot_index + 1 :]
+                )
+                if not _slot_uses_configured_morning_shift(
+                    chef_slot,
+                    morning_shift=auto_shift_availability.morning_shift,
+                ):
+                    ordinary_shift_index += 1
+                if chef_selection is None or chef_shift is None:
+                    continue
+
+                _append_assignment(
+                    assignments,
+                    assignment_date=assignment_date,
+                    worker=chef_selection.worker,
+                    shift=chef_shift,
+                    station_code=chef_slot.station_code,
+                    note=chef_selection.note,
+                    assigned_today=assigned_today,
+                    assigned_station_counts=assigned_station_counts,
+                    assigned_morning_station_counts=assigned_morning_station_counts,
+                    assignment_counts=assignment_counts,
+                    assigned_dates_by_worker=assigned_dates_by_worker,
+                    morning_shift_codes=morning_shift_codes,
+                )
+                assigned_required_chefs += 1
+
+        if assigned_required_chefs < required_chef_count:
+            warnings.append(
+                _build_missing_required_chef_warning(
+                    assignment_date,
+                    required_count=required_chef_count,
+                    assigned_count=assigned_required_chefs,
+                )
+            )
 
         while remaining_station_slots:
             eligible_station_workers = _build_eligible_workers(
@@ -437,8 +467,8 @@ def _build_baseline_assignments(
                 station_slot,
                 assignment_date=assignment_date,
                 ordinary_shift_index=ordinary_shift_index,
-                morning_shift=morning_shift,
-                ordinary_shift_pool=ordinary_shift_pool,
+                morning_shift=auto_shift_availability.morning_shift,
+                ordinary_shift_pool=auto_shift_availability.ordinary_shift_pool,
             )
             worker_selection = _select_station_worker(
                 assignment_date,
@@ -457,7 +487,7 @@ def _build_baseline_assignments(
             )
             if not _slot_uses_configured_morning_shift(
                 station_slot,
-                morning_shift=morning_shift,
+                morning_shift=auto_shift_availability.morning_shift,
             ):
                 ordinary_shift_index += 1
             if worker_selection is None or shift is None:
@@ -488,7 +518,9 @@ def _build_baseline_assignments(
         warnings.extend(
             _build_missing_morning_station_warnings(
                 assignment_date,
-                morning_station_requirements=settings.morning_station_requirements,
+                morning_station_requirements=(
+                    auto_shift_availability.morning_station_requirements
+                ),
                 assigned_morning_station_counts=assigned_morning_station_counts,
             )
         )
@@ -500,6 +532,7 @@ def _build_required_station_slots(
     assignment_date: dt.date,
     *,
     active_station_codes: list[str],
+    morning_station_requirements: dict[str, int],
     settings: _PlannerSettings,
     headcount_credit: int = 0,
 ) -> list[_RequiredStationSlot]:
@@ -516,11 +549,11 @@ def _build_required_station_slots(
         0,
     )
 
-    if settings.station_minimums or settings.morning_station_requirements:
+    if settings.station_minimums or morning_station_requirements:
         morning_slots: list[_RequiredStationSlot] = []
         ordinary_slots: list[_RequiredStationSlot] = []
         for station_code in active_station_codes:
-            morning_requirement = settings.morning_station_requirements.get(
+            morning_requirement = morning_station_requirements.get(
                 station_code, 0
             )
             station_minimum = settings.station_minimums.get(station_code, 0)
@@ -574,6 +607,90 @@ def _resolve_daily_minimum_staff(
     if assignment_date.weekday() >= 5:
         return min_staff_weekend or 0
     return min_staff_weekday or 0
+
+
+def _resolve_required_chef_count(
+    assignment_date: dt.date,
+    *,
+    settings: _PlannerSettings,
+) -> int:
+    legacy_required_chef_count = 1 if settings.require_one_chef else 0
+    if assignment_date.weekday() >= 5:
+        return (
+            settings.required_chefs_weekend
+            if settings.required_chefs_weekend is not None
+            else legacy_required_chef_count
+        )
+    return (
+        settings.required_chefs_weekday
+        if settings.required_chefs_weekday is not None
+        else legacy_required_chef_count
+    )
+
+
+def _resolve_auto_shift_availability(
+    assignment_date: dt.date,
+    *,
+    working_shifts: list[ShiftInput],
+    settings: _PlannerSettings,
+) -> _AutoShiftAvailability:
+    allowed_auto_shifts = _resolve_allowed_auto_shifts_for_date(
+        assignment_date,
+        settings=settings,
+    )
+    auto_working_shifts = [
+        shift
+        for shift in working_shifts
+        if allowed_auto_shifts is None
+        or shift.shift_code in allowed_auto_shifts
+    ]
+    default_shift = auto_working_shifts[0] if auto_working_shifts else None
+    shifts_by_code = {
+        shift.shift_code: shift for shift in auto_working_shifts
+    }
+    morning_shift = _resolve_morning_shift(
+        settings.morning_shift_codes,
+        shifts_by_code=shifts_by_code,
+    )
+    available_working_shift_codes = {
+        shift.shift_code for shift in working_shifts
+    }
+    morning_requirements_blocked_by_allowlist = (
+        allowed_auto_shifts is not None
+        and morning_shift is None
+        and any(
+            shift_code in available_working_shift_codes
+            for shift_code in settings.morning_shift_codes
+        )
+    )
+    return _AutoShiftAvailability(
+        default_shift=default_shift,
+        morning_shift=morning_shift,
+        ordinary_shift_pool=_resolve_ordinary_shift_pool(
+            auto_working_shifts,
+            morning_shift_codes=settings.morning_shift_codes,
+        ),
+        morning_station_requirements=(
+            {}
+            if morning_requirements_blocked_by_allowlist
+            else settings.morning_station_requirements
+        ),
+        morning_shift_codes=(
+            frozenset({morning_shift.shift_code})
+            if morning_shift is not None
+            else frozenset()
+        ),
+    )
+
+
+def _resolve_allowed_auto_shifts_for_date(
+    assignment_date: dt.date,
+    *,
+    settings: _PlannerSettings,
+) -> frozenset[str] | None:
+    if assignment_date.weekday() >= 5:
+        return settings.allowed_auto_shifts_weekend
+    return settings.allowed_auto_shifts_weekday
 
 
 def _resolve_station_slot_shift(
@@ -973,13 +1090,21 @@ def _resolve_effective_max_staff(
 
 def _build_missing_required_chef_warning(
     assignment_date: dt.date,
+    *,
+    required_count: int,
+    assigned_count: int,
 ) -> WarningOutput:
     return WarningOutput(
         type="missing_required_chef",
         message_key="missing_required_chef",
         worker_code=None,
         date=assignment_date,
-        details={"required_role": "chef"},
+        details={
+            "required_role": "chef",
+            "required_count": required_count,
+            "assigned_count": assigned_count,
+            "missing_count": max(required_count - assigned_count, 0),
+        },
     )
 
 
@@ -1380,6 +1505,34 @@ def _resolve_morning_shift_codes(
         seen_shift_codes.add(shift_code)
         morning_shift_codes.append(shift_code)
     return tuple(morning_shift_codes)
+
+
+def _resolve_allowed_auto_shifts(
+    raw_allowed_auto_shifts: object,
+    *,
+    available_shift_codes: list[str],
+) -> frozenset[str] | None:
+    if raw_allowed_auto_shifts is None:
+        return None
+    if not isinstance(raw_allowed_auto_shifts, list):
+        return None
+
+    shift_codes_by_key = {
+        shift_code.strip().casefold(): shift_code
+        for shift_code in available_shift_codes
+        if shift_code.strip()
+    }
+    allowed_shift_codes: list[str] = []
+    seen_shift_codes: set[str] = set()
+    for raw_shift_code in raw_allowed_auto_shifts:
+        if not isinstance(raw_shift_code, str):
+            continue
+        shift_code = shift_codes_by_key.get(raw_shift_code.strip().casefold())
+        if shift_code is None or shift_code in seen_shift_codes:
+            continue
+        seen_shift_codes.add(shift_code)
+        allowed_shift_codes.append(shift_code)
+    return frozenset(allowed_shift_codes)
 
 
 def _resolve_morning_station_requirements(

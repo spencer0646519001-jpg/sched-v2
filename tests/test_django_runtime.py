@@ -5,6 +5,7 @@ import json
 from decimal import Decimal
 
 import pytest
+from django.core.management import call_command
 from django.test import RequestFactory
 
 from app.api.django_runtime import build_django_monthly_schedule_urlpatterns
@@ -580,6 +581,175 @@ def test_django_runtime_preview_uses_monthly_constraint_override() -> None:
     assert preview_payload["result"]["evaluation"]["schedule_quality_label"] == "good"
     assert DjangoMonthlyWorkspace.objects.count() == 0
     assert DjangoMonthlyAssignment.objects.count() == 0
+
+
+def test_django_runtime_preview_supports_required_chefs_by_day_kind() -> None:
+    tenant = DjangoTenant.objects.create(
+        slug="chef-rule-demo",
+        name="Chef Rule Demo",
+        default_locale="en-US",
+    )
+    DjangoWorker.objects.create(
+        tenant=tenant,
+        code="CHEF1",
+        name="Morgan",
+        role="chef",
+        is_active=True,
+    )
+    DjangoWorker.objects.create(
+        tenant=tenant,
+        code="CHEF2",
+        name="Taylor",
+        role="chef",
+        is_active=True,
+    )
+    cook = DjangoWorker.objects.create(
+        tenant=tenant,
+        code="COOK1",
+        name="Alex",
+        role="employee",
+        is_active=True,
+    )
+    station = DjangoStation.objects.create(
+        tenant=tenant,
+        code="GRILL",
+        name="Grill",
+        is_active=True,
+    )
+    DjangoWorkerStationSkill.objects.create(
+        tenant=tenant,
+        worker=cook,
+        station=station,
+    )
+    DjangoShiftDefinition.objects.create(
+        tenant=tenant,
+        code="DAY",
+        name="Day",
+        paid_hours=Decimal("8.00"),
+        is_off_shift=False,
+    )
+    DjangoConstraintConfig.objects.create(
+        tenant=tenant,
+        scope_type="monthly",
+        year=2026,
+        month=4,
+        config_json={
+            "stations": {"GRILL": 1},
+            "min_staff_weekday": 1,
+            "min_staff_weekend": 1,
+            "max_staff_per_day": 1,
+            "required_chefs_weekday": 1,
+            "required_chefs_weekend": 2,
+            "count_chefs_in_headcount": False,
+            "chefs_have_no_shift": True,
+        },
+    )
+    views = {
+        pattern.name: pattern.callback
+        for pattern in build_django_monthly_schedule_urlpatterns()
+    }
+
+    preview_payload = _post_json(
+        views["preview_month_schedule"],
+        path="/v2/monthly-schedules/preview",
+        payload={
+            "tenant_slug": tenant.slug,
+            "year": 2026,
+            "month": 4,
+        },
+    )
+
+    assignments = preview_payload["result"]["assignments"]
+    weekday_assignments = [
+        (
+            assignment["worker_code"],
+            assignment["shift_code"],
+            assignment["station_code"],
+            assignment["note"],
+        )
+        for assignment in assignments
+        if assignment["date"] == "2026-04-01"
+    ]
+    weekend_assignments = [
+        (
+            assignment["worker_code"],
+            assignment["shift_code"],
+            assignment["station_code"],
+            assignment["note"],
+        )
+        for assignment in assignments
+        if assignment["date"] == "2026-04-04"
+    ]
+
+    assert weekday_assignments == [
+        ("CHEF1", "DAY", None, "required_chef"),
+        ("COOK1", "DAY", "GRILL", None),
+    ]
+    assert weekend_assignments == [
+        ("CHEF1", "DAY", None, "required_chef"),
+        ("CHEF2", "DAY", None, "required_chef"),
+        ("COOK1", "DAY", "GRILL", None),
+    ]
+    assert preview_payload["result"]["summary"]["total_assignments"] == 68
+    assert preview_payload["result"]["summary"]["total_warnings"] == 0
+    assert preview_payload["result"]["summary"]["assignments_by_worker"] == {
+        "CHEF1": 19,
+        "CHEF2": 19,
+        "COOK1": 30,
+    }
+    assert preview_payload["result"]["warnings"] == []
+    assert preview_payload["result"]["evaluation"] is not None
+    assert preview_payload["result"]["evaluation"]["hard_constraints_passed"] is True
+
+
+def test_django_runtime_preview_seeded_demo_uses_weekday_and_weekend_shift_rules() -> None:
+    call_command("seed_monthly_workspace_demo")
+    views = {
+        pattern.name: pattern.callback
+        for pattern in build_django_monthly_schedule_urlpatterns()
+    }
+
+    preview_payload = _post_json(
+        views["preview_month_schedule"],
+        path="/v2/monthly-schedules/preview",
+        payload={
+            "tenant_slug": DEMO_TENANT_SLUG,
+            "year": 2026,
+            "month": 4,
+        },
+    )
+
+    assignments = preview_payload["result"]["assignments"]
+    numeric_shift_assignments = [
+        assignment
+        for assignment in assignments
+        if assignment["shift_code"] in {"1", "2", "3", "4"}
+    ]
+    weekday_required_chefs = [
+        assignment
+        for assignment in assignments
+        if assignment["date"] == "2026-04-01"
+        and assignment["note"] == "required_chef"
+    ]
+    weekend_required_chefs = [
+        assignment
+        for assignment in assignments
+        if assignment["date"] == "2026-04-04"
+        and assignment["note"] == "required_chef"
+    ]
+
+    assert len(weekday_required_chefs) == 1
+    assert len(weekend_required_chefs) == 2
+    assert all(
+        assignment["shift_code"] not in {"1", "2", "3", "4"}
+        for assignment in assignments
+        if assignment["date"] == "2026-04-01"
+    )
+    assert numeric_shift_assignments
+    assert all(
+        dt.date.fromisoformat(assignment["date"]).weekday() >= 5
+        for assignment in numeric_shift_assignments
+    )
 
 
 def test_django_runtime_preview_respects_persisted_morning_requirements() -> None:
