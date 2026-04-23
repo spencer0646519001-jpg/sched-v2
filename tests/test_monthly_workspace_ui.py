@@ -158,6 +158,79 @@ def test_workspace_page_css_keeps_overflow_scoped_to_grid_and_state_cards_wrappi
     assert "overflow-x: auto;" in html_text
 
 
+def test_workspace_page_places_explain_and_refine_sections_directly_after_leave() -> None:
+    tenant = _seed_month_context()
+    view = {
+        pattern.name: pattern.callback
+        for pattern in build_django_monthly_workspace_page_urlpatterns()
+    }["monthly_schedule_workspace"]
+
+    response = view(
+        RequestFactory().get(
+            "/v2/monthly-workspace",
+            data={"tenant_slug": tenant.slug, "month_scope": "2026-04"},
+        )
+    )
+    html_text = response.content.decode()
+
+    assert response.status_code == 200
+    leave_index = html_text.index('<div class="leave-layout">')
+    explain_index = html_text.index(
+        '<input type="hidden" name="form_action" value="explain">'
+    )
+    refine_index = html_text.index(
+        '<input type="hidden" name="form_action" value="refine">'
+    )
+    actions_index = html_text.index('<div class="actions-stack">')
+
+    assert leave_index < explain_index < refine_index < actions_index
+
+
+def test_workspace_preview_places_warning_section_before_schedule_grid() -> None:
+    tenant = _seed_month_context()
+    worker = DjangoWorker.objects.get(
+        tenant=tenant,
+        code=PRIMARY_DEMO_WORKER.code,
+    )
+    view = {
+        pattern.name: pattern.callback
+        for pattern in build_django_monthly_workspace_page_urlpatterns()
+    }["monthly_schedule_workspace"]
+
+    add_leave_response = view(
+        RequestFactory().post(
+            "/v2/monthly-workspace",
+            data={
+                "form_action": "add_leave",
+                "tenant_slug": tenant.slug,
+                "month_scope": "2026-04",
+                "worker_id": str(worker.pk),
+                "leave_date": "2026-04-10",
+            },
+        )
+    )
+
+    response = view(
+        RequestFactory().post(
+            "/v2/monthly-workspace",
+            data={
+                "form_action": "preview",
+                "tenant_slug": tenant.slug,
+                "month_scope": "2026-04",
+            },
+        )
+    )
+    html_text = response.content.decode()
+
+    assert add_leave_response.status_code == 200
+    assert response.status_code == 200
+    assert '<ul class="warning-list">' in html_text
+    assert '<div class="result-grid-scroll">' in html_text
+    assert html_text.index('<ul class="warning-list">') < html_text.index(
+        '<div class="result-grid-scroll">'
+    )
+
+
 def test_workspace_page_supports_leave_preview_apply_and_save_flow() -> None:
     tenant = _seed_month_context()
     view = {

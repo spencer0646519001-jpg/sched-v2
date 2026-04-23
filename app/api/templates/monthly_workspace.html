@@ -839,165 +839,6 @@
     <section class="panel">
       <div class="section-head">
         <div>
-          <div class="section-kicker">{{ page_copy.actions.kicker }}</div>
-          <h2>{{ page_copy.actions.title }}</h2>
-          <p>{{ page_copy.actions.description }}</p>
-        </div>
-      </div>
-      <div class="actions-stack">
-        <div class="action-grid">
-          <form method="post" class="action-card preview-form">
-            <input type="hidden" name="form_action" value="preview">
-            <input type="hidden" name="ui_lang" value="{{ ui_lang }}">
-            {% if selected_tenant %}
-            <input type="hidden" name="tenant_slug" value="{{ selected_tenant.slug }}">
-            {% endif %}
-            <input type="hidden" name="month_scope" value="{{ month_value }}">
-            <div>
-              <h3>{{ page_copy.actions.preview_title }}</h3>
-              <p>{{ page_copy.actions.preview_description }}</p>
-            </div>
-            <button type="submit" class="btn btn-primary">{{ page_copy.actions.preview_submit }}</button>
-          </form>
-
-          <form method="post" class="action-card apply-form">
-            <input type="hidden" name="form_action" value="apply">
-            <input type="hidden" name="ui_lang" value="{{ ui_lang }}">
-            {% if selected_tenant %}
-            <input type="hidden" name="tenant_slug" value="{{ selected_tenant.slug }}">
-            {% endif %}
-            <input type="hidden" name="month_scope" value="{{ month_value }}">
-            <input type="hidden" name="candidate_result_json" value="{{ candidate_result_json }}">
-            <div>
-              <h3>{{ page_copy.actions.apply_title }}</h3>
-              <p>{{ page_copy.actions.apply_description }}</p>
-            </div>
-            <button type="submit" class="btn btn-primary"{% if apply_disabled %} disabled{% endif %}>{{ page_copy.actions.apply_submit }}</button>
-          </form>
-
-          <form method="post" class="action-card save-form">
-            <input type="hidden" name="form_action" value="save">
-            <input type="hidden" name="ui_lang" value="{{ ui_lang }}">
-            {% if selected_tenant %}
-            <input type="hidden" name="tenant_slug" value="{{ selected_tenant.slug }}">
-            {% endif %}
-            <input type="hidden" name="month_scope" value="{{ month_value }}">
-            <input type="hidden" name="candidate_result_json" value="{{ candidate_result_json }}">
-            <div>
-              <h3>{{ page_copy.actions.save_title }}</h3>
-              <p>{{ page_copy.actions.save_description }}</p>
-            </div>
-            <label>
-              {{ page_copy.actions.save_label }}
-              <input type="text" name="save_label" value="{{ save_label_value }}" placeholder="{{ page_copy.actions.save_placeholder }}">
-            </label>
-            <button type="submit" class="btn btn-secondary"{% if save_disabled %} disabled{% endif %}>{{ page_copy.actions.save_submit }}</button>
-          </form>
-        </div>
-        <p class="muted-note">{{ page_copy.actions.footer_note }}</p>
-      </div>
-    </section>
-
-    <section class="panel">
-      <div class="section-head">
-        <div>
-          <div class="section-kicker">{{ page_copy.state.kicker }}</div>
-          <h2>{{ page_copy.state.title }}</h2>
-          <p>{{ page_copy.state.description }}</p>
-        </div>
-      </div>
-      <div class="state-grid">
-        {% for card in state_cards %}
-        <article class="state-card {{ card.tone }}">
-          <span class="state-label">{{ card.label }}</span>
-          <span class="state-value">{{ card.value }}</span>
-          <p>{{ card.note }}</p>
-        </article>
-        {% endfor %}
-      </div>
-    </section>
-
-    <section class="panel">
-      <div class="section-head">
-        <div>
-          <div class="section-kicker">{{ page_copy.result.kicker }}</div>
-          <h2>{{ page_copy.result.title }}</h2>
-          <p>{{ page_copy.result.description }}</p>
-        </div>
-      </div>
-
-      {% if display_surface %}
-      <div class="summary-pill">{{ display_surface.badge }}</div>
-      <div class="result-meta">
-        {% for item in display_surface.meta %}
-        <span class="meta-pill">{{ item.label }}: {{ item.value }}</span>
-        {% endfor %}
-      </div>
-      <p class="muted-note">{{ display_surface.description }}</p>
-
-      <div class="result-grid-scroll">
-        <table class="result-grid">
-          <thead>
-            <tr>
-              <th scope="col">{{ page_copy.result.person_header }}</th>
-              {% for day in display_surface.days %}
-              <th scope="col">{{ day }}</th>
-              {% endfor %}
-            </tr>
-          </thead>
-          <tbody>
-            {% for row in display_surface.rows %}
-            <tr>
-              <th scope="row">
-                <span class="worker-name">{{ row.worker_name }}</span>
-                <span class="worker-meta">{{ row.worker_code }}{% if row.worker_role %} / {{ row.worker_role }}{% endif %}</span>
-              </th>
-              {% for cell in row.cells %}
-              <td class="{% if cell.assigned %}assigned{% else %}empty{% endif %}">
-                <span class="cell-main">{{ cell.value }}</span>
-                {% if cell.subvalue %}
-                <span class="cell-sub">{{ cell.subvalue }}</span>
-                {% endif %}
-              </td>
-              {% endfor %}
-            </tr>
-            {% endfor %}
-          </tbody>
-        </table>
-      </div>
-      {% else %}
-      <div class="empty-state">{{ result_empty_text }}</div>
-      {% endif %}
-    </section>
-
-    <section class="panel">
-      <div class="section-head">
-        <div>
-          <div class="section-kicker">{{ page_copy.warnings.kicker }}</div>
-          <h2>{{ page_copy.warnings.title }}</h2>
-          <p>{{ page_copy.warnings.description }}</p>
-        </div>
-      </div>
-
-      {% if warnings %}
-      <ul class="warning-list">
-        {% for warning in warnings %}
-        <li class="warning-item">
-          <div class="warning-title">{{ warning.title }}</div>
-          <div class="warning-meta">{{ page_copy.warnings.date_label }}: {{ warning.date }} / {{ page_copy.warnings.worker_label }}: {{ warning.worker }}</div>
-          <p><strong>{{ warning.message }}</strong></p>
-          <p>{{ warning.details }}</p>
-        </li>
-        {% endfor %}
-      </ul>
-      {% else %}
-      <div class="empty-state">{{ warnings_note }}</div>
-      {% endif %}
-    </section>
-
-    <section class="panel">
-      <div class="section-head">
-        <div>
           <div class="section-kicker">{{ page_copy.explain.kicker }}</div>
           <h2>{{ page_copy.explain.title }}</h2>
           <p>{{ page_copy.explain.description }}</p>
@@ -1158,6 +999,165 @@
           {% endif %}
         </div>
       </div>
+    </section>
+
+    <section class="panel">
+      <div class="section-head">
+        <div>
+          <div class="section-kicker">{{ page_copy.actions.kicker }}</div>
+          <h2>{{ page_copy.actions.title }}</h2>
+          <p>{{ page_copy.actions.description }}</p>
+        </div>
+      </div>
+      <div class="actions-stack">
+        <div class="action-grid">
+          <form method="post" class="action-card preview-form">
+            <input type="hidden" name="form_action" value="preview">
+            <input type="hidden" name="ui_lang" value="{{ ui_lang }}">
+            {% if selected_tenant %}
+            <input type="hidden" name="tenant_slug" value="{{ selected_tenant.slug }}">
+            {% endif %}
+            <input type="hidden" name="month_scope" value="{{ month_value }}">
+            <div>
+              <h3>{{ page_copy.actions.preview_title }}</h3>
+              <p>{{ page_copy.actions.preview_description }}</p>
+            </div>
+            <button type="submit" class="btn btn-primary">{{ page_copy.actions.preview_submit }}</button>
+          </form>
+
+          <form method="post" class="action-card apply-form">
+            <input type="hidden" name="form_action" value="apply">
+            <input type="hidden" name="ui_lang" value="{{ ui_lang }}">
+            {% if selected_tenant %}
+            <input type="hidden" name="tenant_slug" value="{{ selected_tenant.slug }}">
+            {% endif %}
+            <input type="hidden" name="month_scope" value="{{ month_value }}">
+            <input type="hidden" name="candidate_result_json" value="{{ candidate_result_json }}">
+            <div>
+              <h3>{{ page_copy.actions.apply_title }}</h3>
+              <p>{{ page_copy.actions.apply_description }}</p>
+            </div>
+            <button type="submit" class="btn btn-primary"{% if apply_disabled %} disabled{% endif %}>{{ page_copy.actions.apply_submit }}</button>
+          </form>
+
+          <form method="post" class="action-card save-form">
+            <input type="hidden" name="form_action" value="save">
+            <input type="hidden" name="ui_lang" value="{{ ui_lang }}">
+            {% if selected_tenant %}
+            <input type="hidden" name="tenant_slug" value="{{ selected_tenant.slug }}">
+            {% endif %}
+            <input type="hidden" name="month_scope" value="{{ month_value }}">
+            <input type="hidden" name="candidate_result_json" value="{{ candidate_result_json }}">
+            <div>
+              <h3>{{ page_copy.actions.save_title }}</h3>
+              <p>{{ page_copy.actions.save_description }}</p>
+            </div>
+            <label>
+              {{ page_copy.actions.save_label }}
+              <input type="text" name="save_label" value="{{ save_label_value }}" placeholder="{{ page_copy.actions.save_placeholder }}">
+            </label>
+            <button type="submit" class="btn btn-secondary"{% if save_disabled %} disabled{% endif %}>{{ page_copy.actions.save_submit }}</button>
+          </form>
+        </div>
+        <p class="muted-note">{{ page_copy.actions.footer_note }}</p>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="section-head">
+        <div>
+          <div class="section-kicker">{{ page_copy.state.kicker }}</div>
+          <h2>{{ page_copy.state.title }}</h2>
+          <p>{{ page_copy.state.description }}</p>
+        </div>
+      </div>
+      <div class="state-grid">
+        {% for card in state_cards %}
+        <article class="state-card {{ card.tone }}">
+          <span class="state-label">{{ card.label }}</span>
+          <span class="state-value">{{ card.value }}</span>
+          <p>{{ card.note }}</p>
+        </article>
+        {% endfor %}
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="section-head">
+        <div>
+          <div class="section-kicker">{{ page_copy.warnings.kicker }}</div>
+          <h2>{{ page_copy.warnings.title }}</h2>
+          <p>{{ page_copy.warnings.description }}</p>
+        </div>
+      </div>
+
+      {% if warnings %}
+      <ul class="warning-list">
+        {% for warning in warnings %}
+        <li class="warning-item">
+          <div class="warning-title">{{ warning.title }}</div>
+          <div class="warning-meta">{{ page_copy.warnings.date_label }}: {{ warning.date }} / {{ page_copy.warnings.worker_label }}: {{ warning.worker }}</div>
+          <p><strong>{{ warning.message }}</strong></p>
+          <p>{{ warning.details }}</p>
+        </li>
+        {% endfor %}
+      </ul>
+      {% else %}
+      <div class="empty-state">{{ warnings_note }}</div>
+      {% endif %}
+    </section>
+
+    <section class="panel">
+      <div class="section-head">
+        <div>
+          <div class="section-kicker">{{ page_copy.result.kicker }}</div>
+          <h2>{{ page_copy.result.title }}</h2>
+          <p>{{ page_copy.result.description }}</p>
+        </div>
+      </div>
+
+      {% if display_surface %}
+      <div class="summary-pill">{{ display_surface.badge }}</div>
+      <div class="result-meta">
+        {% for item in display_surface.meta %}
+        <span class="meta-pill">{{ item.label }}: {{ item.value }}</span>
+        {% endfor %}
+      </div>
+      <p class="muted-note">{{ display_surface.description }}</p>
+
+      <div class="result-grid-scroll">
+        <table class="result-grid">
+          <thead>
+            <tr>
+              <th scope="col">{{ page_copy.result.person_header }}</th>
+              {% for day in display_surface.days %}
+              <th scope="col">{{ day }}</th>
+              {% endfor %}
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in display_surface.rows %}
+            <tr>
+              <th scope="row">
+                <span class="worker-name">{{ row.worker_name }}</span>
+                <span class="worker-meta">{{ row.worker_code }}{% if row.worker_role %} / {{ row.worker_role }}{% endif %}</span>
+              </th>
+              {% for cell in row.cells %}
+              <td class="{% if cell.assigned %}assigned{% else %}empty{% endif %}">
+                <span class="cell-main">{{ cell.value }}</span>
+                {% if cell.subvalue %}
+                <span class="cell-sub">{{ cell.subvalue }}</span>
+                {% endif %}
+              </td>
+              {% endfor %}
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+      <div class="empty-state">{{ result_empty_text }}</div>
+      {% endif %}
     </section>
   </main>
 </body>
