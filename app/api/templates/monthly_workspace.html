@@ -295,6 +295,27 @@
       font-size: 0.9rem;
     }
 
+    .voice-capture {
+      display: grid;
+      gap: 10px;
+    }
+
+    .voice-capture-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+
+    .voice-status[data-tone="recording"] {
+      background: rgba(29, 84, 104, 0.12);
+      color: var(--accent-strong);
+    }
+
+    .voice-status[data-tone="error"] {
+      background: var(--error-bg);
+      color: #8a1f14;
+    }
+
     .btn {
       display: inline-flex;
       align-items: center;
@@ -870,6 +891,18 @@
               Voice input (Whisper)
               <input type="file" name="explain_audio" accept="audio/*,.m4a,.mp3,.mp4,.mpeg,.mpga,.ogg,.wav,.webm">
             </label>
+            <div
+              class="voice-capture"
+              data-voice-capture="explain"
+              data-audio-field="explain_audio"
+              data-submit-action="explain_voice"
+            >
+              <div class="voice-capture-actions">
+                <button type="button" class="btn btn-soft" data-voice-start{% if explain_disabled %} disabled{% endif %}>Start recording</button>
+                <button type="button" class="btn btn-secondary" data-voice-stop disabled>Stop &amp; Submit</button>
+              </div>
+              <div class="voice-note voice-status" data-voice-status data-tone="info" aria-live="polite">Record in the browser, then submit through the existing bounded day-explain voice path.</div>
+            </div>
             <div class="voice-note">Audio is transcribed to text first, then passed through the existing bounded day-explain flow.</div>
             {% if explain_disabled_note %}
             <div class="empty-state">{{ explain_disabled_note }}</div>
@@ -943,6 +976,18 @@
               Voice input (Whisper)
               <input type="file" name="refine_audio" accept="audio/*,.m4a,.mp3,.mp4,.mpeg,.mpga,.ogg,.wav,.webm">
             </label>
+            <div
+              class="voice-capture"
+              data-voice-capture="refine"
+              data-audio-field="refine_audio"
+              data-submit-action="refine_voice"
+            >
+              <div class="voice-capture-actions">
+                <button type="button" class="btn btn-soft" data-voice-start{% if refine_disabled %} disabled{% endif %}>Start recording</button>
+                <button type="button" class="btn btn-secondary" data-voice-stop disabled>Stop &amp; Submit</button>
+              </div>
+              <div class="voice-note voice-status" data-voice-status data-tone="info" aria-live="polite">Record in the browser, then submit through the existing preview-only refine voice path.</div>
+            </div>
             <div class="voice-note">Audio is transcribed to text first, then passed through the existing preview-only refine flow.</div>
             {% if refine_disabled_note %}
             <div class="empty-state">{{ refine_disabled_note }}</div>
@@ -1174,5 +1219,222 @@
       {% endif %}
     </section>
   </main>
+  <script>
+    (() => {
+      const capturePanels = document.querySelectorAll("[data-voice-capture]");
+      if (!capturePanels.length) {
+        return;
+      }
+
+      const resolveRecordingType = () => {
+        if (typeof window.MediaRecorder === "undefined") {
+          return null;
+        }
+        if (typeof window.MediaRecorder.isTypeSupported !== "function") {
+          return { mimeType: "", extension: "webm" };
+        }
+
+        const candidates = [
+          { mimeType: "audio/webm;codecs=opus", extension: "webm" },
+          { mimeType: "audio/webm", extension: "webm" },
+          { mimeType: "audio/ogg;codecs=opus", extension: "ogg" },
+          { mimeType: "audio/mp4", extension: "mp4" },
+        ];
+        for (const candidate of candidates) {
+          if (window.MediaRecorder.isTypeSupported(candidate.mimeType)) {
+            return candidate;
+          }
+        }
+        return { mimeType: "", extension: "webm" };
+      };
+
+      const recordingType = resolveRecordingType();
+
+      for (const panel of capturePanels) {
+        const form = panel.closest("form");
+        const startButton = panel.querySelector("[data-voice-start]");
+        const stopButton = panel.querySelector("[data-voice-stop]");
+        const status = panel.querySelector("[data-voice-status]");
+        if (!form || !startButton || !stopButton || !status) {
+          continue;
+        }
+
+        const setStatus = (message, tone) => {
+          status.textContent = message;
+          status.dataset.tone = tone;
+        };
+
+        const setButtons = (canStart, canStop) => {
+          startButton.disabled = !canStart;
+          stopButton.disabled = !canStop;
+        };
+
+        if (startButton.disabled) {
+          setStatus(
+            "Microphone recording becomes available when this voice action is enabled.",
+            "info",
+          );
+          continue;
+        }
+
+        if (
+          !navigator.mediaDevices
+          || typeof navigator.mediaDevices.getUserMedia !== "function"
+          || recordingType === null
+        ) {
+          setButtons(false, false);
+          setStatus(
+            "This browser does not support in-page microphone recording. You can still upload audio.",
+            "error",
+          );
+          continue;
+        }
+
+        let recorder = null;
+        let stream = null;
+        let chunks = [];
+
+        const releaseStream = () => {
+          if (!stream) {
+            return;
+          }
+          for (const track of stream.getTracks()) {
+            track.stop();
+          }
+          stream = null;
+        };
+
+        const resetRecorder = () => {
+          recorder = null;
+          chunks = [];
+          releaseStream();
+        };
+
+        const submitRecordedAudio = async (blob) => {
+          const audioField = panel.dataset.audioField;
+          const submitAction = panel.dataset.submitAction;
+          if (!audioField || !submitAction) {
+            throw new Error("Missing voice capture configuration.");
+          }
+
+          const filename = `microphone-recording.${recordingType.extension}`;
+          const formData = new FormData(form);
+          formData.set("form_action", submitAction);
+          formData.set(audioField, blob, filename);
+
+          const response = await fetch(form.action || window.location.href, {
+            method: (form.method || "POST").toUpperCase(),
+            body: formData,
+            credentials: "same-origin",
+          });
+          const html = await response.text();
+          document.open();
+          document.write(html);
+          document.close();
+        };
+
+        startButton.addEventListener("click", async () => {
+          if (recorder && recorder.state === "recording") {
+            return;
+          }
+
+          setButtons(false, false);
+          setStatus("Requesting microphone permission...", "info");
+
+          try {
+            stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+          } catch (error) {
+            resetRecorder();
+            setButtons(true, false);
+            if (error && error.name === "NotAllowedError") {
+              setStatus(
+                "Microphone access was denied. You can still upload audio instead.",
+                "error",
+              );
+            } else {
+              setStatus(
+                "Microphone recording could not start. You can still upload audio instead.",
+                "error",
+              );
+            }
+            return;
+          }
+
+          try {
+            recorder = recordingType.mimeType
+              ? new window.MediaRecorder(stream, {
+                  mimeType: recordingType.mimeType,
+                })
+              : new window.MediaRecorder(stream);
+          } catch (error) {
+            resetRecorder();
+            setButtons(true, false);
+            setStatus(
+              "Microphone recording is not available in this browser. You can still upload audio instead.",
+              "error",
+            );
+            return;
+          }
+
+          chunks = [];
+          recorder.addEventListener("dataavailable", (event) => {
+            if (event.data && event.data.size > 0) {
+              chunks.push(event.data);
+            }
+          });
+          recorder.addEventListener("error", () => {
+            resetRecorder();
+            setButtons(true, false);
+            setStatus(
+              "Microphone recording failed. You can still upload audio instead.",
+              "error",
+            );
+          });
+          recorder.addEventListener("stop", async () => {
+            const mimeType = recorder && recorder.mimeType
+              ? recorder.mimeType
+              : (recordingType.mimeType || "audio/webm");
+            const blob = new Blob(chunks, { type: mimeType });
+            resetRecorder();
+
+            if (!blob.size) {
+              setButtons(true, false);
+              setStatus("No recorded audio was captured. Please try again.", "error");
+              return;
+            }
+
+            setButtons(false, false);
+            setStatus("Submitting recorded audio for transcription...", "info");
+
+            try {
+              await submitRecordedAudio(blob);
+            } catch (error) {
+              setButtons(true, false);
+              setStatus(
+                "Recorded audio could not be submitted. You can still upload audio instead.",
+                "error",
+              );
+            }
+          });
+
+          recorder.start();
+          setButtons(false, true);
+          setStatus(
+            "Recording from microphone. Click stop to submit through the existing voice flow.",
+            "recording",
+          );
+        });
+
+        stopButton.addEventListener("click", () => {
+          if (!recorder || recorder.state !== "recording") {
+            return;
+          }
+          setButtons(false, false);
+          setStatus("Stopping recording...", "info");
+          recorder.stop();
+        });
+      }
+    })();
+  </script>
 </body>
 </html>

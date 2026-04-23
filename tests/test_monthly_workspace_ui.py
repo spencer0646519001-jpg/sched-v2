@@ -585,9 +585,24 @@ def test_workspace_page_renders_bounded_voice_upload_controls() -> None:
     assert html_text.count('enctype="multipart/form-data"') >= 2
     assert 'name="explain_audio"' in html_text
     assert 'name="refine_audio"' in html_text
+    assert 'data-voice-capture="explain"' in html_text
+    assert 'data-voice-capture="refine"' in html_text
+    assert 'data-audio-field="explain_audio"' in html_text
+    assert 'data-audio-field="refine_audio"' in html_text
+    assert 'data-submit-action="explain_voice"' in html_text
+    assert 'data-submit-action="refine_voice"' in html_text
     assert "Voice input (Whisper)" in html_text
+    assert html_text.count("Start recording") >= 2
+    assert html_text.count("Stop &amp; Submit") >= 2
+    assert 'aria-live="polite"' in html_text
     assert "Transcribe &amp; Explain" in html_text
     assert "Transcribe &amp; Preview" in html_text
+    assert "navigator.mediaDevices.getUserMedia" in html_text
+    assert "MediaRecorder" in html_text
+    assert (
+        "This browser does not support in-page microphone recording. "
+        "You can still upload audio."
+    ) in html_text
 
 
 @pytest.mark.parametrize(
@@ -812,7 +827,11 @@ def test_workspace_voice_refine_upload_transcribes_and_routes_into_preview_only_
                 "tenant_slug": tenant.slug,
                 "month_scope": "2026-04",
                 "ui_lang": "zh",
-                "refine_audio": _audio_upload("refine.wav"),
+                "refine_audio": _audio_upload(
+                    "refine.webm",
+                    content=b"\x1aE\xdf\xa3schedv2-refine",
+                    content_type="audio/webm",
+                ),
             },
         )
     )
@@ -837,6 +856,8 @@ def test_workspace_voice_refine_upload_transcribes_and_routes_into_preview_only_
 
     assert response.status_code == 200
     assert len(transcriber.calls) == 1
+    assert transcriber.calls[0]["filename"] == "refine.webm"
+    assert transcriber.calls[0]["content_type"] == "audio/webm"
     assert "Voice refine request transcribed via whisper-1" in html_text
     assert "安排到 2026-04-01 的 EVE" in html_text
     assert refined_first_day_assignment == {
@@ -875,7 +896,11 @@ def test_workspace_voice_explain_upload_transcribes_and_routes_into_existing_gat
                 "month_scope": "2026-04",
                 "ui_lang": "zh",
                 "explain_day": "2026-04-01",
-                "explain_audio": _audio_upload("explain.wav"),
+                "explain_audio": _audio_upload(
+                    "explain.webm",
+                    content=b"\x1aE\xdf\xa3schedv2-explain",
+                    content_type="audio/webm",
+                ),
             },
         )
     )
@@ -888,6 +913,8 @@ def test_workspace_voice_explain_upload_transcribes_and_routes_into_existing_gat
 
     assert response.status_code == 200
     assert len(transcriber.calls) == 1
+    assert transcriber.calls[0]["filename"] == "explain.webm"
+    assert transcriber.calls[0]["content_type"] == "audio/webm"
     assert "Voice explain request transcribed via whisper-1" in html_text
     assert "Why was 4/1 scheduled this way?" in html_text
     assert "Schedule explanation for 2026-04-01" in html_text
