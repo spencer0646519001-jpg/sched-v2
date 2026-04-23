@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import ast
+import csv
 import datetime as dt
 import importlib
 import inspect
+import io
 from dataclasses import replace
 from decimal import Decimal
 from pathlib import Path
@@ -333,7 +335,11 @@ def test_export_service_smoke_flow_builds_rows_and_csv() -> None:
     assert response.row_count == 1
     assert response.rows[0].worker_code == ctx.worker.code
     assert response.rows[0].station_code == ctx.station.code
-    assert response.csv_text.strip()
+    csv_rows = list(csv.reader(io.StringIO(response.csv_text)))
+
+    assert csv_rows[0][:4] == ["worker", "role", "1", "2"]
+    assert csv_rows[0][-1] == "30"
+    assert csv_rows[1][:4] == ["Alex", "cook", "DAY | GRILL", "--"]
 
 
 def _collect_imported_modules(source_path: Path) -> set[str]:

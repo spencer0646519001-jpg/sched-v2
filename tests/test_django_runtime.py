@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import csv
 import datetime as dt
+import io
 import json
 from decimal import Decimal
 
@@ -47,7 +49,7 @@ def _clear_scheduler_tables() -> None:
     DjangoTenant.objects.all().delete()
 
 
-def test_runtime_slice_registers_preview_apply_save_explain_and_refine_routes() -> None:
+def test_runtime_slice_registers_preview_apply_save_explain_refine_and_export_routes() -> None:
     patterns = build_django_monthly_schedule_urlpatterns()
 
     assert [pattern.name for pattern in patterns] == [
@@ -56,6 +58,7 @@ def test_runtime_slice_registers_preview_apply_save_explain_and_refine_routes() 
         "save_month_schedule",
         "explain_day_schedule",
         "refine_month_schedule",
+        "export_month_schedule",
     ]
     assert [str(pattern.pattern) for pattern in patterns] == [
         "v2/monthly-schedules/preview",
@@ -63,6 +66,7 @@ def test_runtime_slice_registers_preview_apply_save_explain_and_refine_routes() 
         "v2/monthly-schedules/save",
         "v2/monthly-schedules/explain-day",
         "v2/monthly-schedules/refine",
+        "v2/monthly-schedules/export",
     ]
 
 
@@ -165,6 +169,42 @@ def test_django_runtime_preview_apply_save_flow_uses_real_persistence() -> None:
         assignment.station.code == PRIMARY_DEMO_STATION.code
         for assignment in assignments
     )
+
+    export_payload = _post_json(
+        views["export_month_schedule"],
+        path="/v2/monthly-schedules/export",
+        payload={
+            "tenant_slug": tenant.slug,
+            "year": 2026,
+            "month": 4,
+        },
+    )
+
+    assert export_payload["tenant_slug"] == tenant.slug
+    assert export_payload["year"] == 2026
+    assert export_payload["month"] == 4
+    assert export_payload["workspace_id"] == str(workspace.id)
+    assert export_payload["workspace_status"] == "draft"
+    assert export_payload["row_count"] == 30
+    assert export_payload["rows"][0] == {
+        "assignment_date": "2026-04-01",
+        "worker_code": PRIMARY_DEMO_WORKER.code,
+        "worker_name": PRIMARY_DEMO_WORKER.name,
+        "worker_role": PRIMARY_DEMO_WORKER.role,
+        "shift_code": PRIMARY_DEMO_SHIFT.code,
+        "shift_name": PRIMARY_DEMO_SHIFT.name,
+        "station_code": PRIMARY_DEMO_STATION.code,
+        "station_name": PRIMARY_DEMO_STATION.name,
+    }
+    csv_rows = list(csv.reader(io.StringIO(export_payload["csv_text"])))
+    assert csv_rows[0][:4] == ["worker", "role", "1", "2"]
+    assert csv_rows[0][-1] == "30"
+    assert csv_rows[1][:4] == [
+        PRIMARY_DEMO_WORKER.name,
+        PRIMARY_DEMO_WORKER.role,
+        f"{PRIMARY_DEMO_SHIFT.code} | {PRIMARY_DEMO_STATION.code}",
+        f"{PRIMARY_DEMO_SHIFT.code} | {PRIMARY_DEMO_STATION.code}",
+    ]
 
     save_payload = _post_json(
         views["save_month_schedule"],

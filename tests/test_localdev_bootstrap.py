@@ -44,8 +44,14 @@ def _clear_scheduler_tables() -> None:
 def test_localdev_urlconf_exposes_monthly_workspace_page() -> None:
     from app.localdev_urls import urlpatterns
 
-    assert [pattern.name for pattern in urlpatterns] == ["monthly_schedule_workspace"]
-    assert [str(pattern.pattern) for pattern in urlpatterns] == ["v2/monthly-workspace"]
+    assert [pattern.name for pattern in urlpatterns] == [
+        "monthly_schedule_workspace",
+        "monthly_schedule_workspace_export_csv",
+    ]
+    assert [str(pattern.pattern) for pattern in urlpatterns] == [
+        "v2/monthly-workspace",
+        "v2/monthly-workspace/export.csv",
+    ]
 
 
 def test_seed_monthly_workspace_demo_is_idempotent_and_reviewable() -> None:

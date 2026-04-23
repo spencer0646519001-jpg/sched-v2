@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import csv
 import datetime as dt
 import html
+import io
 import json
 import re
 from decimal import Decimal
@@ -59,11 +61,17 @@ def _clear_scheduler_tables() -> None:
     DjangoTenant.objects.all().delete()
 
 
-def test_workspace_page_route_is_registered_separately_from_json_api() -> None:
+def test_workspace_page_routes_are_registered_separately_from_json_api() -> None:
     patterns = build_django_monthly_workspace_page_urlpatterns()
 
-    assert [pattern.name for pattern in patterns] == ["monthly_schedule_workspace"]
-    assert [str(pattern.pattern) for pattern in patterns] == ["v2/monthly-workspace"]
+    assert [pattern.name for pattern in patterns] == [
+        "monthly_schedule_workspace",
+        "monthly_schedule_workspace_export_csv",
+    ]
+    assert [str(pattern.pattern) for pattern in patterns] == [
+        "v2/monthly-workspace",
+        "v2/monthly-workspace/export.csv",
+    ]
 
 
 def test_workspace_page_renders_reviewer_visible_structure_without_config_controls() -> None:
@@ -132,6 +140,159 @@ def test_workspace_page_renders_japanese_copy_when_ui_lang_is_ja() -> None:
     assert "調整 / 説明" in html_text
     assert 'name="ui_lang" value="ja"' in html_text
     assert 'locale-toggle-link is-selected' in html_text
+
+
+def test_workspace_page_shows_disabled_csv_action_without_current_workspace() -> None:
+    tenant = _seed_month_context()
+    page_copy = get_monthly_workspace_copy("zh")
+    view = {
+        pattern.name: pattern.callback
+        for pattern in build_django_monthly_workspace_page_urlpatterns()
+    }["monthly_schedule_workspace"]
+
+    response = view(
+        RequestFactory().get(
+            "/v2/monthly-workspace",
+            data={"tenant_slug": tenant.slug, "month_scope": "2026-04"},
+        )
+    )
+    html_text = response.content.decode()
+
+    assert response.status_code == 200
+    assert page_copy["actions"]["export_submit"] in html_text
+    assert page_copy["actions"]["export_requires_current_workspace"] in html_text
+    assert "/v2/monthly-workspace/export.csv" not in html_text
+
+
+def test_workspace_page_shows_csv_download_link_for_current_workspace() -> None:
+    tenant = _seed_month_context()
+    page_copy = get_monthly_workspace_copy("zh")
+    views = {
+        pattern.name: pattern.callback
+        for pattern in build_django_monthly_workspace_page_urlpatterns()
+    }
+    page_view = views["monthly_schedule_workspace"]
+    _apply_current_workspace_via_page(page_view, tenant=tenant, ui_lang="zh")
+
+    response = page_view(
+        RequestFactory().get(
+            "/v2/monthly-workspace",
+            data={"tenant_slug": tenant.slug, "month_scope": "2026-04"},
+        )
+    )
+    html_text = response.content.decode()
+
+    expected_href = html.escape(
+        f"/v2/monthly-workspace/export.csv?tenant_slug={tenant.slug}&month_scope=2026-04"
+    )
+
+    assert response.status_code == 200
+    assert page_copy["actions"]["export_submit"] in html_text
+    assert expected_href in html_text
+
+
+def test_workspace_csv_export_returns_attachment_for_current_workspace() -> None:
+    tenant = _seed_month_context()
+    views = {
+        pattern.name: pattern.callback
+        for pattern in build_django_monthly_workspace_page_urlpatterns()
+    }
+    page_view = views["monthly_schedule_workspace"]
+    export_view = views["monthly_schedule_workspace_export_csv"]
+    _apply_current_workspace_via_page(page_view, tenant=tenant, ui_lang="zh")
+
+    response = export_view(
+        RequestFactory().get(
+            "/v2/monthly-workspace/export.csv",
+            data={"tenant_slug": tenant.slug, "month_scope": "2026-04"},
+        )
+    )
+    csv_text = response.content.decode()
+    csv_rows = list(csv.reader(io.StringIO(csv_text)))
+
+    assert response.status_code == 200
+    assert response["Content-Type"].startswith("text/csv")
+    assert (
+        response["Content-Disposition"]
+        == f'attachment; filename="{tenant.slug}-2026-04-workspace.csv"'
+    )
+    assert csv_rows[0][:4] == ["worker", "role", "1", "2"]
+    assert csv_rows[0][-1] == "30"
+    assert csv_rows[1][:4] == [
+        PRIMARY_DEMO_WORKER.name,
+        PRIMARY_DEMO_WORKER.role,
+        f"{PRIMARY_DEMO_SHIFT.code} | {PRIMARY_DEMO_STATION.code}",
+        f"{PRIMARY_DEMO_SHIFT.code} | {PRIMARY_DEMO_STATION.code}",
+    ]
+
+
+def test_workspace_csv_export_renders_grid_cells_for_worker_and_chef_rows() -> None:
+    tenant = _seed_custom_month_context(
+        workers=[
+            ("CHEF_A", "Chef Anna", "chef"),
+            ("COOK_A", "Cook Ben", "employee"),
+        ]
+    )
+    views = {
+        pattern.name: pattern.callback
+        for pattern in build_django_monthly_workspace_page_urlpatterns(
+            preview_engine=_FixedPreviewEngine(
+                _build_preview_result(
+                    AssignmentOutput(
+                        date=dt.date(2026, 4, 1),
+                        worker_code="CHEF_A",
+                        shift_code="DAY",
+                        station_code=None,
+                        source="preview",
+                        note="required_chef",
+                    ),
+                    AssignmentOutput(
+                        date=dt.date(2026, 4, 1),
+                        worker_code="COOK_A",
+                        shift_code="DAY",
+                        station_code="GRILL",
+                        source="preview",
+                        note=None,
+                    ),
+                )
+            )
+        )
+    }
+    page_view = views["monthly_schedule_workspace"]
+    export_view = views["monthly_schedule_workspace_export_csv"]
+    _apply_current_workspace_via_page(page_view, tenant=tenant, ui_lang="zh")
+
+    response = export_view(
+        RequestFactory().get(
+            "/v2/monthly-workspace/export.csv",
+            data={"tenant_slug": tenant.slug, "month_scope": "2026-04"},
+        )
+    )
+    csv_rows = list(csv.reader(io.StringIO(response.content.decode())))
+
+    assert response.status_code == 200
+    assert csv_rows[0][:5] == ["worker", "role", "1", "2", "3"]
+    assert csv_rows[0][-1] == "30"
+    assert csv_rows[1][:4] == ["Chef Anna", "chef", "WORK | chef attendance", "--"]
+    assert csv_rows[2][:4] == ["Cook Ben", "employee", "DAY | GRILL", "--"]
+
+
+def test_workspace_csv_export_returns_not_found_without_current_workspace() -> None:
+    tenant = _seed_month_context()
+    export_view = {
+        pattern.name: pattern.callback
+        for pattern in build_django_monthly_workspace_page_urlpatterns()
+    }["monthly_schedule_workspace_export_csv"]
+
+    response = export_view(
+        RequestFactory().get(
+            "/v2/monthly-workspace/export.csv",
+            data={"tenant_slug": tenant.slug, "month_scope": "2026-04"},
+        )
+    )
+
+    assert response.status_code == 404
+    assert "No current workspace found" in response.content.decode()
 
 
 def test_workspace_page_css_keeps_overflow_scoped_to_grid_and_state_cards_wrapping() -> None:

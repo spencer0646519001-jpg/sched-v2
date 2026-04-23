@@ -69,6 +69,12 @@ _MONTHLY_WORKSPACE_COPY: dict[str, dict[str, Any]] = {
             "save_label": "版本标签",
             "save_placeholder": "可选，供审核者识别",
             "save_submit": "保存版本",
+            "export_title": "导出 CSV",
+            "export_description": "下载当前工作区的月度排班 CSV。不会导出候选预览。",
+            "export_submit": "下载 CSV",
+            "export_requires_current_workspace": (
+                "请先把当前计划应用到月度工作区，再下载 CSV。"
+            ),
             "footer_note": (
                 "预览是只读的。应用会更新当前工作区。保存会为所选月份创建不可变历史。"
             ),
@@ -325,6 +331,15 @@ _MONTHLY_WORKSPACE_COPY: dict[str, dict[str, Any]] = {
             "save_label": "バージョンラベル",
             "save_placeholder": "任意: レビュアー向けラベル",
             "save_submit": "バージョンを保存",
+            "export_title": "CSV を書き出す",
+            "export_description": (
+                "現在ワークスペースの月次シフトを CSV でダウンロードします。"
+                "候補プレビューは含みません。"
+            ),
+            "export_submit": "CSV をダウンロード",
+            "export_requires_current_workspace": (
+                "先に現在ワークスペースへ月次計画を適用してから CSV をダウンロードしてください。"
+            ),
             "footer_note": (
                 "プレビューは読み取り専用です。適用は現在ワークスペースを更新します。"
                 "保存は選択月の不変な履歴を作成します。"

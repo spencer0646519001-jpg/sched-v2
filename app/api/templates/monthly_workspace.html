@@ -305,6 +305,7 @@
       padding: 0 16px;
       font-weight: 700;
       cursor: pointer;
+      text-decoration: none;
       transition: transform 120ms ease, box-shadow 120ms ease, background 120ms ease;
     }
 
@@ -1058,6 +1059,19 @@
             </label>
             <button type="submit" class="btn btn-secondary"{% if save_disabled %} disabled{% endif %}>{{ page_copy.actions.save_submit }}</button>
           </form>
+
+          <div class="action-card export-card">
+            <div>
+              <h3>{{ page_copy.actions.export_title }}</h3>
+              <p>{{ page_copy.actions.export_description }}</p>
+            </div>
+            {% if csv_export_url %}
+            <a class="btn btn-soft" href="{{ csv_export_url }}" download>{{ page_copy.actions.export_submit }}</a>
+            {% else %}
+            <button type="button" class="btn btn-soft" disabled>{{ page_copy.actions.export_submit }}</button>
+            <p class="muted-note">{{ csv_export_disabled_note }}</p>
+            {% endif %}
+          </div>
         </div>
         <p class="muted-note">{{ page_copy.actions.footer_note }}</p>
       </div>

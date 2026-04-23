@@ -6,8 +6,8 @@ existing boundaries:
 - services remain framework-neutral
 - Django ORM usage stays inside repository adapters
 
-The current runtime wires preview/apply/save plus a bounded refine-preview
-slice. Export remains deferred to a later PR.
+The current runtime wires preview/apply/save plus bounded explain/refine/export
+paths while keeping Django-specific response handling thin.
 """
 
 from __future__ import annotations
@@ -34,6 +34,7 @@ from app.infra.django_repositories import (
 from app.services.apply import ApplyMonthScheduleService
 from app.services.explain import ExplainDayScheduleService
 from app.services.explain_langgraph import LangGraphDayExplainWorkflow
+from app.services.export import ExportMonthScheduleService
 from app.services.preview import (
     MonthlySchedulePreviewEngine,
     PreviewMonthScheduleService,
@@ -47,7 +48,7 @@ def build_django_monthly_schedule_routes(
     *,
     preview_engine: MonthlySchedulePreviewEngine | None = None,
 ) -> MonthlyScheduleRoutes:
-    """Compose the Django-backed runtime slice for preview/apply/save/refine."""
+    """Compose the Django-backed runtime slice for preview/apply/save/export."""
 
     tenant_repository = DjangoTenantRepository()
     worker_repository = DjangoWorkerRepository()
@@ -107,6 +108,13 @@ def build_django_monthly_schedule_routes(
                 engine_runner=resolved_preview_engine
             ),
         ),
+        export_service=ExportMonthScheduleService(
+            tenant_repository=tenant_repository,
+            worker_repository=worker_repository,
+            station_repository=station_repository,
+            shift_repository=shift_repository,
+            workspace_repository=workspace_repository,
+        ),
     )
 
 
@@ -114,7 +122,7 @@ def build_django_monthly_schedule_urlpatterns(
     *,
     preview_engine: MonthlySchedulePreviewEngine | None = None,
 ) -> list[URLPattern]:
-    """Build Django URL patterns for the preview/apply/save runtime slice."""
+    """Build Django URL patterns for the preview/apply/save/export slice."""
 
     return build_monthly_schedule_urlpatterns(
         build_django_monthly_schedule_routes(preview_engine=preview_engine)

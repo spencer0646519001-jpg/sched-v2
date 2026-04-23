@@ -2,12 +2,14 @@
 
 The export service loads the current workspace and its assignments for one
 tenant/month, enriches those assignments with reference data, and returns
-export-ready rows plus a simple CSV text placeholder. It intentionally stays
-separate from HTTP responses, file streaming, and repository adapter details.
+export-ready rows plus a human-readable CSV aligned to the current workspace
+people grid. It intentionally stays separate from HTTP responses, file
+streaming, and repository adapter details.
 """
 
 from __future__ import annotations
 
+import calendar
 import csv
 from dataclasses import dataclass
 from io import StringIO
@@ -28,16 +30,9 @@ from app.infra.repositories import (
     WorkspaceRepository,
 )
 
-_EXPORT_CSV_COLUMNS = (
-    "assignment_date",
-    "worker_code",
-    "worker_name",
-    "worker_role",
-    "shift_code",
-    "shift_name",
-    "station_code",
-    "station_name",
-)
+_GRID_EXPORT_FIXED_COLUMNS = ("worker", "role")
+_EMPTY_GRID_CELL = "--"
+_REQUIRED_CHEF_NOTE = "required_chef"
 
 
 @dataclass(slots=True)
@@ -116,11 +111,15 @@ class ExportMonthScheduleService:
                 f"{request.year}-{request.month:02d}."
             )
 
+        workers = self.worker_repository.list_for_tenant(tenant_id)
+        stations = self.station_repository.list_for_tenant(tenant_id)
+        shifts = self.shift_repository.list_for_tenant(tenant_id)
+
         rows = _translate_current_state_to_export_rows(
             current_state,
-            workers=self.worker_repository.list_for_tenant(tenant_id),
-            stations=self.station_repository.list_for_tenant(tenant_id),
-            shifts=self.shift_repository.list_for_tenant(tenant_id),
+            workers=workers,
+            stations=stations,
+            shifts=shifts,
         )
         workspace_id = _require_record_id(
             current_state.workspace.id,
@@ -135,7 +134,14 @@ class ExportMonthScheduleService:
             workspace_status=current_state.workspace.status,
             row_count=len(rows),
             rows=rows,
-            csv_text=_serialize_rows_to_csv(rows),
+            csv_text=_serialize_current_workspace_to_csv(
+                current_state,
+                workers=workers,
+                stations=stations,
+                shifts=shifts,
+                year=request.year,
+                month=request.month,
+            ),
         )
 
 
@@ -238,26 +244,203 @@ def _export_row_sort_key(row: ExportMonthScheduleRow) -> tuple[str, str, str, st
     )
 
 
-def _serialize_rows_to_csv(rows: list[ExportMonthScheduleRow]) -> str:
-    """Render a minimal in-memory CSV placeholder for future transport layers."""
+def _serialize_current_workspace_to_csv(
+    current_state: CurrentWorkspaceState,
+    *,
+    workers: list[Worker],
+    stations: list[Station],
+    shifts: list[ShiftDefinition],
+    year: int,
+    month: int,
+) -> str:
+    """Render the persisted current workspace as a human-readable people grid."""
+
+    day_numbers = list(range(1, calendar.monthrange(year, month)[1] + 1))
+    assignments_by_worker_day = _build_grid_assignments_by_worker_day(
+        current_state,
+        workers=workers,
+        stations=stations,
+        shifts=shifts,
+    )
+    ordered_workers = _order_workers_for_grid(workers)
 
     buffer = StringIO(newline="")
     writer = csv.writer(buffer)
-    writer.writerow(_EXPORT_CSV_COLUMNS)
-    for row in rows:
+    writer.writerow(
+        [*_GRID_EXPORT_FIXED_COLUMNS, *[str(day) for day in day_numbers]]
+    )
+
+    seen_worker_codes: set[str] = set()
+    for worker in ordered_workers:
+        worker_code = _resolve_worker_code(worker)
+        seen_worker_codes.add(worker_code)
         writer.writerow(
             [
-                row.assignment_date,
-                row.worker_code,
-                row.worker_name,
-                row.worker_role,
-                row.shift_code,
-                row.shift_name,
-                row.station_code,
-                row.station_name,
+                _build_worker_display_name(worker),
+                worker.role,
+                *[
+                    _render_grid_csv_cell(
+                        assignments_by_worker_day.get(worker_code, {}).get(day)
+                    )
+                    for day in day_numbers
+                ],
             ]
         )
+
+    for worker_code in sorted(
+        code for code in assignments_by_worker_day if code not in seen_worker_codes
+    ):
+        writer.writerow(
+            [
+                worker_code,
+                "",
+                *[
+                    _render_grid_csv_cell(
+                        assignments_by_worker_day.get(worker_code, {}).get(day)
+                    )
+                    for day in day_numbers
+                ],
+            ]
+        )
+
     return buffer.getvalue()
+
+
+def _build_grid_assignments_by_worker_day(
+    current_state: CurrentWorkspaceState,
+    *,
+    workers: list[Worker],
+    stations: list[Station],
+    shifts: list[ShiftDefinition],
+) -> dict[str, dict[int, dict[str, str]]]:
+    """Normalize persisted assignments into UI-like worker/day cell values."""
+
+    workers_by_id = {
+        _require_record_id(worker.id, label="worker.id"): worker for worker in workers
+    }
+    shifts_by_id = {
+        _require_record_id(shift.id, label="shift.id"): shift.code for shift in shifts
+    }
+    stations_by_id = {
+        _require_record_id(station.id, label="station.id"): _resolve_station_code(
+            station
+        )
+        for station in stations
+    }
+
+    assignments_by_worker_day: dict[str, dict[int, dict[str, str]]] = {}
+    for assignment in current_state.assignments:
+        worker = workers_by_id.get(assignment.worker_id)
+        if worker is None:
+            raise LookupError(
+                f"Monthly assignment references unknown worker_id "
+                f"{assignment.worker_id!r}."
+            )
+        shift_code = shifts_by_id.get(assignment.shift_definition_id)
+        if shift_code is None:
+            raise LookupError(
+                f"Monthly assignment references unknown shift_definition_id "
+                f"{assignment.shift_definition_id!r}."
+            )
+
+        station_code: str | None = None
+        if assignment.station_id is not None:
+            station_code = stations_by_id.get(assignment.station_id)
+            if station_code is None:
+                raise LookupError(
+                    f"Monthly assignment references unknown station_id "
+                    f"{assignment.station_id!r}."
+                )
+
+        worker_code = _resolve_worker_code(worker)
+        day = assignment.assignment_date.day
+        worker_day_map = assignments_by_worker_day.setdefault(worker_code, {})
+        main_value = _build_grid_cell_main_value(shift_code, assignment.note)
+        subvalue = _build_grid_cell_subvalue(station_code, assignment.note)
+        cell = worker_day_map.get(day)
+        if cell is None:
+            worker_day_map[day] = {"value": main_value, "subvalue": subvalue}
+            continue
+
+        cell["value"] = f"{cell['value']} / {main_value}"
+        if subvalue:
+            existing_subvalue = cell["subvalue"]
+            cell["subvalue"] = (
+                f"{existing_subvalue} / {subvalue}"
+                if existing_subvalue
+                else subvalue
+            )
+
+    return assignments_by_worker_day
+
+
+def _render_grid_csv_cell(cell: dict[str, str] | None) -> str:
+    """Collapse one grid cell into a single CSV-friendly string."""
+
+    if cell is None:
+        return _EMPTY_GRID_CELL
+    if cell["subvalue"]:
+        return f"{cell['value']} | {cell['subvalue']}"
+    return cell["value"]
+
+
+def _build_grid_cell_main_value(
+    shift_code: object | None,
+    note: object | None,
+) -> str:
+    """Mirror the workspace UI's main cell label semantics."""
+
+    if note == _REQUIRED_CHEF_NOTE:
+        return "WORK"
+    return str(shift_code or "")
+
+
+def _build_grid_cell_subvalue(
+    station_code: object | None,
+    note: object | None,
+) -> str:
+    """Render only human-facing sublabels for CSV cells."""
+
+    note_text = str(note) if note else ""
+    if note_text == _REQUIRED_CHEF_NOTE:
+        return "chef attendance"
+    if station_code:
+        return str(station_code)
+    return ""
+
+
+def _build_worker_display_name(worker: Worker) -> str:
+    """Prefer the human-readable worker name for grid exports."""
+
+    if worker.name:
+        return worker.name
+    return _resolve_worker_code(worker)
+
+
+def _order_workers_for_grid(workers: list[Worker]) -> list[Worker]:
+    """Match the monthly workspace's chef-first row ordering."""
+
+    return sorted(
+        workers,
+        key=lambda worker: (
+            0 if _is_chef_role(worker.role) else 1,
+            _record_sort_key(worker.id),
+        ),
+    )
+
+
+def _record_sort_key(record_id: str | None) -> tuple[int, int | str]:
+    """Sort numeric ids numerically and fall back to string comparison."""
+
+    if record_id and record_id.isdigit():
+        return (0, int(record_id))
+    return (1, record_id or "")
+
+
+def _is_chef_role(role: str) -> bool:
+    """Treat the canonical chef role case-insensitively."""
+
+    return role.strip().casefold() == "chef"
 
 
 def _validate_request(request: ExportMonthScheduleRequest) -> None:

@@ -68,6 +68,7 @@ from app.services.explain import (
     render_explain_outcome,
 )
 from app.services.explain_langgraph import LangGraphDayExplainWorkflow
+from app.services.export import ExportMonthScheduleRequest, ExportMonthScheduleService
 from app.services.preview import (
     MonthlySchedulePreviewEngine,
     PreviewMonthScheduleRequest,
@@ -126,6 +127,7 @@ class MonthlyWorkspacePageDependencies:
     save_service: SaveMonthScheduleService
     explain_service: ExplainDayScheduleService
     refine_service: RefineMonthScheduleService
+    export_service: ExportMonthScheduleService
     transcription_client: AudioTranscriptionClient
     worker_repository: DjangoWorkerRepository
     station_repository: DjangoStationRepository
@@ -139,17 +141,28 @@ def build_django_monthly_workspace_urlpatterns(
     preview_engine: MonthlySchedulePreviewEngine | None = None,
     transcription_client: AudioTranscriptionClient | None = None,
 ) -> list[URLPattern]:
-    """Build the reviewer-visible monthly workspace page route."""
+    """Build the reviewer-visible monthly workspace page and CSV routes."""
+
+    dependencies = _build_page_dependencies(
+        preview_engine=preview_engine,
+        transcription_client=transcription_client,
+    )
 
     return [
         path(
             "v2/monthly-workspace",
             build_django_monthly_workspace_view(
-                preview_engine=preview_engine,
-                transcription_client=transcription_client,
+                dependencies=dependencies,
             ),
             name="monthly_schedule_workspace",
-        )
+        ),
+        path(
+            "v2/monthly-workspace/export.csv",
+            _build_django_monthly_workspace_export_csv_view(
+                dependencies=dependencies,
+            ),
+            name="monthly_schedule_workspace_export_csv",
+        ),
     ]
 
 
@@ -157,13 +170,15 @@ def build_django_monthly_workspace_view(
     *,
     preview_engine: MonthlySchedulePreviewEngine | None = None,
     transcription_client: AudioTranscriptionClient | None = None,
+    dependencies: MonthlyWorkspacePageDependencies | None = None,
 ) -> Any:
     """Build the Django-rendered monthly workspace page view."""
 
-    dependencies = _build_page_dependencies(
-        preview_engine=preview_engine,
-        transcription_client=transcription_client,
-    )
+    if dependencies is None:
+        dependencies = _build_page_dependencies(
+            preview_engine=preview_engine,
+            transcription_client=transcription_client,
+        )
 
     @require_http_methods(["GET", "POST"])
     def view(request: HttpRequest) -> HttpResponse:
@@ -353,6 +368,72 @@ def build_django_monthly_workspace_view(
     return view
 
 
+def _build_django_monthly_workspace_export_csv_view(
+    *,
+    dependencies: MonthlyWorkspacePageDependencies,
+) -> Any:
+    """Build the CSV download view for the current monthly workspace."""
+
+    @require_http_methods(["GET"])
+    def view(request: HttpRequest) -> HttpResponse:
+        tenant_slug = (request.GET.get("tenant_slug") or "").strip()
+        if not tenant_slug:
+            return HttpResponse(
+                "tenant_slug query parameter is required.",
+                status=400,
+                content_type="text/plain; charset=utf-8",
+            )
+
+        scope = _resolve_scope(request)
+        if not scope["is_valid"]:
+            return HttpResponse(
+                "month_scope query parameter must use YYYY-MM format.",
+                status=400,
+                content_type="text/plain; charset=utf-8",
+            )
+
+        try:
+            export_response = dependencies.export_service.export_month_schedule(
+                ExportMonthScheduleRequest(
+                    tenant_slug=tenant_slug,
+                    year=scope["year"],
+                    month=scope["month"],
+                )
+            )
+        except LookupError as exc:
+            return HttpResponse(
+                str(exc),
+                status=404,
+                content_type="text/plain; charset=utf-8",
+            )
+        except ValueError as exc:
+            return HttpResponse(
+                str(exc),
+                status=400,
+                content_type="text/plain; charset=utf-8",
+            )
+
+        response = HttpResponse(
+            export_response.csv_text,
+            content_type="text/csv; charset=utf-8",
+        )
+        filename = _build_workspace_export_filename(
+            tenant_slug=export_response.tenant_slug,
+            year=export_response.year,
+            month=export_response.month,
+        )
+        response.headers["Content-Disposition"] = (
+            f'attachment; filename="{filename}"'
+        )
+        return response
+
+    view.__name__ = "monthly_schedule_workspace_export_csv"
+    view.__doc__ = (
+        "Download the current monthly workspace as a small CSV attachment."
+    )
+    return view
+
+
 def _build_page_dependencies(
     *,
     preview_engine: MonthlySchedulePreviewEngine | None = None,
@@ -417,6 +498,13 @@ def _build_page_dependencies(
             workflow=LangGraphRefineWorkflow(
                 engine_runner=resolved_preview_engine
             ),
+        ),
+        export_service=ExportMonthScheduleService(
+            tenant_repository=tenant_repository,
+            worker_repository=worker_repository,
+            station_repository=station_repository,
+            shift_repository=shift_repository,
+            workspace_repository=workspace_repository,
         ),
         transcription_client=(
             transcription_client
@@ -987,6 +1075,8 @@ def _build_workspace_context(
             "refine_result": refine_result,
             "refine_disabled": True,
             "refine_disabled_note": page_copy["messages"]["no_tenant"],
+            "csv_export_url": None,
+            "csv_export_disabled_note": page_copy["messages"]["no_tenant"],
             "workflow_steps": _workflow_steps(page_copy),
         }
 
@@ -1040,6 +1130,20 @@ def _build_workspace_context(
         if refine_disabled
         else ""
     )
+    csv_export_url = (
+        _build_workspace_export_url(
+            request_path=request.path,
+            tenant_slug=selected_tenant.slug,
+            month_value=scope["month_value"],
+        )
+        if current_state is not None
+        else None
+    )
+    csv_export_disabled_note = (
+        page_copy["actions"]["export_requires_current_workspace"]
+        if current_state is None
+        else ""
+    )
 
     return {
         "messages": messages,
@@ -1086,6 +1190,8 @@ def _build_workspace_context(
         "refine_result": refine_result,
         "refine_disabled": refine_disabled,
         "refine_disabled_note": refine_disabled_note,
+        "csv_export_url": csv_export_url,
+        "csv_export_disabled_note": csv_export_disabled_note,
         "workflow_steps": _workflow_steps(page_copy),
     }
 
@@ -1905,6 +2011,28 @@ def _build_warning_rows(
 
 def _default_leave_date(year: int, month: int) -> str:
     return f"{year:04d}-{month:02d}-01"
+
+
+def _build_workspace_export_url(
+    *,
+    request_path: str,
+    tenant_slug: str,
+    month_value: str,
+) -> str:
+    export_path = f"{request_path.rstrip('/')}/export.csv"
+    return (
+        f"{export_path}?"
+        f"{urlencode({'tenant_slug': tenant_slug, 'month_scope': month_value})}"
+    )
+
+
+def _build_workspace_export_filename(
+    *,
+    tenant_slug: str,
+    year: int,
+    month: int,
+) -> str:
+    return f"{tenant_slug}-{year:04d}-{month:02d}-workspace.csv"
 
 
 def _message(level: str, text: str) -> dict[str, str]:
