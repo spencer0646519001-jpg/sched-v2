@@ -18,6 +18,11 @@ from app.api.schemas import (
     ApiSchema,
     ApplyMonthScheduleRequestSchema,
     ApplyMonthScheduleResponseSchema,
+    DayExplainNarrativeSchema,
+    ExplainDayScheduleRequestSchema,
+    ExplainDayScheduleResponseSchema,
+    ExplainOutcomeSchema,
+    ExplainSectionSchema,
     ExportMonthScheduleRequestSchema,
     ExportMonthScheduleResponseSchema,
     ExportMonthScheduleRowSchema,
@@ -47,6 +52,11 @@ from app.services.apply import (
     ApplyMonthScheduleRequest as ApplyServiceRequest,
     ApplyMonthScheduleResponse as ApplyServiceResponse,
     ApplyMonthScheduleService,
+)
+from app.services.explain import (
+    ExplainDayScheduleRequest as ExplainServiceRequest,
+    ExplainDayScheduleResponse as ExplainServiceResponse,
+    ExplainDayScheduleService,
 )
 from app.services.export import (
     ExportMonthScheduleRequest as ExportServiceRequest,
@@ -97,6 +107,7 @@ class MonthlyScheduleRoutes:
     preview_service: PreviewMonthScheduleService
     apply_service: ApplyMonthScheduleService
     save_service: SaveMonthScheduleService
+    explain_service: ExplainDayScheduleService | None = None
     refine_service: RefineMonthScheduleService | None = None
     export_service: ExportMonthScheduleService | None = None
 
@@ -129,6 +140,17 @@ class MonthlyScheduleRoutes:
                 handler=self.save_month_schedule,
             ),
         ]
+        if self.explain_service is not None:
+            route_definitions.append(
+                RouteDefinition(
+                    name="explain_day_schedule",
+                    method="POST",
+                    path=f"{_MONTHLY_SCHEDULE_BASE_PATH}/explain-day",
+                    request_schema=ExplainDayScheduleRequestSchema,
+                    response_schema=ExplainDayScheduleResponseSchema,
+                    handler=self.explain_day_schedule,
+                )
+            )
         if self.refine_service is not None:
             route_definitions.append(
                 RouteDefinition(
@@ -186,6 +208,19 @@ class MonthlyScheduleRoutes:
         )
         return _map_save_response_to_api(service_response)
 
+    def explain_day_schedule(
+        self,
+        request: ExplainDayScheduleRequestSchema,
+    ) -> ExplainDayScheduleResponseSchema:
+        """Translate explain transport input into one service call."""
+
+        if self.explain_service is None:
+            raise RuntimeError("Explain day schedule route is not wired.")
+        service_response = self.explain_service.explain_day_schedule(
+            _map_explain_request_to_service(request)
+        )
+        return _map_explain_response_to_api(service_response)
+
     def refine_month_schedule(
         self,
         request: RefineMonthScheduleRequestSchema,
@@ -218,6 +253,7 @@ def build_month_schedule_routes(
     preview_service: PreviewMonthScheduleService,
     apply_service: ApplyMonthScheduleService,
     save_service: SaveMonthScheduleService,
+    explain_service: ExplainDayScheduleService | None = None,
     refine_service: RefineMonthScheduleService | None = None,
     export_service: ExportMonthScheduleService | None = None,
 ) -> MonthlyScheduleRoutes:
@@ -231,6 +267,7 @@ def build_month_schedule_routes(
         preview_service=preview_service,
         apply_service=apply_service,
         save_service=save_service,
+        explain_service=explain_service,
         refine_service=refine_service,
         export_service=export_service,
     )
@@ -272,6 +309,26 @@ def _map_save_request_to_service(
         month=request.month,
         label=request.label,
         note=request.note,
+    )
+
+
+def _map_explain_request_to_service(
+    request: ExplainDayScheduleRequestSchema,
+) -> ExplainServiceRequest:
+    """Convert explain API input into the explain service request shape."""
+
+    return ExplainServiceRequest(
+        tenant_slug=request.tenant_slug,
+        year=request.year,
+        month=request.month,
+        target_date=request.target_date,
+        request_text=request.request_text,
+        response_language=request.response_language,
+        candidate_result=(
+            _map_month_planning_result_to_contract(request.candidate_result)
+            if request.candidate_result is not None
+            else None
+        ),
     )
 
 
@@ -345,6 +402,49 @@ def _map_save_response_to_api(
         version_number=response.version_number,
         workspace_id=response.workspace_id,
         assignment_count=response.assignment_count,
+    )
+
+
+def _map_explain_response_to_api(
+    response: ExplainServiceResponse,
+) -> ExplainDayScheduleResponseSchema:
+    """Convert the explain service result into an API response schema."""
+
+    return ExplainDayScheduleResponseSchema(
+        tenant_slug=response.tenant_slug,
+        year=response.year,
+        month=response.month,
+        workspace_id=response.workspace_id,
+        target_date=response.target_date,
+        status=response.status,
+        request_language=response.request_language,
+        response_language=response.response_language,
+        outcome=ExplainOutcomeSchema(
+            language=response.outcome.language,
+            status=response.outcome.status,
+            message_key=response.outcome.message_key,
+            message_values=dict(response.outcome.message_values),
+            message_text=response.parsed_request_json["outcome"]["message_text"],
+        ),
+        parsed_request_json=_copy_json_object(response.parsed_request_json),
+        context_facts=_copy_json_object(response.context_facts),
+        explanation=(
+            DayExplainNarrativeSchema(
+                headline=response.explanation.headline,
+                sections=[
+                    ExplainSectionSchema(
+                        key=section.key,
+                        title=section.title,
+                        items=list(section.items),
+                    )
+                    for section in response.explanation.sections
+                ],
+                model_used=response.explanation.model_used,
+                fallback_used=response.explanation.fallback_used,
+            )
+            if response.explanation is not None
+            else None
+        ),
     )
 
 

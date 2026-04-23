@@ -9,7 +9,9 @@ from decimal import Decimal
 import pytest
 from django.test import RequestFactory
 
+from app.api.django_workspace import _build_explain_result_context
 from app.api.django_runtime import build_django_monthly_workspace_page_urlpatterns
+from app.api.monthly_workspace_copy import get_monthly_workspace_copy
 from app.engine.contracts import (
     AssignmentOutput,
     MonthPlanningMetadata,
@@ -33,6 +35,12 @@ from app.infra.django_app.models import (
     Station as DjangoStation,
     Tenant as DjangoTenant,
     Worker as DjangoWorker,
+)
+from app.services.explain import (
+    DayExplainNarrative,
+    ExplainDayScheduleResponse,
+    ExplainOutcome,
+    ExplainSection,
 )
 
 
@@ -84,6 +92,7 @@ def test_workspace_page_renders_reviewer_visible_structure_without_config_contro
     assert "工作区状态" in html_text
     assert "月度排班结果" in html_text
     assert "警告" in html_text
+    assert "说明 / 当日" in html_text
     assert "细化 / 说明" in html_text
     assert "result-grid-scroll" in html_text
     assert "require_one_chef" not in html_text
@@ -117,6 +126,7 @@ def test_workspace_page_renders_japanese_copy_when_ui_lang_is_ja() -> None:
     assert "プレビュー、適用、保存" in html_text
     assert "ワークスペース状態" in html_text
     assert "月次シフト結果" in html_text
+    assert "説明 / 日別" in html_text
     assert "調整 / 説明" in html_text
     assert 'name="ui_lang" value="ja"' in html_text
     assert 'locale-toggle-link is-selected' in html_text
@@ -290,6 +300,222 @@ def test_workspace_page_replaces_refine_placeholder_with_working_form() -> None:
         '<button type="submit" class="btn btn-secondary" disabled>'
         "生成细化预览</button>"
     ) in html_text
+
+
+def test_workspace_page_renders_bounded_day_explain_form() -> None:
+    tenant = _seed_month_context()
+    view = {
+        pattern.name: pattern.callback
+        for pattern in build_django_monthly_workspace_page_urlpatterns()
+    }["monthly_schedule_workspace"]
+
+    response = view(
+        RequestFactory().get(
+            "/v2/monthly-workspace",
+            data={"tenant_slug": tenant.slug, "month_scope": "2026-04"},
+        )
+    )
+    html_text = response.content.decode()
+
+    assert response.status_code == 200
+    assert 'name="form_action" value="explain"' in html_text
+    assert 'name="explain_day"' in html_text
+    assert 'name="explain_request_text"' in html_text
+    assert "请先生成候选预览或应用当前工作区，再请求当日说明。" in html_text
+    assert (
+        '<button type="submit" class="btn btn-secondary" disabled>'
+        "生成当日说明</button>"
+    ) in html_text
+
+
+@pytest.mark.parametrize(
+    ("ui_lang", "request_category", "expected_headline"),
+    [
+        ("zh", "day_overview", "2026-04-01 的排班说明"),
+        ("ja", "refine_change_summary", "2026-04-01 の日別説明"),
+    ],
+)
+def test_workspace_explain_result_context_uses_canonical_day_headline(
+    ui_lang: str,
+    request_category: str,
+    expected_headline: str,
+) -> None:
+    explain_result = _build_explain_result_context(
+        response=ExplainDayScheduleResponse(
+            tenant_slug="tenant-a",
+            year=2026,
+            month=4,
+            target_date=dt.date(2026, 4, 1),
+            workspace_id=1,
+            status="ready",
+            request_language=ui_lang,
+            response_language=ui_lang,
+            outcome=ExplainOutcome(
+                language=ui_lang,
+                status="ready",
+                message_key="explain_ready",
+            ),
+            parsed_request_json={
+                "intent_status": "supported",
+                "request_category": request_category,
+                "model_used": True,
+                "fallback_used": False,
+            },
+            context_facts={
+                "target_date": "2026-04-01",
+                "source_mode": (
+                    "candidate_preview"
+                    if request_category == "refine_change_summary"
+                    else "current_workspace"
+                ),
+            },
+            explanation=DayExplainNarrative(
+                headline="model-authored headline",
+                sections=[
+                    ExplainSection(
+                        key="assignments",
+                        title="Assignments",
+                        items=["W1 -> DAY / GRILL"],
+                    )
+                ],
+                model_used=True,
+                fallback_used=False,
+            ),
+        ),
+        page_copy=get_monthly_workspace_copy(ui_lang),
+    )
+
+    assert explain_result["headline"] == expected_headline
+
+
+def test_workspace_explain_post_supports_current_workspace_day_explanation() -> None:
+    tenant = _seed_month_context()
+    view = {
+        pattern.name: pattern.callback
+        for pattern in build_django_monthly_workspace_page_urlpatterns()
+    }["monthly_schedule_workspace"]
+    _apply_current_workspace_via_page(view, tenant=tenant, ui_lang="zh")
+
+    response = view(
+        RequestFactory().post(
+            "/v2/monthly-workspace",
+            data={
+                "form_action": "explain",
+                "tenant_slug": tenant.slug,
+                "month_scope": "2026-04",
+                "ui_lang": "zh",
+                "explain_day": "2026-04-01",
+                "explain_request_text": "请说明 4/1 为什么这样排班",
+            },
+        )
+    )
+    html_text = response.content.decode()
+    current_workspace = DjangoMonthlyWorkspace.objects.get(
+        tenant=tenant,
+        year=2026,
+        month=4,
+    )
+
+    assert response.status_code == 200
+    assert "已生成当日排班说明。" in html_text
+    assert "2026-04-01 的排班说明" in html_text
+    assert "当前工作区" in html_text
+    assert 'name="ui_lang" value="zh"' in html_text
+    assert DjangoMonthlyAssignment.objects.filter(workspace=current_workspace).count() == 30
+
+
+def test_workspace_explain_post_supports_preview_change_explanation() -> None:
+    tenant = _seed_month_context()
+    DjangoShiftDefinition.objects.create(
+        tenant=tenant,
+        code="EVE",
+        name="Evening",
+        paid_hours=Decimal("6.00"),
+        is_off_shift=False,
+    )
+    view = {
+        pattern.name: pattern.callback
+        for pattern in build_django_monthly_workspace_page_urlpatterns()
+    }["monthly_schedule_workspace"]
+    _apply_current_workspace_via_page(view, tenant=tenant, ui_lang="ja")
+
+    refine_response = view(
+        RequestFactory().post(
+            "/v2/monthly-workspace",
+            data={
+                "form_action": "refine",
+                "tenant_slug": tenant.slug,
+                "month_scope": "2026-04",
+                "ui_lang": "ja",
+                "request_text": (
+                    f"2026-04-01 の {PRIMARY_DEMO_WORKER.code} を "
+                    f"EVE の {PRIMARY_DEMO_STATION.code} にして"
+                ),
+            },
+        )
+    )
+    refine_html = refine_response.content.decode()
+
+    response = view(
+        RequestFactory().post(
+            "/v2/monthly-workspace",
+            data={
+                "form_action": "explain",
+                "tenant_slug": tenant.slug,
+                "month_scope": "2026-04",
+                "ui_lang": "ja",
+                "explain_day": "2026-04-01",
+                "explain_request_text": "このプレビューの変更を説明して",
+                "candidate_result_json": _extract_candidate_result_json(refine_html),
+            },
+        )
+    )
+    html_text = response.content.decode()
+    current_workspace = DjangoMonthlyWorkspace.objects.get(
+        tenant=tenant,
+        year=2026,
+        month=4,
+    )
+
+    assert response.status_code == 200
+    assert "この日の説明を生成しました。" in html_text
+    assert "2026-04-01 の日別説明" in html_text
+    assert "候補プレビュー" in html_text
+    assert "プレビュー差分" in html_text
+    assert DjangoMonthlyAssignment.objects.filter(workspace=current_workspace).count() == 30
+
+
+def test_workspace_explain_post_rejects_non_scheduling_request() -> None:
+    tenant = _seed_month_context()
+    view = {
+        pattern.name: pattern.callback
+        for pattern in build_django_monthly_workspace_page_urlpatterns()
+    }["monthly_schedule_workspace"]
+    _apply_current_workspace_via_page(view, tenant=tenant, ui_lang="ja")
+
+    response = view(
+        RequestFactory().post(
+            "/v2/monthly-workspace",
+            data={
+                "form_action": "explain",
+                "tenant_slug": tenant.slug,
+                "month_scope": "2026-04",
+                "ui_lang": "ja",
+                "explain_day": "2026-04-01",
+                "explain_request_text": "春の俳句を書いて",
+            },
+        )
+    )
+    html_text = response.content.decode()
+    current_workspace = DjangoMonthlyWorkspace.objects.get(
+        tenant=tenant,
+        year=2026,
+        month=4,
+    )
+
+    assert response.status_code == 200
+    assert "この画面では排班関連の日別説明のみ対応しています。" in html_text
+    assert DjangoMonthlyAssignment.objects.filter(workspace=current_workspace).count() == 30
 
 
 def test_workspace_refine_post_supports_bounded_chinese_preview_without_mutating_current_workspace() -> None:

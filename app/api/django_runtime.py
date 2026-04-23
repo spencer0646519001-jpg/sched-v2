@@ -17,6 +17,7 @@ from django.urls import URLPattern
 from app.api.django_workspace import build_django_monthly_workspace_urlpatterns
 from app.api.django_urls import build_monthly_schedule_urlpatterns
 from app.api.routes import MonthlyScheduleRoutes, build_month_schedule_routes
+from app.ai.openai_client import build_structured_output_model_client_from_env
 from app.engine.monthly import generate_month_plan
 from app.infra.django_repositories import (
     DjangoConstraintConfigRepository,
@@ -30,6 +31,8 @@ from app.infra.django_repositories import (
     DjangoWorkspaceRepository,
 )
 from app.services.apply import ApplyMonthScheduleService
+from app.services.explain import ExplainDayScheduleService
+from app.services.explain_langgraph import LangGraphDayExplainWorkflow
 from app.services.preview import (
     MonthlySchedulePreviewEngine,
     PreviewMonthScheduleService,
@@ -77,6 +80,18 @@ def build_django_monthly_schedule_routes(
             tenant_repository=tenant_repository,
             workspace_repository=workspace_repository,
             plan_version_repository=DjangoPlanVersionRepository(),
+        ),
+        explain_service=ExplainDayScheduleService(
+            tenant_repository=tenant_repository,
+            worker_repository=worker_repository,
+            station_repository=station_repository,
+            shift_repository=shift_repository,
+            leave_request_repository=leave_request_repository,
+            constraint_config_repository=constraint_config_repository,
+            workspace_repository=workspace_repository,
+            workflow=LangGraphDayExplainWorkflow(
+                model_client=build_structured_output_model_client_from_env()
+            ),
         ),
         refine_service=RefineMonthScheduleService(
             tenant_repository=tenant_repository,

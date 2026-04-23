@@ -103,6 +103,55 @@ _MONTHLY_WORKSPACE_COPY: dict[str, dict[str, Any]] = {
                 "生成候选预览后，预览警告会显示在这里。当前工作区警告尚未持久化。"
             ),
         },
+        "explain": {
+            "kicker": "说明 / 当日",
+            "title": "生成当日排班说明",
+            "description": "选择某一天，并查看该日为何以当前方式排班。",
+            "body": (
+                "这里只解释当前显示的排班结果：如果有候选预览，就解释候选预览；"
+                "否则解释当前工作区。支持的请求仅限排班相关的当日说明。"
+            ),
+            "day_label": "说明日期",
+            "request_label": "说明请求（可选）",
+            "placeholder": "例如：Why is Spencer not assigned on 4/1?",
+            "button": "生成当日说明",
+            "default_note": "留空时会返回该日的默认排班说明。",
+            "result_empty": "选择日期并提交请求后，这里会显示受限的当日说明。",
+            "requires_schedule_surface": (
+                "请先生成候选预览或应用当前工作区，再请求当日说明。"
+            ),
+            "request_language_label": "请求语言",
+            "response_language_label": "返回语言",
+            "intent_status_label": "请求状态",
+            "category_label": "说明类型",
+            "source_mode_label": "说明来源",
+            "model_used_label": "已使用模型",
+            "fallback_used_label": "已使用回退模板",
+            "language_values": {
+                "zh": "中文",
+                "ja": "日文",
+                "en": "英文",
+                "unknown": "未识别",
+            },
+            "intent_status_values": {
+                "supported": "可解析",
+                "unsupported": "不支持",
+                "ambiguous": "需澄清",
+            },
+            "category_values": {
+                "day_overview": "当日概览",
+                "worker_assignment_check": "员工排班检查",
+                "warnings_summary": "警告摘要",
+                "fallback_summary": "Fallback 摘要",
+                "refine_change_summary": "预览变化",
+            },
+            "source_mode_values": {
+                "candidate_preview": "候选预览",
+                "current_workspace": "当前工作区",
+            },
+            "boolean_yes": "是",
+            "boolean_no": "否",
+        },
         "refine": {
             "kicker": "细化 / 说明",
             "title": "预览细化请求",
@@ -185,6 +234,9 @@ _MONTHLY_WORKSPACE_COPY: dict[str, dict[str, Any]] = {
             "candidate_ready": "候选预览已生成，可在应用前先进行审核。",
             "applied_candidate": "已将候选预览应用到当前工作区（{assignment_count} 条排班）。",
             "saved_version": "已保存 {month_value} 的版本 {version_number}。",
+            "explain_day_required": "请选择需要说明的日期。",
+            "invalid_explain_day": "说明日期必须使用原生日期选择器的值。",
+            "explain_day_outside_scope": "说明日期必须保留在当前所选月份工作区内。",
             "refine_request_required": "请输入细化请求。",
             "refine_requires_current_workspace": (
                 "当前月份还没有已应用的工作区计划，暂时无法生成细化预览。"
@@ -311,6 +363,55 @@ _MONTHLY_WORKSPACE_COPY: dict[str, dict[str, Any]] = {
                 "現在ワークスペースの警告はまだ永続化されていません。"
             ),
         },
+        "explain": {
+            "kicker": "説明 / 日別",
+            "title": "日別シフト説明を生成",
+            "description": "特定の日を選択して、その日の排班理由を確認します。",
+            "body": (
+                "ここでは現在表示中の排班結果だけを説明します。候補プレビューがあれば候補プレビューを、"
+                "なければ現在ワークスペースを説明します。対応するのは排班関連の日別説明だけです。"
+            ),
+            "day_label": "説明対象日",
+            "request_label": "説明依頼（任意）",
+            "placeholder": "例: Why was 4/1 scheduled this way?",
+            "button": "日別説明を生成",
+            "default_note": "空欄の場合は、その日の標準説明を返します。",
+            "result_empty": "日付を選んで依頼を送信すると、ここに制約付きの日別説明を表示します。",
+            "requires_schedule_surface": (
+                "候補プレビューを生成するか、現在ワークスペースを適用してから日別説明を依頼してください。"
+            ),
+            "request_language_label": "依頼言語",
+            "response_language_label": "応答言語",
+            "intent_status_label": "依頼状態",
+            "category_label": "説明種別",
+            "source_mode_label": "説明対象",
+            "model_used_label": "モデル使用",
+            "fallback_used_label": "テンプレート回退使用",
+            "language_values": {
+                "zh": "中国語",
+                "ja": "日本語",
+                "en": "英語",
+                "unknown": "未判定",
+            },
+            "intent_status_values": {
+                "supported": "解析可能",
+                "unsupported": "未対応",
+                "ambiguous": "要確認",
+            },
+            "category_values": {
+                "day_overview": "日別概要",
+                "worker_assignment_check": "担当者確認",
+                "warnings_summary": "警告要約",
+                "fallback_summary": "フォールバック要約",
+                "refine_change_summary": "プレビュー差分",
+            },
+            "source_mode_values": {
+                "candidate_preview": "候補プレビュー",
+                "current_workspace": "現在ワークスペース",
+            },
+            "boolean_yes": "はい",
+            "boolean_no": "いいえ",
+        },
         "refine": {
             "kicker": "調整 / 説明",
             "title": "調整依頼プレビュー",
@@ -393,6 +494,9 @@ _MONTHLY_WORKSPACE_COPY: dict[str, dict[str, Any]] = {
             "candidate_ready": "候補プレビューの準備ができました。適用前に確認できます。",
             "applied_candidate": "候補プレビューを現在ワークスペースへ適用しました（{assignment_count} 件の割り当て）。",
             "saved_version": "{month_value} のバージョン {version_number} を保存しました。",
+            "explain_day_required": "説明したい日付を選択してください。",
+            "invalid_explain_day": "説明日にはネイティブの日付ピッカー値を使用してください。",
+            "explain_day_outside_scope": "説明日は現在選択中の月次ワークスペース内に収めてください。",
             "refine_request_required": "調整依頼を入力してください。",
             "refine_requires_current_workspace": (
                 "この月にはまだ現在ワークスペースがないため、調整プレビューを生成できません。"

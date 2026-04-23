@@ -984,6 +984,76 @@
     <section class="panel">
       <div class="section-head">
         <div>
+          <div class="section-kicker">{{ page_copy.explain.kicker }}</div>
+          <h2>{{ page_copy.explain.title }}</h2>
+          <p>{{ page_copy.explain.description }}</p>
+        </div>
+      </div>
+
+      <div class="refine-layout">
+        <form method="post" class="refine-form">
+          <input type="hidden" name="form_action" value="explain">
+          <input type="hidden" name="ui_lang" value="{{ ui_lang }}">
+          {% if selected_tenant %}
+          <input type="hidden" name="tenant_slug" value="{{ selected_tenant.slug }}">
+          {% endif %}
+          <input type="hidden" name="month_scope" value="{{ month_value }}">
+          <input type="hidden" name="candidate_result_json" value="{{ candidate_result_json }}">
+          <div class="detail-block">
+            <p>{{ page_copy.explain.body }}</p>
+            <label>
+              {{ page_copy.explain.day_label }}
+              <input type="date" name="explain_day" value="{{ explain_day_value }}">
+            </label>
+            <label>
+              {{ page_copy.explain.request_label }}
+              <textarea name="explain_request_text" placeholder="{{ page_copy.explain.placeholder }}">{{ explain_request_text }}</textarea>
+            </label>
+            <p class="muted-note">{{ page_copy.explain.default_note }}</p>
+            {% if explain_disabled_note %}
+            <div class="empty-state">{{ explain_disabled_note }}</div>
+            {% endif %}
+            <button type="submit" class="btn btn-secondary"{% if explain_disabled %} disabled{% endif %}>{{ page_copy.explain.button }}</button>
+          </div>
+        </form>
+
+        <div class="refine-result-card">
+          {% if explain_result %}
+          <div class="message {{ explain_result.message_tone }}">{{ explain_result.message_text }}</div>
+          <div class="detail-block">
+            {% if explain_result.headline %}
+            <h3>{{ explain_result.headline }}</h3>
+            {% endif %}
+            <div class="result-meta">
+              {% for item in explain_result.meta %}
+              <span class="meta-pill">{{ item.label }}: {{ item.value }}</span>
+              {% endfor %}
+            </div>
+            {% if explain_result.sections %}
+              {% for section in explain_result.sections %}
+              <div>
+                <h3>{{ section.title }}</h3>
+                <ul class="detail-list">
+                  {% for item in section.items %}
+                  <li class="detail-item">
+                    <div class="detail-summary">{{ item }}</div>
+                  </li>
+                  {% endfor %}
+                </ul>
+              </div>
+              {% endfor %}
+            {% endif %}
+          </div>
+          {% else %}
+          <div class="empty-state">{{ page_copy.explain.result_empty }}</div>
+          {% endif %}
+        </div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="section-head">
+        <div>
           <div class="section-kicker">{{ page_copy.refine.kicker }}</div>
           <h2>{{ page_copy.refine.title }}</h2>
           <p>{{ page_copy.refine.description }}</p>

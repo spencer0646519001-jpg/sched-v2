@@ -176,6 +176,33 @@ class RefineOutcomeSchema(ApiSchema):
     message_text: str = Field(min_length=1)
 
 
+class ExplainOutcomeSchema(ApiSchema):
+    """Structured same-language outcome for bounded day explain responses."""
+
+    language: str = Field(min_length=1)
+    status: str = Field(min_length=1)
+    message_key: str = Field(min_length=1)
+    message_values: ApiJsonObject = Field(default_factory=dict)
+    message_text: str = Field(min_length=1)
+
+
+class ExplainSectionSchema(ApiSchema):
+    """One rendered section in the bounded day explanation payload."""
+
+    key: str = Field(min_length=1)
+    title: str = Field(min_length=1)
+    items: list[str] = Field(default_factory=list)
+
+
+class DayExplainNarrativeSchema(ApiSchema):
+    """Stable explanation envelope returned for one selected day."""
+
+    headline: str = Field(min_length=1)
+    sections: list[ExplainSectionSchema] = Field(default_factory=list)
+    model_used: bool
+    fallback_used: bool
+
+
 class RefineMonthScheduleResponseSchema(TenantMonthScopeSchema):
     """Transport response with stored refine metadata and candidate result."""
 
@@ -186,6 +213,29 @@ class RefineMonthScheduleResponseSchema(TenantMonthScopeSchema):
     outcome: RefineOutcomeSchema
     parsed_intent_json: ApiJsonObject
     candidate_result: MonthPlanningResultSchema | None = None
+
+
+class ExplainDayScheduleRequestSchema(TenantMonthScopeSchema):
+    """Transport request for one bounded day-level schedule explanation."""
+
+    target_date: dt.date
+    request_text: str | None = None
+    response_language: str | None = None
+    candidate_result: MonthPlanningResultSchema | None = None
+
+
+class ExplainDayScheduleResponseSchema(TenantMonthScopeSchema):
+    """Transport response for the bounded day-level explain slice."""
+
+    workspace_id: str | None = None
+    target_date: dt.date
+    status: str = Field(min_length=1)
+    request_language: str = Field(min_length=1)
+    response_language: str = Field(min_length=1)
+    outcome: ExplainOutcomeSchema
+    parsed_request_json: ApiJsonObject
+    context_facts: ApiJsonObject
+    explanation: DayExplainNarrativeSchema | None = None
 
 
 class ExportMonthScheduleRequestSchema(TenantMonthScopeSchema):
@@ -220,6 +270,11 @@ __all__ = [
     "ApiSchema",
     "ApplyMonthScheduleRequestSchema",
     "ApplyMonthScheduleResponseSchema",
+    "DayExplainNarrativeSchema",
+    "ExplainDayScheduleRequestSchema",
+    "ExplainDayScheduleResponseSchema",
+    "ExplainOutcomeSchema",
+    "ExplainSectionSchema",
     "ExportMonthScheduleRequestSchema",
     "ExportMonthScheduleResponseSchema",
     "ExportMonthScheduleRowSchema",

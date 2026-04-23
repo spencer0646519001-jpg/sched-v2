@@ -46,19 +46,21 @@ def _clear_scheduler_tables() -> None:
     DjangoTenant.objects.all().delete()
 
 
-def test_runtime_slice_registers_preview_apply_save_and_refine_routes() -> None:
+def test_runtime_slice_registers_preview_apply_save_explain_and_refine_routes() -> None:
     patterns = build_django_monthly_schedule_urlpatterns()
 
     assert [pattern.name for pattern in patterns] == [
         "preview_month_schedule",
         "apply_month_schedule",
         "save_month_schedule",
+        "explain_day_schedule",
         "refine_month_schedule",
     ]
     assert [str(pattern.pattern) for pattern in patterns] == [
         "v2/monthly-schedules/preview",
         "v2/monthly-schedules/apply",
         "v2/monthly-schedules/save",
+        "v2/monthly-schedules/explain-day",
         "v2/monthly-schedules/refine",
     ]
 
@@ -289,6 +291,117 @@ def test_django_runtime_refine_returns_candidate_preview_without_mutating_curren
     assert current_first_assignment.assignment_source == "apply"
     assert DjangoMonthlyAssignment.objects.filter(workspace=current_workspace).count() == 30
     assert refine_request.result_preview_json is not None
+
+
+def test_django_runtime_explain_day_returns_bounded_day_explanation() -> None:
+    tenant = _seed_month_context()
+    DjangoShiftDefinition.objects.create(
+        tenant=tenant,
+        code="EVE",
+        name="Evening",
+        paid_hours=Decimal("6.00"),
+        is_off_shift=False,
+    )
+    views = {
+        pattern.name: pattern.callback
+        for pattern in build_django_monthly_schedule_urlpatterns()
+    }
+
+    preview_payload = _post_json(
+        views["preview_month_schedule"],
+        path="/v2/monthly-schedules/preview",
+        payload={
+            "tenant_slug": tenant.slug,
+            "year": 2026,
+            "month": 4,
+        },
+    )
+    _post_json(
+        views["apply_month_schedule"],
+        path="/v2/monthly-schedules/apply",
+        payload={
+            "tenant_slug": tenant.slug,
+            "year": 2026,
+            "month": 4,
+            "result": preview_payload["result"],
+        },
+    )
+    refine_payload = _post_json(
+        views["refine_month_schedule"],
+        path="/v2/monthly-schedules/refine",
+        payload={
+            "tenant_slug": tenant.slug,
+            "year": 2026,
+            "month": 4,
+            "request_text": (
+                f"请把 {PRIMARY_DEMO_WORKER.code} "
+                f"安排到 2026-04-01 的 EVE 在 {PRIMARY_DEMO_STATION.code}"
+            ),
+        },
+    )
+
+    explain_payload = _post_json(
+        views["explain_day_schedule"],
+        path="/v2/monthly-schedules/explain-day",
+        payload={
+            "tenant_slug": tenant.slug,
+            "year": 2026,
+            "month": 4,
+            "target_date": "2026-04-01",
+            "request_text": "What changed in this refine preview?",
+            "response_language": "en",
+            "candidate_result": refine_payload["candidate_result"],
+        },
+    )
+
+    assert explain_payload["status"] == "ready"
+    assert explain_payload["request_language"] == "en"
+    assert explain_payload["response_language"] == "en"
+    assert explain_payload["outcome"]["message_key"] == "explain_ready"
+    assert explain_payload["parsed_request_json"]["request_category"] == (
+        "refine_change_summary"
+    )
+    assert explain_payload["context_facts"]["source_mode"] == "candidate_preview"
+    assert explain_payload["context_facts"]["comparison"]["has_comparison"] is True
+    assert explain_payload["explanation"] is not None
+    assert explain_payload["explanation"]["headline"]
+
+
+def test_django_runtime_explain_day_rejects_non_scheduling_requests() -> None:
+    tenant = _seed_month_context()
+    views = {
+        pattern.name: pattern.callback
+        for pattern in build_django_monthly_schedule_urlpatterns()
+    }
+
+    preview_payload = _post_json(
+        views["preview_month_schedule"],
+        path="/v2/monthly-schedules/preview",
+        payload={
+            "tenant_slug": tenant.slug,
+            "year": 2026,
+            "month": 4,
+        },
+    )
+
+    explain_payload = _post_json(
+        views["explain_day_schedule"],
+        path="/v2/monthly-schedules/explain-day",
+        payload={
+            "tenant_slug": tenant.slug,
+            "year": 2026,
+            "month": 4,
+            "target_date": "2026-04-01",
+            "request_text": "Write a marketing slogan for my restaurant.",
+            "response_language": "en",
+            "candidate_result": preview_payload["result"],
+        },
+    )
+
+    assert explain_payload["status"] == "unsupported"
+    assert explain_payload["outcome"]["message_key"] == "explain_unsupported_request"
+    assert explain_payload["parsed_request_json"]["reason_code"] == "unsupported_request"
+    assert explain_payload["explanation"] is None
 
 
 def test_django_runtime_preview_returns_planner_warnings_without_persisting() -> None:

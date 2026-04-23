@@ -11,7 +11,7 @@ from __future__ import annotations
 import calendar
 import datetime as dt
 from collections import Counter
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlencode
@@ -22,6 +22,7 @@ from django.urls import URLPattern, path
 from django.views.decorators.http import require_http_methods
 from pydantic import ValidationError
 
+from app.ai.openai_client import build_structured_output_model_client_from_env
 from app.api.monthly_workspace_copy import (
     MONTHLY_WORKSPACE_UI_LANGUAGE_LABELS,
     format_monthly_workspace_month_label,
@@ -49,6 +50,14 @@ from app.infra.django_repositories import (
 from app.infra.models import ShiftDefinition, Station, Worker
 from app.infra.repositories import CurrentWorkspaceState
 from app.services.apply import ApplyMonthScheduleRequest, ApplyMonthScheduleService
+from app.services.explain import (
+    ExplainDayScheduleRequest,
+    ExplainDayScheduleResponse,
+    ExplainDayScheduleService,
+    build_day_explanation_headline,
+    render_explain_outcome,
+)
+from app.services.explain_langgraph import LangGraphDayExplainWorkflow
 from app.services.preview import (
     MonthlySchedulePreviewEngine,
     PreviewMonthScheduleRequest,
@@ -78,6 +87,7 @@ class MonthlyWorkspacePageDependencies:
     preview_service: PreviewMonthScheduleService
     apply_service: ApplyMonthScheduleService
     save_service: SaveMonthScheduleService
+    explain_service: ExplainDayScheduleService
     refine_service: RefineMonthScheduleService
     worker_repository: DjangoWorkerRepository
     station_repository: DjangoStationRepository
@@ -134,6 +144,7 @@ def build_django_monthly_workspace_view(
             messages,
             page_copy=page_copy,
         )
+        explain_result: dict[str, Any] | None = None
         refine_result: dict[str, Any] | None = None
         prefer_current_result = False
 
@@ -192,6 +203,18 @@ def build_django_monthly_workspace_view(
                     messages=messages,
                     page_copy=page_copy,
                 )
+            elif action == "explain":
+                explain_result = _handle_explain(
+                    request=request,
+                    tenant=selected_tenant,
+                    year=scope["year"],
+                    month=scope["month"],
+                    ui_lang=ui_lang,
+                    candidate_result=candidate_result,
+                    explain_service=dependencies.explain_service,
+                    messages=messages,
+                    page_copy=page_copy,
+                )
             elif action == "refine":
                 candidate_result, refine_result = _handle_refine(
                     request=request,
@@ -217,6 +240,7 @@ def build_django_monthly_workspace_view(
             ui_lang=ui_lang,
             page_copy=page_copy,
             candidate_result=candidate_result,
+            explain_result=explain_result,
             refine_result=refine_result,
             prefer_current_result=prefer_current_result,
             dependencies=dependencies,
@@ -273,6 +297,18 @@ def _build_page_dependencies(
             tenant_repository=tenant_repository,
             workspace_repository=workspace_repository,
             plan_version_repository=DjangoPlanVersionRepository(),
+        ),
+        explain_service=ExplainDayScheduleService(
+            tenant_repository=tenant_repository,
+            worker_repository=worker_repository,
+            station_repository=station_repository,
+            shift_repository=shift_repository,
+            leave_request_repository=leave_request_repository,
+            constraint_config_repository=constraint_config_repository,
+            workspace_repository=workspace_repository,
+            workflow=LangGraphDayExplainWorkflow(
+                model_client=build_structured_output_model_client_from_env()
+            ),
         ),
         refine_service=RefineMonthScheduleService(
             tenant_repository=tenant_repository,
@@ -579,6 +615,62 @@ def _handle_refine(
     )
 
 
+def _handle_explain(
+    *,
+    request: HttpRequest,
+    tenant: DjangoTenant,
+    year: int,
+    month: int,
+    ui_lang: str,
+    candidate_result: MonthPlanningResultSchema | None,
+    explain_service: ExplainDayScheduleService,
+    messages: list[dict[str, str]],
+    page_copy: dict[str, Any],
+) -> dict[str, Any] | None:
+    messages_copy = page_copy["messages"]
+    explain_day_raw = (request.POST.get("explain_day") or "").strip()
+    if not explain_day_raw:
+        messages.append(
+            _message("error", messages_copy["explain_day_required"])
+        )
+        return None
+
+    try:
+        target_date = dt.date.fromisoformat(explain_day_raw)
+    except ValueError:
+        messages.append(
+            _message("error", messages_copy["invalid_explain_day"])
+        )
+        return None
+
+    if target_date.year != year or target_date.month != month:
+        messages.append(
+            _message("error", messages_copy["explain_day_outside_scope"])
+        )
+        return None
+
+    try:
+        response = explain_service.explain_day_schedule(
+            ExplainDayScheduleRequest(
+                tenant_slug=tenant.slug,
+                year=year,
+                month=month,
+                target_date=target_date,
+                request_text=(request.POST.get("explain_request_text") or "").strip(),
+                response_language=ui_lang,
+                candidate_result=candidate_result,
+            )
+        )
+    except (LookupError, ValueError) as exc:
+        messages.append(_message("error", str(exc)))
+        return None
+
+    return _build_explain_result_context(
+        response=response,
+        page_copy=page_copy,
+    )
+
+
 def _build_workspace_context(
     *,
     request: HttpRequest,
@@ -588,6 +680,7 @@ def _build_workspace_context(
     ui_lang: str,
     page_copy: dict[str, Any],
     candidate_result: MonthPlanningResultSchema | None,
+    explain_result: dict[str, Any] | None,
     refine_result: dict[str, Any] | None,
     prefer_current_result: bool,
     dependencies: MonthlyWorkspacePageDependencies,
@@ -608,6 +701,11 @@ def _build_workspace_context(
     ]
     selected_worker_id = (request.POST.get("worker_id") or "").strip()
     save_label_value = (request.POST.get("save_label") or "").strip()
+    explain_day_value = request.POST.get("explain_day") or _default_leave_date(
+        scope["year"],
+        scope["month"],
+    )
+    explain_request_text = (request.POST.get("explain_request_text") or "").strip()
     refine_request_text = (request.POST.get("request_text") or "").strip()
     leave_summary_note = page_copy["leave"]["summary_note"].format(
         month_label=month_label
@@ -658,6 +756,11 @@ def _build_workspace_context(
             "apply_disabled": True,
             "save_disabled": True,
             "save_label_value": save_label_value,
+            "explain_day_value": explain_day_value,
+            "explain_request_text": explain_request_text,
+            "explain_result": explain_result,
+            "explain_disabled": True,
+            "explain_disabled_note": page_copy["messages"]["no_tenant"],
             "refine_request_text": refine_request_text,
             "refine_result": refine_result,
             "refine_disabled": True,
@@ -703,6 +806,12 @@ def _build_workspace_context(
 
     warnings = _build_warning_rows(candidate_result, page_copy=page_copy)
     warnings_note = page_copy["warnings"]["empty_with_current"]
+    explain_disabled = current_state is None and candidate_result is None
+    explain_disabled_note = (
+        page_copy["explain"]["requires_schedule_surface"]
+        if explain_disabled
+        else ""
+    )
     refine_disabled = current_state is None
     refine_disabled_note = (
         page_copy["refine"]["requires_current_workspace"]
@@ -746,6 +855,11 @@ def _build_workspace_context(
         "apply_disabled": candidate_result is None,
         "save_disabled": current_state is None,
         "save_label_value": save_label_value,
+        "explain_day_value": explain_day_value,
+        "explain_request_text": explain_request_text,
+        "explain_result": explain_result,
+        "explain_disabled": explain_disabled,
+        "explain_disabled_note": explain_disabled_note,
         "refine_request_text": refine_request_text,
         "refine_result": refine_result,
         "refine_disabled": refine_disabled,
@@ -872,6 +986,123 @@ def _render_page_refine_outcome(
 
 def _refine_result_message_tone(status: str) -> str:
     if status == "preview_ready":
+        return "message-success"
+    if status == "ambiguous":
+        return "message-info"
+    return "message-error"
+
+
+def _build_explain_result_context(
+    *,
+    response: ExplainDayScheduleResponse,
+    page_copy: dict[str, Any],
+) -> dict[str, Any]:
+    explain_copy = page_copy["explain"]
+    parsed_request_json = response.parsed_request_json
+    intent_status = str(
+        parsed_request_json.get("intent_status") or response.status
+    )
+    request_category = parsed_request_json.get("request_category")
+    source_mode = (
+        parsed_request_json.get("source_mode")
+        or response.context_facts.get("source_mode")
+    )
+    model_used = bool(parsed_request_json.get("model_used"))
+    fallback_used = bool(parsed_request_json.get("fallback_used"))
+
+    meta_items = [
+        {
+            "label": explain_copy["request_language_label"],
+            "value": _localize_refine_value(
+                response.request_language,
+                explain_copy["language_values"],
+            ),
+        },
+        {
+            "label": explain_copy["response_language_label"],
+            "value": _localize_refine_value(
+                response.response_language,
+                explain_copy["language_values"],
+            ),
+        },
+        {
+            "label": explain_copy["intent_status_label"],
+            "value": _localize_refine_value(
+                intent_status,
+                explain_copy["intent_status_values"],
+            ),
+        },
+    ]
+    if isinstance(request_category, str) and request_category:
+        meta_items.append(
+            {
+                "label": explain_copy["category_label"],
+                "value": _localize_refine_value(
+                    request_category,
+                    explain_copy["category_values"],
+                ),
+            }
+        )
+    if isinstance(source_mode, str) and source_mode:
+        meta_items.append(
+            {
+                "label": explain_copy["source_mode_label"],
+                "value": _localize_refine_value(
+                    source_mode,
+                    explain_copy["source_mode_values"],
+                ),
+            }
+        )
+    meta_items.extend(
+        [
+            {
+                "label": explain_copy["model_used_label"],
+                "value": (
+                    explain_copy["boolean_yes"]
+                    if model_used
+                    else explain_copy["boolean_no"]
+                ),
+            },
+            {
+                "label": explain_copy["fallback_used_label"],
+                "value": (
+                    explain_copy["boolean_yes"]
+                    if fallback_used
+                    else explain_copy["boolean_no"]
+                ),
+            },
+        ]
+    )
+
+    return {
+        "message_tone": _explain_result_message_tone(response.status),
+        "message_text": render_explain_outcome(response.outcome),
+        "headline": (
+            build_day_explanation_headline(
+                language=response.response_language,
+                request_category=str(request_category or "day_overview"),
+                context_facts=response.context_facts,
+            )
+            if response.explanation is not None
+            else ""
+        ),
+        "meta": meta_items,
+        "sections": (
+            [
+                {
+                    "title": section.title,
+                    "items": list(section.items),
+                }
+                for section in response.explanation.sections
+            ]
+            if response.explanation is not None
+            else []
+        ),
+    }
+
+
+def _explain_result_message_tone(status: str) -> str:
+    if status == "ready":
         return "message-success"
     if status == "ambiguous":
         return "message-info"
