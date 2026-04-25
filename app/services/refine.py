@@ -20,11 +20,10 @@ from app.engine.contracts import (
     MonthPlanningInput,
     MonthPlanningResult,
 )
-from app.infra.models import JsonObject, RecordId, RefineRequest, Tenant
+from app.infra.models import JsonObject, RecordId, RefineRequest
 from app.infra.repositories import (
     ConstraintConfigRepository,
     LeaveRequestRepository,
-    MonthlyPlanningPersistenceBundle,
     RefineRequestRepository,
     ShiftRepository,
     StationRepository,
@@ -32,7 +31,10 @@ from app.infra.repositories import (
     WorkerRepository,
     WorkspaceRepository,
 )
-from app.services.preview import _translate_persistence_bundle_to_engine_input
+from app.services.monthly_context import (
+    build_month_planning_input,
+    load_monthly_planning_bundle,
+)
 
 REFINE_STATUS_RECEIVED = "received"
 REFINE_STATUS_PARSED = "parsed"
@@ -210,12 +212,17 @@ class RefineMonthScheduleService:
             current_state.workspace.id,
             label="workspace.id",
         )
-        bundle = self._load_monthly_persistence_bundle(
+        bundle = load_monthly_planning_bundle(
             tenant=tenant,
             year=request.year,
             month=request.month,
+            worker_repository=self.worker_repository,
+            station_repository=self.station_repository,
+            shift_repository=self.shift_repository,
+            leave_request_repository=self.leave_request_repository,
+            constraint_config_repository=self.constraint_config_repository,
         )
-        base_planning_input = _translate_persistence_bundle_to_engine_input(bundle)
+        base_planning_input = build_month_planning_input(bundle)
 
         persisted_refine_request = self.refine_request_repository.create(
             RefineRequest(
@@ -280,44 +287,6 @@ class RefineMonthScheduleService:
             parsed_intent_json=parsed_intent_json,
             candidate_result=workflow_result.candidate_result,
         )
-
-    def _load_monthly_persistence_bundle(
-        self,
-        *,
-        tenant: Tenant,
-        year: int,
-        month: int,
-    ) -> MonthlyPlanningPersistenceBundle:
-        """Gather the persistence snapshot required for a refined rerun."""
-
-        tenant_id = _require_record_id(tenant.id, label="tenant.id")
-        constraint_config = self.constraint_config_repository.get_resolved_for_month(
-            tenant_id,
-            year,
-            month,
-        )
-        if constraint_config is None:
-            raise LookupError(
-                f"No resolved constraint config found for {tenant.slug!r} "
-                f"{year}-{month:02d}."
-            )
-
-        return MonthlyPlanningPersistenceBundle(
-            tenant=tenant,
-            year=year,
-            month=month,
-            workers=self.worker_repository.list_for_tenant(tenant_id),
-            worker_station_skills=self.worker_repository.list_station_skills(tenant_id),
-            stations=self.station_repository.list_for_tenant(tenant_id),
-            shifts=self.shift_repository.list_for_tenant(tenant_id),
-            leave_requests=self.leave_request_repository.list_for_month(
-                tenant_id,
-                year,
-                month,
-            ),
-            constraint_config=constraint_config,
-        )
-
 
 def refine_month_schedule(
     request: RefineMonthScheduleRequest,

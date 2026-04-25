@@ -44,6 +44,14 @@ from app.services.export import (
     ExportMonthScheduleService,
     export_month_schedule,
 )
+from app.services.explain import (
+    DayExplainNarrative,
+    DayExplainWorkflowResult,
+    ExplainDayScheduleRequest,
+    ExplainDayScheduleService,
+    ExplainOutcome,
+    ExplainSection,
+)
 from app.services.preview import (
     PreviewMonthScheduleRequest,
     PreviewMonthScheduleResponse,
@@ -66,8 +74,10 @@ SERVICE_MODULES = (
     "app.services.preview",
     "app.services.apply",
     "app.services.save",
+    "app.services.monthly_context",
     "app.services.refine",
     "app.services.refine_langgraph",
+    "app.services.explain",
     "app.services.export",
 )
 DISALLOWED_IMPORT_PREFIXES = (
@@ -342,6 +352,67 @@ def test_refine_service_smoke_flow_stores_candidate_preview() -> None:
         refine_request_repository.requests[response.refine_request_id].result_preview_json
         is not None
     )
+
+
+def test_explain_service_smoke_flow_loads_month_context_for_workflow() -> None:
+    ctx = _sample_context()
+    workflow = _RecordingCallable(
+        DayExplainWorkflowResult(
+            request_language="en",
+            response_language="en",
+            outcome=ExplainOutcome(
+                language="en",
+                status="ready",
+                message_key="explain_ready",
+            ),
+            parsed_request_json={"request_category": "day_summary"},
+            context_facts={"source_mode": "current_workspace"},
+            explanation=DayExplainNarrative(
+                headline="April 1 explanation",
+                sections=[
+                    ExplainSection(
+                        key="assignments",
+                        title="Assignments",
+                        items=["Alex is assigned."],
+                    )
+                ],
+                model_used=False,
+                fallback_used=True,
+            ),
+        )
+    )
+    service = ExplainDayScheduleService(
+        tenant_repository=_tenant_repo(ctx.tenant),
+        worker_repository=_worker_repo(ctx, include_skills=True),
+        station_repository=_station_repo(ctx),
+        shift_repository=_shift_repo(ctx),
+        leave_request_repository=_leave_repo(ctx),
+        constraint_config_repository=_constraint_repo(ctx),
+        workspace_repository=_workspace_repo(
+            CurrentWorkspaceState(
+                workspace=ctx.workspace,
+                assignments=[ctx.assignment],
+            )
+        ),
+        workflow=workflow,
+    )
+
+    response = service.explain_day_schedule(
+        ExplainDayScheduleRequest(
+            tenant_slug=ctx.tenant.slug,
+            year=2026,
+            month=4,
+            target_date=dt.date(2026, 4, 1),
+            request_text="Why is Alex scheduled on April 1?",
+        )
+    )
+
+    assert response.status == "ready"
+    assert workflow.requests[0].planning_input.tenant_code == ctx.tenant.slug
+    assert workflow.requests[0].planning_input.leave_requests[0].worker_code == (
+        ctx.worker.code
+    )
+    assert workflow.requests[0].workers[0].code == ctx.worker.code
 
 
 def test_export_service_smoke_flow_builds_rows_and_csv() -> None:
