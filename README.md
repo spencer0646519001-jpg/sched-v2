@@ -19,6 +19,18 @@ The runtime now includes a small LangGraph-backed refine-preview slice. Broader
 natural-language coverage, UI wiring for refine, and larger agent behaviors
 remain intentionally deferred.
 
+## Automated Checks
+
+Install the small reviewer-facing dev toolchain into the local virtualenv:
+
+`.\.venv\Scripts\python -m pip install -e ".[dev]"`
+
+Run the same checks locally that GitHub Actions runs on every push and pull
+request:
+
+- `.\.venv\Scripts\python -m ruff check .`
+- `.\.venv\Scripts\python -m pytest`
+
 ## Local Manual Review
 
 The repo includes a tiny local Django bootstrap path for manually reviewing the

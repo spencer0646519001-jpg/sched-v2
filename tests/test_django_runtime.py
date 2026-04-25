@@ -443,10 +443,6 @@ def test_django_runtime_refine_returns_candidate_preview_without_mutating_curren
             "tenant_slug": tenant.slug,
             "year": 2026,
             "month": 4,
-            "request_text": (
-                f"请把 {PRIMARY_DEMO_WORKER.code} 安排到 2026-04-01 的 EVE 在 "
-                f"{PRIMARY_DEMO_STATION.code}"
-            ),
             "request_text": refine_request_text,
         },
     )
