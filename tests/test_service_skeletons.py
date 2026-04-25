@@ -208,6 +208,42 @@ def test_apply_service_smoke_flow_accepts_structural_result_payload() -> None:
     )
 
 
+def test_apply_service_rejects_off_month_candidate_payload_before_writing() -> None:
+    ctx = _sample_context()
+    workspace_repository = _workspace_repo(current_state=None)
+    candidate_result = _sample_result(source_type="preview", refinement_applied=False)
+    off_month_result = replace(
+        candidate_result,
+        assignments=[
+            replace(candidate_result.assignments[0], date=dt.date(2026, 5, 1))
+        ],
+    )
+    service = ApplyMonthScheduleService(
+        tenant_repository=_tenant_repo(ctx.tenant),
+        worker_repository=_worker_repo(ctx, include_skills=False),
+        station_repository=_station_repo(ctx),
+        shift_repository=_shift_repo(ctx),
+        workspace_repository=workspace_repository,
+    )
+
+    with pytest.raises(
+        ValueError,
+        match=r"assignment_date 2026-05-01 must stay within target month 2026-04",
+    ):
+        apply_month_schedule(
+            ApplyMonthScheduleRequest(
+                tenant_slug=ctx.tenant.slug,
+                year=2026,
+                month=4,
+                result=off_month_result,
+            ),
+            service=service,
+        )
+
+    assert workspace_repository.saved_workspaces == []
+    assert workspace_repository.replaced_assignments == {}
+
+
 def test_save_service_smoke_flow_persists_snapshot() -> None:
     ctx = _sample_context()
     workspace_repository = _workspace_repo(

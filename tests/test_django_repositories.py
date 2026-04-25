@@ -595,6 +595,59 @@ def test_workspace_repository_rejects_cross_tenant_assignment_rows() -> None:
     assert DjangoMonthlyAssignment.objects.filter(workspace=workspace).count() == 0
 
 
+def test_workspace_repository_rejects_off_month_assignment_rows() -> None:
+    tenant = DjangoTenant.objects.create(
+        slug="tenant-a",
+        name="Tenant A",
+        default_locale="en-US",
+    )
+    worker = DjangoWorker.objects.create(
+        tenant=tenant,
+        code="W1",
+        name="Alex",
+        role="cook",
+        is_active=True,
+    )
+    shift = DjangoShiftDefinition.objects.create(
+        tenant=tenant,
+        code="DAY",
+        name="Day",
+        paid_hours=Decimal("8.00"),
+        is_off_shift=False,
+    )
+    workspace = DjangoMonthlyWorkspace.objects.create(
+        tenant=tenant,
+        year=2026,
+        month=4,
+        status="draft",
+        source_type="preview",
+    )
+
+    repository = DjangoWorkspaceRepository()
+
+    with pytest.raises(
+        ValueError,
+        match=(
+            r"assignment\.assignment_date 2026-05-01 must stay within "
+            r"workspace month 2026-04"
+        ),
+    ):
+        repository.replace_assignments(
+            str(workspace.id),
+            [
+                infra_models.MonthlyAssignment(
+                    workspace_id=str(workspace.id),
+                    worker_id=str(worker.id),
+                    assignment_date=dt.date(2026, 5, 1),
+                    shift_definition_id=str(shift.id),
+                    station_id=None,
+                )
+            ],
+        )
+
+    assert DjangoMonthlyAssignment.objects.filter(workspace=workspace).count() == 0
+
+
 def test_plan_version_repository_persists_and_queries_month_history() -> None:
     tenant = DjangoTenant.objects.create(
         slug="tenant-a",

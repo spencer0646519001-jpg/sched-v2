@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import datetime as dt
 from copy import deepcopy
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from decimal import Decimal
 
 import pytest
@@ -495,6 +495,53 @@ def test_apply_flow_replaces_assignments_instead_of_appending() -> None:
         dt.date(2026, 4, 3),
     ]
     assert first_assignment_ids.isdisjoint({row.id for row in remaining_assignments})
+
+
+def test_apply_flow_rejects_off_month_result_without_mutating_current_workspace() -> None:
+    ctx = _seed_month_context()
+    valid_preview = _preview_month(
+        ctx,
+        _build_month_result(ctx, [dt.date(2026, 4, 1)]),
+    )
+    valid_apply = _apply_month(ctx, valid_preview.candidate_result)
+    workspace_repository = DjangoWorkspaceRepository()
+    assert workspace_repository.load_current(
+        str(ctx.tenant.id),
+        2026,
+        4,
+    ) is not None
+
+    off_month_result = replace(
+        valid_preview.candidate_result,
+        assignments=[
+            replace(
+                valid_preview.candidate_result.assignments[0],
+                date=dt.date(2026, 5, 1),
+            )
+        ],
+    )
+
+    with pytest.raises(
+        ValueError,
+        match=r"assignment_date 2026-05-01 must stay within target month 2026-04",
+    ):
+        _apply_month(ctx, off_month_result)
+
+    current_state_after_failure = workspace_repository.load_current(
+        str(ctx.tenant.id),
+        2026,
+        4,
+    )
+
+    assert current_state_after_failure is not None
+    assert current_state_after_failure.workspace.id == valid_apply.current_workspace_id
+    assert _assignment_dates_from_current_state(current_state_after_failure) == [
+        "2026-04-01",
+    ]
+    assert not DjangoMonthlyAssignment.objects.filter(
+        workspace_id=int(valid_apply.current_workspace_id),
+        assignment_date=dt.date(2026, 5, 1),
+    ).exists()
 
 
 def test_save_flow_creates_immutable_version_snapshots() -> None:

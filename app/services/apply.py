@@ -110,6 +110,11 @@ class ApplyMonthScheduleService:
 
         tenant_id = _require_record_id(tenant.id, label="tenant.id")
         planning_result = _coerce_month_planning_result(request.result)
+        _validate_assignment_dates_within_month(
+            planning_result.assignments,
+            year=request.year,
+            month=request.month,
+        )
 
         workers = self.worker_repository.list_for_tenant(tenant_id)
         stations = self.station_repository.list_for_tenant(tenant_id)
@@ -193,6 +198,24 @@ def _validate_candidate_assignments_against_tenant_scope(
         stations=stations,
         shifts=shifts,
     )
+
+
+def _validate_assignment_dates_within_month(
+    assignments: Sequence[AssignmentOutput],
+    *,
+    year: int,
+    month: int,
+) -> None:
+    """Reject candidate rows that drift outside the requested workspace month."""
+
+    month_scope = f"{year:04d}-{month:02d}"
+    for assignment in assignments:
+        if assignment.date.year != year or assignment.date.month != month:
+            raise ValueError(
+                "Apply result assignment_date "
+                f"{assignment.date.isoformat()} must stay within target month "
+                f"{month_scope}."
+            )
 
 
 def _prepare_workspace_record(

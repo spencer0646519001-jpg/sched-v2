@@ -294,6 +294,48 @@ def test_django_runtime_apply_rejects_candidate_from_other_tenant_scope() -> Non
     ).exists()
 
 
+def test_django_runtime_apply_rejects_off_month_candidate_payload() -> None:
+    tenant = _seed_month_context()
+    views = {
+        pattern.name: pattern.callback
+        for pattern in build_django_monthly_schedule_urlpatterns()
+    }
+
+    preview_payload = _post_json(
+        views["preview_month_schedule"],
+        path="/v2/monthly-schedules/preview",
+        payload={
+            "tenant_slug": tenant.slug,
+            "year": 2026,
+            "month": 4,
+        },
+    )
+    preview_payload["result"]["assignments"][0]["date"] = "2026-05-01"
+
+    response = _post_json_response(
+        views["apply_month_schedule"],
+        path="/v2/monthly-schedules/apply",
+        payload={
+            "tenant_slug": tenant.slug,
+            "year": 2026,
+            "month": 4,
+            "result": preview_payload["result"],
+        },
+    )
+
+    assert response.status_code == 400
+    assert (
+        json.loads(response.content)["detail"]
+        == "Apply result assignment_date 2026-05-01 must stay within target month 2026-04."
+    )
+    assert not DjangoMonthlyWorkspace.objects.filter(
+        tenant=tenant,
+        year=2026,
+        month=4,
+    ).exists()
+    assert DjangoMonthlyAssignment.objects.count() == 0
+
+
 def test_django_runtime_save_does_not_read_other_tenant_current_workspace() -> None:
     tenant = _seed_named_month_context(
         slug="tenant-a",

@@ -504,6 +504,15 @@ class DjangoWorkspaceRepository:
                 raise ValueError(
                     "All replacement assignments must belong to the target workspace."
                 )
+            if (
+                assignment.assignment_date.year != workspace.year
+                or assignment.assignment_date.month != workspace.month
+            ):
+                raise ValueError(
+                    "assignment.assignment_date "
+                    f"{assignment.assignment_date.isoformat()} must stay within "
+                    f"workspace month {workspace.year:04d}-{workspace.month:02d}."
+                )
             worker_pk = _parse_record_id(
                 assignment.worker_id,
                 label="assignment.worker_id",
