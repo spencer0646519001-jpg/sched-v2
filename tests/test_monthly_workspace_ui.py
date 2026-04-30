@@ -33,6 +33,7 @@ from app.infra.django_app.models import (
     ConstraintConfig as DjangoConstraintConfig,
     LeaveRequest as DjangoLeaveRequest,
     MonthlyAssignment as DjangoMonthlyAssignment,
+    MonthlyCandidatePreview as DjangoMonthlyCandidatePreview,
     MonthlyPlanVersion as DjangoMonthlyPlanVersion,
     MonthlyWorkspace as DjangoMonthlyWorkspace,
     ShiftDefinition as DjangoShiftDefinition,
@@ -50,6 +51,7 @@ from app.services.explain import (
 
 @pytest.fixture(autouse=True)
 def _clear_scheduler_tables() -> None:
+    DjangoMonthlyCandidatePreview.objects.all().delete()
     DjangoLeaveRequest.objects.all().delete()
     DjangoConstraintConfig.objects.all().delete()
     DjangoMonthlyAssignment.objects.all().delete()
@@ -485,14 +487,15 @@ def test_workspace_page_supports_leave_preview_apply_and_save_flow() -> None:
         )
     )
     preview_html = preview_response.content.decode()
-    candidate_result_json = _extract_candidate_result_json(preview_html)
+    candidate_id = _extract_candidate_id(preview_html)
 
     assert preview_response.status_code == 200
     assert "候选预览已生成，可在应用前先进行审核。" in preview_html
     assert "候选预览" in preview_html
     assert "needs_review" in preview_html
     assert "understaffed station day" in preview_html
-    assert candidate_result_json
+    assert candidate_id
+    assert 'name="candidate_result_json"' not in preview_html
 
     apply_response = view(
         RequestFactory().post(
@@ -502,7 +505,7 @@ def test_workspace_page_supports_leave_preview_apply_and_save_flow() -> None:
                 "tenant_slug": tenant.slug,
                 "month_scope": "2026-04",
                 "ui_lang": "zh",
-                "candidate_result_json": candidate_result_json,
+                "candidate_id": candidate_id,
             },
         )
     )
@@ -522,7 +525,7 @@ def test_workspace_page_supports_leave_preview_apply_and_save_flow() -> None:
                 "tenant_slug": tenant.slug,
                 "month_scope": "2026-04",
                 "ui_lang": "zh",
-                "candidate_result_json": candidate_result_json,
+                "candidate_id": candidate_id,
                 "save_label": "Reviewer baseline",
             },
         )
@@ -534,6 +537,253 @@ def test_workspace_page_supports_leave_preview_apply_and_save_flow() -> None:
     assert "已保存版本" in save_html
     assert DjangoMonthlyPlanVersion.objects.count() == 1
     assert DjangoMonthlyPlanVersion.objects.get().summary == "Reviewer baseline"
+
+
+def test_workspace_refine_candidate_can_be_applied_via_server_side_candidate_id() -> None:
+    tenant = _seed_month_context()
+    DjangoShiftDefinition.objects.create(
+        tenant=tenant,
+        code="EVE",
+        name="Evening",
+        paid_hours=Decimal("6.00"),
+        is_off_shift=False,
+    )
+    view = {
+        pattern.name: pattern.callback
+        for pattern in build_django_monthly_workspace_page_urlpatterns()
+    }["monthly_schedule_workspace"]
+    _apply_current_workspace_via_page(view, tenant=tenant, ui_lang="zh")
+
+    refine_response = view(
+        RequestFactory().post(
+            "/v2/monthly-workspace",
+            data={
+                "form_action": "refine",
+                "tenant_slug": tenant.slug,
+                "month_scope": "2026-04",
+                "ui_lang": "zh",
+                "request_text": (
+                    f"请把 {PRIMARY_DEMO_WORKER.code} "
+                    f"安排到 2026-04-01 的 EVE 在 {PRIMARY_DEMO_STATION.code}"
+                ),
+            },
+        )
+    )
+    candidate_id = _extract_candidate_id(refine_response.content.decode())
+
+    apply_response = view(
+        RequestFactory().post(
+            "/v2/monthly-workspace",
+            data={
+                "form_action": "apply",
+                "tenant_slug": tenant.slug,
+                "month_scope": "2026-04",
+                "ui_lang": "zh",
+                "candidate_id": candidate_id,
+            },
+        )
+    )
+    current_workspace = DjangoMonthlyWorkspace.objects.get(
+        tenant=tenant,
+        year=2026,
+        month=4,
+    )
+    current_first_assignment = DjangoMonthlyAssignment.objects.get(
+        workspace=current_workspace,
+        assignment_date=dt.date(2026, 4, 1),
+        worker__code=PRIMARY_DEMO_WORKER.code,
+    )
+
+    assert refine_response.status_code == 200
+    assert apply_response.status_code == 200
+    assert current_first_assignment.shift_definition.code == "EVE"
+    assert current_first_assignment.station is not None
+    assert current_first_assignment.station.code == PRIMARY_DEMO_STATION.code
+    assert current_first_assignment.assignment_source == "apply"
+
+
+def test_workspace_apply_requires_server_side_candidate_id_and_ignores_browser_json() -> None:
+    tenant = _seed_month_context()
+    page_copy = get_monthly_workspace_copy("zh")
+    view = {
+        pattern.name: pattern.callback
+        for pattern in build_django_monthly_workspace_page_urlpatterns()
+    }["monthly_schedule_workspace"]
+
+    preview_response = view(
+        RequestFactory().post(
+            "/v2/monthly-workspace",
+            data={
+                "form_action": "preview",
+                "tenant_slug": tenant.slug,
+                "month_scope": "2026-04",
+                "ui_lang": "zh",
+            },
+        )
+    )
+    candidate_id = _extract_candidate_id(preview_response.content.decode())
+    tampered_candidate_result = _load_candidate_result_json(candidate_id)
+    tampered_candidate_result["assignments"][0]["date"] = "2026-05-01"
+
+    apply_response = view(
+        RequestFactory().post(
+            "/v2/monthly-workspace",
+            data={
+                "form_action": "apply",
+                "tenant_slug": tenant.slug,
+                "month_scope": "2026-04",
+                "ui_lang": "zh",
+                "candidate_result_json": json.dumps(tampered_candidate_result),
+            },
+        )
+    )
+    html_text = apply_response.content.decode()
+
+    assert preview_response.status_code == 200
+    assert apply_response.status_code == 200
+    assert page_copy["messages"]["apply_requires_candidate"] in html_text
+    assert not DjangoMonthlyWorkspace.objects.filter(
+        tenant=tenant,
+        year=2026,
+        month=4,
+    ).exists()
+
+
+def test_workspace_apply_prefers_server_side_candidate_id_over_tampered_browser_json() -> None:
+    tenant = _seed_month_context()
+    page_copy = get_monthly_workspace_copy("zh")
+    view = {
+        pattern.name: pattern.callback
+        for pattern in build_django_monthly_workspace_page_urlpatterns()
+    }["monthly_schedule_workspace"]
+
+    preview_response = view(
+        RequestFactory().post(
+            "/v2/monthly-workspace",
+            data={
+                "form_action": "preview",
+                "tenant_slug": tenant.slug,
+                "month_scope": "2026-04",
+                "ui_lang": "zh",
+            },
+        )
+    )
+    candidate_id = _extract_candidate_id(preview_response.content.decode())
+    tampered_candidate_result = _load_candidate_result_json(candidate_id)
+    tampered_candidate_result["assignments"][0]["date"] = "2026-05-01"
+
+    apply_response = view(
+        RequestFactory().post(
+            "/v2/monthly-workspace",
+            data={
+                "form_action": "apply",
+                "tenant_slug": tenant.slug,
+                "month_scope": "2026-04",
+                "ui_lang": "zh",
+                "candidate_id": candidate_id,
+                "candidate_result_json": json.dumps(tampered_candidate_result),
+            },
+        )
+    )
+    current_workspace = DjangoMonthlyWorkspace.objects.get(
+        tenant=tenant,
+        year=2026,
+        month=4,
+    )
+    first_assignment = DjangoMonthlyAssignment.objects.filter(
+        workspace=current_workspace
+    ).order_by("assignment_date", "worker_id", "id")[0]
+
+    assert preview_response.status_code == 200
+    assert apply_response.status_code == 200
+    assert (
+        page_copy["messages"]["candidate_reuse_failed"]
+        not in apply_response.content.decode()
+    )
+    assert first_assignment.assignment_date == dt.date(2026, 4, 1)
+    assert DjangoMonthlyAssignment.objects.filter(workspace=current_workspace).count() == 30
+
+
+def test_workspace_apply_rejects_unknown_candidate_id() -> None:
+    tenant = _seed_month_context()
+    page_copy = get_monthly_workspace_copy("zh")
+    view = {
+        pattern.name: pattern.callback
+        for pattern in build_django_monthly_workspace_page_urlpatterns()
+    }["monthly_schedule_workspace"]
+
+    response = view(
+        RequestFactory().post(
+            "/v2/monthly-workspace",
+            data={
+                "form_action": "apply",
+                "tenant_slug": tenant.slug,
+                "month_scope": "2026-04",
+                "ui_lang": "zh",
+                "candidate_id": "999999",
+            },
+        )
+    )
+    html_text = response.content.decode()
+
+    assert response.status_code == 200
+    assert page_copy["messages"]["candidate_reuse_failed"] in html_text
+    assert page_copy["messages"]["apply_requires_candidate"] not in html_text
+    assert not DjangoMonthlyWorkspace.objects.filter(
+        tenant=tenant,
+        year=2026,
+        month=4,
+    ).exists()
+
+
+def test_workspace_apply_still_rejects_server_side_off_month_candidate_preview() -> None:
+    tenant = _seed_month_context()
+    view = {
+        pattern.name: pattern.callback
+        for pattern in build_django_monthly_workspace_page_urlpatterns()
+    }["monthly_schedule_workspace"]
+
+    preview_response = view(
+        RequestFactory().post(
+            "/v2/monthly-workspace",
+            data={
+                "form_action": "preview",
+                "tenant_slug": tenant.slug,
+                "month_scope": "2026-04",
+                "ui_lang": "zh",
+            },
+        )
+    )
+    candidate_id = _extract_candidate_id(preview_response.content.decode())
+    candidate_preview = DjangoMonthlyCandidatePreview.objects.get(pk=int(candidate_id))
+    candidate_preview.result_json["assignments"][0]["date"] = "2026-05-01"
+    candidate_preview.save(update_fields=["result_json"])
+
+    response = view(
+        RequestFactory().post(
+            "/v2/monthly-workspace",
+            data={
+                "form_action": "apply",
+                "tenant_slug": tenant.slug,
+                "month_scope": "2026-04",
+                "ui_lang": "zh",
+                "candidate_id": candidate_id,
+            },
+        )
+    )
+    html_text = response.content.decode()
+
+    assert preview_response.status_code == 200
+    assert response.status_code == 200
+    assert (
+        "Apply result assignment_date 2026-05-01 must stay within target month 2026-04."
+        in html_text
+    )
+    assert not DjangoMonthlyWorkspace.objects.filter(
+        tenant=tenant,
+        year=2026,
+        month=4,
+    ).exists()
 
 
 def test_workspace_preview_post_preserves_selected_japanese_ui_lang() -> None:
@@ -792,7 +1042,7 @@ def test_workspace_explain_post_supports_preview_change_explanation() -> None:
                 "ui_lang": "ja",
                 "explain_day": "2026-04-01",
                 "explain_request_text": "このプレビューの変更を説明して",
-                "candidate_result_json": _extract_candidate_result_json(refine_html),
+                "candidate_id": _extract_candidate_id(refine_html),
             },
         )
     )
@@ -885,7 +1135,7 @@ def test_workspace_voice_refine_upload_transcribes_and_routes_into_preview_only_
         )
     )
     html_text = response.content.decode()
-    candidate_result = json.loads(_extract_candidate_result_json(html_text))
+    candidate_result = _load_candidate_result_json(_extract_candidate_id(html_text))
     refined_first_day_assignment = next(
         assignment
         for assignment in candidate_result["assignments"]
@@ -1169,7 +1419,7 @@ def test_workspace_refine_post_supports_bounded_chinese_preview_without_mutating
         )
     )
     html_text = response.content.decode()
-    candidate_result = json.loads(_extract_candidate_result_json(html_text))
+    candidate_result = _load_candidate_result_json(_extract_candidate_id(html_text))
     refined_first_day_assignment = next(
         assignment
         for assignment in candidate_result["assignments"]
@@ -1226,7 +1476,7 @@ def test_workspace_refine_post_supports_bounded_japanese_remove_preview() -> Non
         )
     )
     html_text = response.content.decode()
-    candidate_result = json.loads(_extract_candidate_result_json(html_text))
+    candidate_result = _load_candidate_result_json(_extract_candidate_id(html_text))
     current_workspace = DjangoMonthlyWorkspace.objects.get(
         tenant=tenant,
         year=2026,
@@ -1273,7 +1523,7 @@ def test_workspace_refine_post_shows_safe_same_language_unsupported_state() -> N
 
     assert response.status_code == 200
     assert "この調整依頼にはまだ対応していません。" in html_text
-    assert 'name="candidate_result_json" value=""' in html_text
+    assert 'name="candidate_id" value=""' in html_text
     assert DjangoMonthlyAssignment.objects.filter(workspace=current_workspace).count() == 30
 
 
@@ -1396,7 +1646,7 @@ def test_workspace_page_renders_required_chef_as_attendance_and_persists_note_on
         )
     )
     preview_html = preview_response.content.decode()
-    candidate_result_json = _extract_candidate_result_json(preview_html)
+    candidate_id = _extract_candidate_id(preview_html)
 
     assert preview_response.status_code == 200
     assert ">WORK<" in preview_html
@@ -1410,7 +1660,7 @@ def test_workspace_page_renders_required_chef_as_attendance_and_persists_note_on
                 "form_action": "apply",
                 "tenant_slug": tenant.slug,
                 "month_scope": "2026-04",
-                "candidate_result_json": candidate_result_json,
+                "candidate_id": candidate_id,
             },
         )
     )
@@ -1647,7 +1897,7 @@ def _apply_current_workspace_via_page(view, *, tenant: DjangoTenant, ui_lang: st
             },
         )
     )
-    candidate_result_json = _extract_candidate_result_json(
+    candidate_id = _extract_candidate_id(
         preview_response.content.decode()
     )
 
@@ -1659,7 +1909,7 @@ def _apply_current_workspace_via_page(view, *, tenant: DjangoTenant, ui_lang: st
                 "tenant_slug": tenant.slug,
                 "month_scope": "2026-04",
                 "ui_lang": ui_lang,
-                "candidate_result_json": candidate_result_json,
+                "candidate_id": candidate_id,
             },
         )
     )
@@ -1687,10 +1937,14 @@ def _extract_grid_worker_names(html_text: str) -> list[str]:
     return re.findall(r'<span class="worker-name">([^<]+)</span>', html_text)
 
 
-def _extract_candidate_result_json(html_text: str) -> str:
+def _extract_candidate_id(html_text: str) -> str:
     match = re.search(
-        r'name="candidate_result_json" value="([^"]+)"',
+        r'name="candidate_id" value="([^"]*)"',
         html_text,
     )
     assert match is not None
     return html.unescape(match.group(1))
+
+
+def _load_candidate_result_json(candidate_id: str) -> dict[str, object]:
+    return DjangoMonthlyCandidatePreview.objects.get(pk=int(candidate_id)).result_json

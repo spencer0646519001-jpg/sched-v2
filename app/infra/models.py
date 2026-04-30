@@ -158,6 +158,18 @@ class MonthlyPlanVersion:
 
 
 @dataclass(slots=True)
+class MonthlyCandidatePreview:
+    """Server-side candidate preview artifact referenced by the workspace page."""
+
+    tenant_id: RecordId
+    year: int
+    month: int
+    result_json: JsonObject
+    id: RecordId | None = None
+    created_at: datetime | None = None
+
+
+@dataclass(slots=True)
 class RefineRequest:
     """One refine instruction plus parsed intent and preview result, not a chat log."""
 
@@ -178,6 +190,7 @@ __all__ = [
     "JsonObject",
     "LeaveRequest",
     "MonthlyAssignment",
+    "MonthlyCandidatePreview",
     "MonthlyPlanVersion",
     "MonthlyWorkspace",
     "RecordId",

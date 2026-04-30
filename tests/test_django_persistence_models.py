@@ -10,6 +10,7 @@ from app.infra.django_app.models import (
     ConstraintConfig,
     LeaveRequest,
     MonthlyAssignment,
+    MonthlyCandidatePreview,
     MonthlyPlanVersion,
     MonthlyWorkspace,
     RefineRequest,
@@ -23,6 +24,7 @@ from app.infra.django_app.models import (
 
 @pytest.fixture(autouse=True)
 def _clear_scheduler_tables() -> None:
+    MonthlyCandidatePreview.objects.all().delete()
     RefineRequest.objects.all().delete()
     LeaveRequest.objects.all().delete()
     ConstraintConfig.objects.all().delete()
@@ -50,6 +52,7 @@ def test_initial_migration_creates_expected_tables() -> None:
         "scheduler_infra_monthlyworkspace",
         "scheduler_infra_monthlyassignment",
         "scheduler_infra_monthlyplanversion",
+        "scheduler_infra_monthlycandidatepreview",
         "scheduler_infra_refinerequest",
     }.issubset(table_names)
 
@@ -130,6 +133,12 @@ def test_monthly_persistence_models_support_apply_and_save_shape() -> None:
             "assignment_ids": [assignment.id],
         },
     )
+    candidate_preview = MonthlyCandidatePreview.objects.create(
+        tenant=tenant,
+        year=2026,
+        month=4,
+        result_json={"summary": {"total_assignments": 1}},
+    )
     refine_request = RefineRequest.objects.create(
         tenant=tenant,
         workspace=workspace,
@@ -151,6 +160,7 @@ def test_monthly_persistence_models_support_apply_and_save_shape() -> None:
     assert workspace.source_version_id == plan_version.id
     assert workspace.assignments.get().id == assignment.id
     assert workspace.plan_versions.get().id == plan_version.id
+    assert tenant.monthly_candidate_previews.get().id == candidate_preview.id
     assert tenant.refine_requests.get().id == refine_request.id
     assert workspace.refine_requests.get().id == refine_request.id
 

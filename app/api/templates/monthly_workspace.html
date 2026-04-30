@@ -875,7 +875,7 @@
           <input type="hidden" name="tenant_slug" value="{{ selected_tenant.slug }}">
           {% endif %}
           <input type="hidden" name="month_scope" value="{{ month_value }}">
-          <input type="hidden" name="candidate_result_json" value="{{ candidate_result_json }}">
+          <input type="hidden" name="candidate_id" value="{{ candidate_id }}">
           <div class="detail-block">
             <p>{{ page_copy.explain.body }}</p>
             <label>
@@ -1078,7 +1078,7 @@
             <input type="hidden" name="tenant_slug" value="{{ selected_tenant.slug }}">
             {% endif %}
             <input type="hidden" name="month_scope" value="{{ month_value }}">
-            <input type="hidden" name="candidate_result_json" value="{{ candidate_result_json }}">
+            <input type="hidden" name="candidate_id" value="{{ candidate_id }}">
             <div>
               <h3>{{ page_copy.actions.apply_title }}</h3>
               <p>{{ page_copy.actions.apply_description }}</p>
@@ -1093,7 +1093,7 @@
             <input type="hidden" name="tenant_slug" value="{{ selected_tenant.slug }}">
             {% endif %}
             <input type="hidden" name="month_scope" value="{{ month_value }}">
-            <input type="hidden" name="candidate_result_json" value="{{ candidate_result_json }}">
+            <input type="hidden" name="candidate_id" value="{{ candidate_id }}">
             <div>
               <h3>{{ page_copy.actions.save_title }}</h3>
               <p>{{ page_copy.actions.save_description }}</p>

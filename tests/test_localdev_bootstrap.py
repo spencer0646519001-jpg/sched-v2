@@ -17,6 +17,7 @@ from app.infra.django_app.models import (
     ConstraintConfig as DjangoConstraintConfig,
     LeaveRequest as DjangoLeaveRequest,
     MonthlyAssignment as DjangoMonthlyAssignment,
+    MonthlyCandidatePreview as DjangoMonthlyCandidatePreview,
     MonthlyPlanVersion as DjangoMonthlyPlanVersion,
     MonthlyWorkspace as DjangoMonthlyWorkspace,
     ShiftDefinition as DjangoShiftDefinition,
@@ -29,6 +30,7 @@ from app.infra.django_app.models import (
 
 @pytest.fixture(autouse=True)
 def _clear_scheduler_tables() -> None:
+    DjangoMonthlyCandidatePreview.objects.all().delete()
     DjangoLeaveRequest.objects.all().delete()
     DjangoConstraintConfig.objects.all().delete()
     DjangoMonthlyAssignment.objects.all().delete()

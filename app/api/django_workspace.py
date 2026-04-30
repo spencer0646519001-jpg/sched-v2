@@ -49,6 +49,7 @@ from app.infra.django_app.models import (
 from app.infra.django_repositories import (
     DjangoConstraintConfigRepository,
     DjangoLeaveRequestRepository,
+    DjangoMonthlyCandidatePreviewRepository,
     DjangoPlanVersionRepository,
     DjangoRefineRequestRepository,
     DjangoShiftRepository,
@@ -134,6 +135,7 @@ class MonthlyWorkspacePageDependencies:
     shift_repository: DjangoShiftRepository
     workspace_repository: DjangoWorkspaceRepository
     plan_version_repository: DjangoPlanVersionRepository
+    candidate_preview_repository: DjangoMonthlyCandidatePreviewRepository
 
 
 def build_django_monthly_workspace_urlpatterns(
@@ -200,11 +202,31 @@ def build_django_monthly_workspace_view(
             messages.append(
                 _message("error", page_copy["messages"]["invalid_scope"])
             )
-        candidate_result = _parse_candidate_result(
-            request.POST.get("candidate_result_json"),
-            messages,
-            page_copy=page_copy,
+        action = (
+            (request.POST.get("form_action") or "").strip()
+            if request.method == "POST"
+            else ""
         )
+        submitted_candidate_id = _normalize_candidate_id(
+            request.POST.get("candidate_id")
+        )
+        candidate_lookup_failed = False
+        candidate_id = submitted_candidate_id
+        candidate_result: MonthPlanningResultSchema | None = None
+        if selected_tenant is not None:
+            candidate_result, candidate_lookup_failed = _load_candidate_result(
+                candidate_id=submitted_candidate_id,
+                tenant_id=str(selected_tenant.pk),
+                year=scope["year"],
+                month=scope["month"],
+                candidate_preview_repository=(
+                    dependencies.candidate_preview_repository
+                ),
+                messages=messages,
+                page_copy=page_copy,
+            )
+            if candidate_result is None:
+                candidate_id = None
         explain_result: dict[str, Any] | None = None
         refine_result: dict[str, Any] | None = None
         explain_request_text_override: str | None = None
@@ -212,12 +234,12 @@ def build_django_monthly_workspace_view(
         prefer_current_result = False
 
         if request.method == "POST":
-            action = (request.POST.get("form_action") or "").strip()
             if selected_tenant is None:
                 messages.append(
                     _message("error", page_copy["messages"]["no_tenant"])
                 )
                 candidate_result = None
+                candidate_id = None
             elif action == "add_leave":
                 _handle_add_leave(
                     request=request,
@@ -228,6 +250,7 @@ def build_django_monthly_workspace_view(
                     page_copy=page_copy,
                 )
                 candidate_result = None
+                candidate_id = None
             elif action == "preview":
                 candidate_result = _handle_preview(
                     tenant_slug=selected_tenant.slug,
@@ -237,14 +260,24 @@ def build_django_monthly_workspace_view(
                     messages=messages,
                     page_copy=page_copy,
                 )
+                candidate_id = _store_candidate_result(
+                    candidate_result=candidate_result,
+                    tenant_id=str(selected_tenant.pk),
+                    year=scope["year"],
+                    month=scope["month"],
+                    candidate_preview_repository=(
+                        dependencies.candidate_preview_repository
+                    ),
+                )
             elif action == "apply":
                 if candidate_result is None:
-                    messages.append(
-                        _message(
-                            "error",
-                            page_copy["messages"]["apply_requires_candidate"],
+                    if not candidate_lookup_failed:
+                        messages.append(
+                            _message(
+                                "error",
+                                page_copy["messages"]["apply_requires_candidate"],
+                            )
                         )
-                    )
                 else:
                     prefer_current_result = _handle_apply(
                         tenant_slug=selected_tenant.slug,
@@ -267,27 +300,7 @@ def build_django_monthly_workspace_view(
                     page_copy=page_copy,
                 )
             elif action == "explain":
-                explain_result = _handle_explain(
-                    request=request,
-                    tenant=selected_tenant,
-                    year=scope["year"],
-                    month=scope["month"],
-                    ui_lang=ui_lang,
-                    candidate_result=candidate_result,
-                    explain_service=dependencies.explain_service,
-                    messages=messages,
-                    page_copy=page_copy,
-                )
-            elif action == "explain_voice":
-                transcription_result = _transcribe_voice_request(
-                    request=request,
-                    field_name="explain_audio",
-                    transcription_client=dependencies.transcription_client,
-                    messages=messages,
-                    mode_label="explain",
-                )
-                if transcription_result is not None:
-                    explain_request_text_override = transcription_result.text
+                if not (submitted_candidate_id and candidate_lookup_failed):
                     explain_result = _handle_explain(
                         request=request,
                         tenant=selected_tenant,
@@ -298,8 +311,30 @@ def build_django_monthly_workspace_view(
                         explain_service=dependencies.explain_service,
                         messages=messages,
                         page_copy=page_copy,
-                        request_text_override=transcription_result.text,
                     )
+            elif action == "explain_voice":
+                transcription_result = _transcribe_voice_request(
+                    request=request,
+                    field_name="explain_audio",
+                    transcription_client=dependencies.transcription_client,
+                    messages=messages,
+                    mode_label="explain",
+                )
+                if transcription_result is not None:
+                    explain_request_text_override = transcription_result.text
+                    if not (submitted_candidate_id and candidate_lookup_failed):
+                        explain_result = _handle_explain(
+                            request=request,
+                            tenant=selected_tenant,
+                            year=scope["year"],
+                            month=scope["month"],
+                            ui_lang=ui_lang,
+                            candidate_result=candidate_result,
+                            explain_service=dependencies.explain_service,
+                            messages=messages,
+                            page_copy=page_copy,
+                            request_text_override=transcription_result.text,
+                        )
             elif action == "refine":
                 candidate_result, refine_result = _handle_refine(
                     request=request,
@@ -311,6 +346,15 @@ def build_django_monthly_workspace_view(
                     workspace_repository=dependencies.workspace_repository,
                     messages=messages,
                     page_copy=page_copy,
+                )
+                candidate_id = _store_candidate_result(
+                    candidate_result=candidate_result,
+                    tenant_id=str(selected_tenant.pk),
+                    year=scope["year"],
+                    month=scope["month"],
+                    candidate_preview_repository=(
+                        dependencies.candidate_preview_repository
+                    ),
                 )
             elif action == "refine_voice":
                 transcription_result = _transcribe_voice_request(
@@ -334,6 +378,15 @@ def build_django_monthly_workspace_view(
                         page_copy=page_copy,
                         request_text_override=transcription_result.text,
                     )
+                    candidate_id = _store_candidate_result(
+                        candidate_result=candidate_result,
+                        tenant_id=str(selected_tenant.pk),
+                        year=scope["year"],
+                        month=scope["month"],
+                        candidate_preview_repository=(
+                            dependencies.candidate_preview_repository
+                        ),
+                    )
             elif action:
                 messages.append(
                     _message("error", page_copy["messages"]["unknown_action"])
@@ -346,6 +399,7 @@ def build_django_monthly_workspace_view(
             scope=scope,
             ui_lang=ui_lang,
             page_copy=page_copy,
+            candidate_id=candidate_id,
             candidate_result=candidate_result,
             explain_result=explain_result,
             refine_result=refine_result,
@@ -446,6 +500,7 @@ def _build_page_dependencies(
     workspace_repository = DjangoWorkspaceRepository()
     leave_request_repository = DjangoLeaveRequestRepository()
     constraint_config_repository = DjangoConstraintConfigRepository()
+    candidate_preview_repository = DjangoMonthlyCandidatePreviewRepository()
     resolved_preview_engine = (
         preview_engine if preview_engine is not None else generate_month_plan
     )
@@ -516,6 +571,7 @@ def _build_page_dependencies(
         shift_repository=shift_repository,
         workspace_repository=workspace_repository,
         plan_version_repository=DjangoPlanVersionRepository(),
+        candidate_preview_repository=candidate_preview_repository,
     )
 
 
@@ -558,22 +614,69 @@ def _select_tenant(
     return tenants[0]
 
 
-def _parse_candidate_result(
-    candidate_result_json: str | None,
+def _normalize_candidate_id(candidate_id: str | None) -> str | None:
+    normalized = (candidate_id or "").strip()
+    return normalized or None
+
+
+def _load_candidate_result(
+    candidate_id: str | None,
+    tenant_id: str,
+    year: int,
+    month: int,
+    candidate_preview_repository: DjangoMonthlyCandidatePreviewRepository,
     messages: list[dict[str, str]],
     *,
     page_copy: dict[str, Any],
-) -> MonthPlanningResultSchema | None:
-    if not candidate_result_json:
-        return None
+) -> tuple[MonthPlanningResultSchema | None, bool]:
+    if candidate_id is None:
+        return None, False
 
     try:
-        return MonthPlanningResultSchema.model_validate_json(candidate_result_json)
+        candidate_preview = candidate_preview_repository.get_for_scope(
+            candidate_id,
+            tenant_id=tenant_id,
+            year=year,
+            month=month,
+        )
+    except ValueError:
+        candidate_preview = None
+    if candidate_preview is None:
+        messages.append(
+            _message("error", page_copy["messages"]["candidate_reuse_failed"])
+        )
+        return None, True
+
+    try:
+        return (
+            MonthPlanningResultSchema.model_validate(candidate_preview.result_json),
+            False,
+        )
     except ValidationError:
         messages.append(
             _message("error", page_copy["messages"]["candidate_reuse_failed"])
         )
+        return None, True
+
+
+def _store_candidate_result(
+    *,
+    candidate_result: MonthPlanningResultSchema | None,
+    tenant_id: str,
+    year: int,
+    month: int,
+    candidate_preview_repository: DjangoMonthlyCandidatePreviewRepository,
+) -> str | None:
+    if candidate_result is None:
         return None
+
+    persisted_candidate = candidate_preview_repository.create(
+        tenant_id=tenant_id,
+        year=year,
+        month=month,
+        result_json=candidate_result.model_dump(mode="json"),
+    )
+    return persisted_candidate.id
 
 
 def _handle_add_leave(
@@ -979,6 +1082,7 @@ def _build_workspace_context(
     scope: dict[str, Any],
     ui_lang: str,
     page_copy: dict[str, Any],
+    candidate_id: str | None,
     candidate_result: MonthPlanningResultSchema | None,
     explain_result: dict[str, Any] | None,
     refine_result: dict[str, Any] | None,
@@ -1060,9 +1164,7 @@ def _build_workspace_context(
             "display_surface": None,
             "warnings": [],
             "warnings_note": page_copy["warnings"]["empty_no_current"],
-            "candidate_result_json": (
-                candidate_result.model_dump_json() if candidate_result is not None else ""
-            ),
+            "candidate_id": candidate_id or "",
             "apply_disabled": True,
             "save_disabled": True,
             "save_label_value": save_label_value,
@@ -1175,9 +1277,7 @@ def _build_workspace_context(
         "display_surface": display_surface,
         "warnings": warnings,
         "warnings_note": warnings_note,
-        "candidate_result_json": (
-            candidate_result.model_dump_json() if candidate_result is not None else ""
-        ),
+        "candidate_id": candidate_id or "",
         "apply_disabled": candidate_result is None,
         "save_disabled": current_state is None,
         "save_label_value": save_label_value,

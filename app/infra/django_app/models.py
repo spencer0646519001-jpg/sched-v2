@@ -306,6 +306,32 @@ class MonthlyPlanVersion(models.Model):
         ]
 
 
+class MonthlyCandidatePreview(models.Model):
+    """Server-side candidate preview artifact used for later page actions."""
+
+    tenant = models.ForeignKey(
+        Tenant,
+        on_delete=models.CASCADE,
+        related_name="monthly_candidate_previews",
+    )
+    year = models.PositiveIntegerField()
+    month = models.PositiveSmallIntegerField()
+    result_json = models.JSONField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(year__gte=1),
+                name="sched_candidate_preview_year_gte_1",
+            ),
+            models.CheckConstraint(
+                condition=Q(month__gte=1) & Q(month__lte=12),
+                name="sched_candidate_preview_month_valid",
+            ),
+        ]
+
+
 class RefineRequest(models.Model):
     """One bounded refine instruction plus parsed preview metadata."""
 

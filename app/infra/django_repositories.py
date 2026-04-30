@@ -17,6 +17,7 @@ from app.infra.django_app.models import (
     ConstraintConfig as DjangoConstraintConfig,
     LeaveRequest as DjangoLeaveRequest,
     MonthlyAssignment as DjangoMonthlyAssignment,
+    MonthlyCandidatePreview as DjangoMonthlyCandidatePreview,
     MonthlyPlanVersion as DjangoMonthlyPlanVersion,
     MonthlyWorkspace as DjangoMonthlyWorkspace,
     RefineRequest as DjangoRefineRequest,
@@ -31,6 +32,7 @@ from app.infra.models import (
     JsonObject,
     LeaveRequest,
     MonthlyAssignment,
+    MonthlyCandidatePreview,
     MonthlyPlanVersion,
     MonthlyWorkspace,
     RecordId,
@@ -216,6 +218,19 @@ def _plan_version_from_model(model: DjangoMonthlyPlanVersion) -> MonthlyPlanVers
         snapshot_json=deepcopy(model.snapshot_json),
         workspace_id=_serialize_record_id(model.workspace_id),
         summary=model.summary,
+        created_at=model.created_at,
+    )
+
+
+def _candidate_preview_from_model(
+    model: DjangoMonthlyCandidatePreview,
+) -> MonthlyCandidatePreview:
+    return MonthlyCandidatePreview(
+        id=_serialize_record_id(model.pk),
+        tenant_id=_serialize_record_id(model.tenant_id),
+        year=model.year,
+        month=model.month,
+        result_json=deepcopy(model.result_json),
         created_at=model.created_at,
     )
 
@@ -649,6 +664,44 @@ class DjangoPlanVersionRepository:
         return _plan_version_from_model(version)
 
 
+class DjangoMonthlyCandidatePreviewRepository:
+    """Persist and reload server-side candidate previews for page actions."""
+
+    def create(
+        self,
+        *,
+        tenant_id: RecordId,
+        year: int,
+        month: int,
+        result_json: JsonObject,
+    ) -> MonthlyCandidatePreview:
+        persisted = DjangoMonthlyCandidatePreview.objects.create(
+            tenant_id=_parse_record_id(tenant_id, label="tenant_id"),
+            year=year,
+            month=month,
+            result_json=deepcopy(result_json),
+        )
+        return _candidate_preview_from_model(persisted)
+
+    def get_for_scope(
+        self,
+        candidate_id: RecordId,
+        *,
+        tenant_id: RecordId,
+        year: int,
+        month: int,
+    ) -> MonthlyCandidatePreview | None:
+        candidate = DjangoMonthlyCandidatePreview.objects.filter(
+            pk=_parse_record_id(candidate_id, label="candidate_id"),
+            tenant_id=_parse_record_id(tenant_id, label="tenant_id"),
+            year=year,
+            month=month,
+        ).first()
+        if candidate is None:
+            return None
+        return _candidate_preview_from_model(candidate)
+
+
 class DjangoRefineRequestRepository:
     """Persist bounded refine requests and later enrich them with preview data."""
 
@@ -726,6 +779,7 @@ class DjangoRefineRequestRepository:
 __all__ = [
     "DjangoConstraintConfigRepository",
     "DjangoLeaveRequestRepository",
+    "DjangoMonthlyCandidatePreviewRepository",
     "DjangoPlanVersionRepository",
     "DjangoRefineRequestRepository",
     "DjangoShiftRepository",

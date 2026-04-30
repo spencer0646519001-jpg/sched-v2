@@ -11,6 +11,7 @@ from app.infra.django_app.models import (
     ConstraintConfig as DjangoConstraintConfig,
     LeaveRequest as DjangoLeaveRequest,
     MonthlyAssignment as DjangoMonthlyAssignment,
+    MonthlyCandidatePreview as DjangoMonthlyCandidatePreview,
     MonthlyPlanVersion as DjangoMonthlyPlanVersion,
     MonthlyWorkspace as DjangoMonthlyWorkspace,
     RefineRequest as DjangoRefineRequest,
@@ -23,6 +24,7 @@ from app.infra.django_app.models import (
 from app.infra.django_repositories import (
     DjangoConstraintConfigRepository,
     DjangoLeaveRequestRepository,
+    DjangoMonthlyCandidatePreviewRepository,
     DjangoPlanVersionRepository,
     DjangoRefineRequestRepository,
     DjangoShiftRepository,
@@ -35,6 +37,7 @@ from app.infra.django_repositories import (
 
 @pytest.fixture(autouse=True)
 def _clear_scheduler_tables() -> None:
+    DjangoMonthlyCandidatePreview.objects.all().delete()
     DjangoRefineRequest.objects.all().delete()
     DjangoLeaveRequest.objects.all().delete()
     DjangoConstraintConfig.objects.all().delete()
@@ -754,6 +757,60 @@ def test_plan_version_repository_rejects_cross_tenant_workspace_reference() -> N
         )
 
     assert DjangoMonthlyPlanVersion.objects.count() == 0
+
+
+def test_monthly_candidate_preview_repository_scopes_preview_results_by_month() -> None:
+    tenant = DjangoTenant.objects.create(
+        slug="tenant-a",
+        name="Tenant A",
+        default_locale="en-US",
+    )
+    other_tenant = DjangoTenant.objects.create(
+        slug="tenant-b",
+        name="Tenant B",
+        default_locale="en-US",
+    )
+    repository = DjangoMonthlyCandidatePreviewRepository()
+
+    created = repository.create(
+        tenant_id=str(tenant.id),
+        year=2026,
+        month=4,
+        result_json={"summary": {"total_assignments": 30}},
+    )
+
+    assert created.id is not None
+    assert repository.get_for_scope(
+        created.id,
+        tenant_id=str(tenant.id),
+        year=2026,
+        month=4,
+    ) == infra_models.MonthlyCandidatePreview(
+        id=created.id,
+        tenant_id=str(tenant.id),
+        year=2026,
+        month=4,
+        result_json={"summary": {"total_assignments": 30}},
+        created_at=created.created_at,
+    )
+    assert (
+        repository.get_for_scope(
+            created.id,
+            tenant_id=str(tenant.id),
+            year=2026,
+            month=5,
+        )
+        is None
+    )
+    assert (
+        repository.get_for_scope(
+            created.id,
+            tenant_id=str(other_tenant.id),
+            year=2026,
+            month=4,
+        )
+        is None
+    )
 
 
 def test_refine_request_repository_persists_and_updates_preview_payloads() -> None:
