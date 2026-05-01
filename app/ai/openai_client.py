@@ -25,6 +25,7 @@ _DEFAULT_AUDIO_TRANSCRIPTIONS_BASE_URL = (
     "https://api.openai.com/v1/audio/transcriptions"
 )
 _DEFAULT_MODEL = "gpt-4o-mini"
+_DEFAULT_STRUCTURED_OUTPUT_SCHEMA_NAME = "sched_v2_day_explain"
 _DEFAULT_TRANSCRIPTION_MODEL = "whisper-1"
 
 
@@ -36,6 +37,7 @@ class OpenAIChatCompletionsStructuredOutputClient:
     model: str = _DEFAULT_MODEL
     base_url: str = _DEFAULT_CHAT_COMPLETIONS_BASE_URL
     timeout_seconds: float = 20.0
+    schema_name: str = _DEFAULT_STRUCTURED_OUTPUT_SCHEMA_NAME
 
     def generate_json(
         self,
@@ -54,7 +56,7 @@ class OpenAIChatCompletionsStructuredOutputClient:
             "response_format": {
                 "type": "json_schema",
                 "json_schema": {
-                    "name": "sched_v2_day_explain",
+                    "name": self.schema_name,
                     "strict": True,
                     "schema": json_schema,
                 },
@@ -183,8 +185,15 @@ class OpenAIWhisperAudioTranscriptionClient:
         )
 
 
-def build_structured_output_model_client_from_env():
-    """Create the default structured-output model client for explain flows."""
+def build_structured_output_model_client_from_env(
+    *,
+    model_env_names: tuple[str, ...] = (
+        "SCHED_V2_EXPLAIN_MODEL",
+        "OPENAI_EXPLAIN_MODEL",
+    ),
+    schema_name: str = _DEFAULT_STRUCTURED_OUTPUT_SCHEMA_NAME,
+):
+    """Create the default structured-output model client."""
 
     api_key = os.getenv("OPENAI_API_KEY", "").strip()
     if not api_key:
@@ -192,11 +201,30 @@ def build_structured_output_model_client_from_env():
 
     return OpenAIChatCompletionsStructuredOutputClient(
         api_key=api_key,
-        model=os.getenv("SCHED_V2_EXPLAIN_MODEL", "").strip() or _DEFAULT_MODEL,
+        model=_first_configured_env(model_env_names) or _DEFAULT_MODEL,
         base_url=(
             os.getenv("OPENAI_BASE_URL", "").strip()
             or _DEFAULT_CHAT_COMPLETIONS_BASE_URL
         ),
+        schema_name=schema_name,
+    )
+
+
+def build_explain_model_client_from_env():
+    """Create the structured-output model client for explain flows."""
+
+    return build_structured_output_model_client_from_env(
+        model_env_names=("SCHED_V2_EXPLAIN_MODEL", "OPENAI_EXPLAIN_MODEL"),
+        schema_name="sched_v2_day_explain",
+    )
+
+
+def build_refine_model_client_from_env():
+    """Create the structured-output model client for refine intent parsing."""
+
+    return build_structured_output_model_client_from_env(
+        model_env_names=("OPENAI_REFINE_MODEL", "SCHED_V2_REFINE_MODEL"),
+        schema_name="sched_v2_refine_intent",
     )
 
 
@@ -218,6 +246,14 @@ def build_audio_transcription_client_from_env():
             or _DEFAULT_AUDIO_TRANSCRIPTIONS_BASE_URL
         ),
     )
+
+
+def _first_configured_env(names: tuple[str, ...]) -> str:
+    for name in names:
+        value = os.getenv(name, "").strip()
+        if value:
+            return value
+    return ""
 
 
 def _coerce_message_content(content: object) -> str:
@@ -281,5 +317,7 @@ __all__ = [
     "OpenAIChatCompletionsStructuredOutputClient",
     "OpenAIWhisperAudioTranscriptionClient",
     "build_audio_transcription_client_from_env",
+    "build_explain_model_client_from_env",
+    "build_refine_model_client_from_env",
     "build_structured_output_model_client_from_env",
 ]

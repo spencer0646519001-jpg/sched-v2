@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import json
 from decimal import Decimal
 
 from app.ai.interfaces import ModelUnavailableError
@@ -138,6 +139,10 @@ def test_langgraph_day_explain_workflow_uses_model_for_supported_request() -> No
     assert response.explanation.fallback_used is False
     assert response.explanation.headline == "Warnings for 2026-04-01"
     assert len(model_client.calls) == 1
+    model_prompt = json.loads(str(model_client.calls[0]["user_prompt"]))
+    assert model_prompt["requirements"]["must_use_context_only"] is True
+    assert model_prompt["context_facts"]["target_date"] == "2026-04-01"
+    assert model_prompt["context_facts"]["source_mode"] == "candidate_preview"
 
 
 def test_langgraph_day_explain_workflow_falls_back_when_model_is_unavailable() -> None:
@@ -160,6 +165,32 @@ def test_langgraph_day_explain_workflow_falls_back_when_model_is_unavailable() -
     assert response.explanation.model_used is False
     assert response.explanation.fallback_used is True
     assert response.explanation.sections
+    assert response.parsed_request_json["fallback_used"] is True
+
+
+def test_langgraph_day_explain_workflow_falls_back_on_malformed_model_output() -> None:
+    ctx = _sample_context()
+    workflow = LangGraphDayExplainWorkflow(
+        model_client=_RecordingModelClient(
+            payload={
+                "headline": "",
+                "sections": [],
+            }
+        )
+    )
+
+    response = workflow(
+        _workflow_request(
+            ctx,
+            request_text="What warnings exist for 4/1?",
+            response_language_hint="en",
+        )
+    )
+
+    assert response.outcome.status == "ready"
+    assert response.explanation is not None
+    assert response.explanation.model_used is False
+    assert response.explanation.fallback_used is True
     assert response.parsed_request_json["fallback_used"] is True
 
 

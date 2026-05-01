@@ -10,6 +10,7 @@ This slice intentionally stays small:
 
 from __future__ import annotations
 
+import json
 import re
 from dataclasses import dataclass
 from datetime import date
@@ -18,6 +19,8 @@ from typing import Any
 from langgraph.graph import END, START, StateGraph
 from typing_extensions import TypedDict
 
+from app.ai.interfaces import ModelUnavailableError, StructuredOutputModelClient
+from app.ai.noop_client import NoopStructuredOutputModelClient
 from app.engine.contracts import (
     AssignmentPatchInput,
     MonthPlanningResult,
@@ -79,6 +82,48 @@ _MONTH_DAY_KANJI_PATTERN = re.compile(
     r"(?P<month>\d{1,2})\u6708(?P<day>\d{1,2})(?:\u65e5|\u53f7)"
 )
 _MONTH_DAY_SLASH_PATTERN = re.compile(r"(?P<month>\d{1,2})/(?P<day>\d{1,2})")
+_MODEL_INTENT_JSON_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "additionalProperties": False,
+    "properties": {
+        "request_language": {
+            "type": "string",
+            "enum": ["en", "zh", "ja", "unknown"],
+        },
+        "intent_status": {
+            "type": "string",
+            "enum": ["supported", "ambiguous", "unsupported"],
+        },
+        "intent_type": {
+            "type": ["string", "null"],
+            "enum": ["set_assignment", "remove_assignment", None],
+        },
+        "date": {
+            "type": ["string", "null"],
+            "description": "ISO date inside the selected month, or null.",
+        },
+        "worker_code": {"type": ["string", "null"]},
+        "shift_code": {"type": ["string", "null"]},
+        "station_code": {"type": ["string", "null"]},
+        "reason_code": {
+            "type": ["string", "null"],
+            "description": "Reason when the request is ambiguous or unsupported.",
+        },
+    },
+    "required": [
+        "request_language",
+        "intent_status",
+        "intent_type",
+        "date",
+        "worker_code",
+        "shift_code",
+        "station_code",
+        "reason_code",
+    ],
+}
+_MODEL_INTENT_ALLOWED_KEYS = set(_MODEL_INTENT_JSON_SCHEMA["properties"])
+_SUPPORTED_MODEL_LANGUAGES = {"en", "zh", "ja", "unknown"}
+_SUPPORTED_INTENT_TYPES = {"set_assignment", "remove_assignment"}
 
 
 class RefineGraphState(TypedDict, total=False):
@@ -94,6 +139,8 @@ class RefineGraphState(TypedDict, total=False):
     parsed_intent_json: dict[str, Any]
     candidate_result: MonthPlanningResult | None
     preview_executed: bool
+    model_used: bool
+    fallback_used: bool
 
 
 @dataclass(frozen=True, slots=True)
@@ -106,8 +153,14 @@ class _AliasEntry:
 class LangGraphRefineWorkflow:
     """Tiny compiled LangGraph workflow for bounded bilingual refine preview."""
 
-    def __init__(self, *, engine_runner: MonthlyScheduleRefineEngine) -> None:
+    def __init__(
+        self,
+        *,
+        engine_runner: MonthlyScheduleRefineEngine,
+        model_client: StructuredOutputModelClient | None = None,
+    ) -> None:
         self._engine_runner = engine_runner
+        self._model_client = model_client or NoopStructuredOutputModelClient()
         builder = StateGraph(RefineGraphState)
         builder.add_node("detect_language", self._detect_language)
         builder.add_node("normalize_intent", self._normalize_intent)
@@ -136,6 +189,8 @@ class LangGraphRefineWorkflow:
                 outcome=outcome,
                 adjustment_patch=final_state.get("adjustment_patch"),
                 preview_executed=bool(final_state.get("preview_executed")),
+                model_used=bool(final_state.get("model_used")),
+                fallback_used=bool(final_state.get("fallback_used")),
             )
         )
         return RefineWorkflowResult(
@@ -153,6 +208,13 @@ class LangGraphRefineWorkflow:
     def _normalize_intent(self, state: RefineGraphState) -> dict[str, object]:
         request = state["workflow_request"]
         request_language = state.get("request_language", "unknown")
+        model_state, fallback_used = self._normalize_intent_with_model(
+            request=request,
+            fallback_language=request_language,
+        )
+        if model_state is not None:
+            return model_state
+
         if request_language not in {"zh", "ja"}:
             outcome = _build_outcome(
                 request_language,
@@ -168,7 +230,9 @@ class LangGraphRefineWorkflow:
                     intent_status="unsupported",
                     outcome=outcome,
                     preview_executed=False,
+                    fallback_used=fallback_used,
                 ),
+                "fallback_used": fallback_used,
             }
 
         intent_type = _detect_intent_type(request.request_text, request_language)
@@ -187,7 +251,9 @@ class LangGraphRefineWorkflow:
                     intent_status="unsupported",
                     outcome=outcome,
                     preview_executed=False,
+                    fallback_used=fallback_used,
                 ),
+                "fallback_used": fallback_used,
             }
 
         parsed_date = _parse_request_date(
@@ -200,6 +266,7 @@ class LangGraphRefineWorkflow:
                 request_language,
                 reason_code="date_required",
                 intent_type=intent_type,
+                fallback_used=fallback_used,
             )
 
         worker_code = _resolve_worker_code(
@@ -211,6 +278,7 @@ class LangGraphRefineWorkflow:
                 request_language,
                 reason_code="worker_required",
                 intent_type=intent_type,
+                fallback_used=fallback_used,
             )
 
         if intent_type == "remove_assignment":
@@ -230,6 +298,7 @@ class LangGraphRefineWorkflow:
                         note="langgraph_refine_preview",
                     )
                 ],
+                "fallback_used": fallback_used,
             }
 
         shift_code = _resolve_shift_code(
@@ -241,6 +310,7 @@ class LangGraphRefineWorkflow:
                 request_language,
                 reason_code="shift_required",
                 intent_type=intent_type,
+                fallback_used=fallback_used,
             )
 
         station_code = _resolve_station_code(
@@ -252,6 +322,7 @@ class LangGraphRefineWorkflow:
                 request_language,
                 reason_code="station_required",
                 intent_type=intent_type,
+                fallback_used=fallback_used,
             )
 
         canonical_intent = {
@@ -274,7 +345,31 @@ class LangGraphRefineWorkflow:
                     note="langgraph_refine_preview",
                 )
             ],
+            "fallback_used": fallback_used,
         }
+
+    def _normalize_intent_with_model(
+        self,
+        *,
+        request: RefineWorkflowRequest,
+        fallback_language: str,
+    ) -> tuple[dict[str, object] | None, bool]:
+        try:
+            model_payload = self._model_client.generate_json(
+                system_prompt=_build_model_system_prompt(),
+                user_prompt=_build_model_user_prompt(request),
+                json_schema=_MODEL_INTENT_JSON_SCHEMA,
+            )
+            model_state = _coerce_model_intent_state(
+                model_payload,
+                request=request,
+                fallback_language=fallback_language,
+            )
+            if model_state.get("intent_status") == "supported":
+                return model_state, False
+            return None, True
+        except (ModelUnavailableError, ValueError):
+            return None, True
 
     def _run_preview_if_supported(self, state: RefineGraphState) -> dict[str, object]:
         request = state["workflow_request"]
@@ -290,9 +385,13 @@ class LangGraphRefineWorkflow:
                 status="unsupported",
                 message_key="refine_unsupported_intent",
             )
+            model_used = bool(state.get("model_used"))
+            fallback_used = bool(state.get("fallback_used"))
             return {
                 "outcome": outcome,
                 "preview_executed": False,
+                "model_used": model_used,
+                "fallback_used": fallback_used,
                 "parsed_intent_json": _build_parsed_intent_json(
                     request_language=request_language,
                     intent_status=intent_status,
@@ -301,6 +400,8 @@ class LangGraphRefineWorkflow:
                     outcome=outcome,
                     adjustment_patch=adjustment_patch,
                     preview_executed=False,
+                    model_used=model_used,
+                    fallback_used=fallback_used,
                 ),
             }
 
@@ -321,10 +422,14 @@ class LangGraphRefineWorkflow:
             ),
             message_values=canonical_intent,
         )
+        model_used = bool(state.get("model_used"))
+        fallback_used = bool(state.get("fallback_used"))
         return {
             "candidate_result": candidate_result,
             "outcome": outcome,
             "preview_executed": True,
+            "model_used": model_used,
+            "fallback_used": fallback_used,
             "parsed_intent_json": _build_parsed_intent_json(
                 request_language=request_language,
                 intent_status="supported",
@@ -333,6 +438,8 @@ class LangGraphRefineWorkflow:
                 outcome=outcome,
                 adjustment_patch=adjustment_patch,
                 preview_executed=True,
+                model_used=model_used,
+                fallback_used=fallback_used,
             ),
         }
 
@@ -361,11 +468,16 @@ def _build_parsed_intent_json(
     outcome: RefineOutcome,
     adjustment_patch: list[AssignmentPatchInput] | None = None,
     preview_executed: bool,
+    reason_code: str | None = None,
+    model_used: bool = False,
+    fallback_used: bool = False,
 ) -> dict[str, object]:
     payload: dict[str, object] = {
         "request_language": request_language,
         "intent_status": intent_status,
         "preview_executed": preview_executed,
+        "model_used": model_used,
+        "fallback_used": fallback_used,
         "outcome": {
             "language": outcome.language,
             "status": outcome.status,
@@ -373,6 +485,8 @@ def _build_parsed_intent_json(
             "message_values": dict(outcome.message_values),
         },
     }
+    if reason_code is not None:
+        payload["reason_code"] = reason_code
     if intent_type is not None:
         payload["intent_type"] = intent_type
     if canonical_intent is not None:
@@ -397,6 +511,8 @@ def _ambiguous_state(
     *,
     reason_code: str,
     intent_type: str | None = None,
+    model_used: bool = False,
+    fallback_used: bool = False,
 ) -> dict[str, object]:
     outcome = _build_outcome(
         language,
@@ -409,14 +525,311 @@ def _ambiguous_state(
         "intent_type": intent_type,
         "outcome": outcome,
         "preview_executed": False,
+        "model_used": model_used,
+        "fallback_used": fallback_used,
         "parsed_intent_json": _build_parsed_intent_json(
             request_language=language,
             intent_status="ambiguous",
             intent_type=intent_type,
+            reason_code=reason_code,
             outcome=outcome,
             preview_executed=False,
+            model_used=model_used,
+            fallback_used=fallback_used,
         ),
     }
+
+
+def _build_model_system_prompt() -> str:
+    return (
+        "Interpret one restaurant monthly-schedule refine request into bounded JSON. "
+        "Use only the provided worker, shift, station, and month context. "
+        "Return supported only for one set_assignment or remove_assignment intent. "
+        "If any required date, worker, shift, or station is missing or ambiguous, "
+        "return ambiguous. If the request is not a scheduling refine request, "
+        "return unsupported. Never apply, save, or mutate a schedule."
+    )
+
+
+def _build_model_user_prompt(request: RefineWorkflowRequest) -> str:
+    planning_input = request.planning_input
+    return json.dumps(
+        {
+            "task": "interpret_month_refine_request",
+            "tenant_slug": request.tenant_slug,
+            "selected_month": f"{request.year:04d}-{request.month:02d}",
+            "request_text": request.request_text,
+            "allowed_intent_types": [
+                "set_assignment",
+                "remove_assignment",
+            ],
+            "requirements": {
+                "date_must_be_inside_selected_month": True,
+                "use_only_listed_codes": True,
+                "return_exactly_one_intent": True,
+                "do_not_apply_or_save": True,
+                "set_assignment_requires": [
+                    "date",
+                    "worker_code",
+                    "shift_code",
+                    "station_code",
+                ],
+                "remove_assignment_requires": ["date", "worker_code"],
+            },
+            "workers": [
+                {
+                    "worker_code": worker.worker_code,
+                    "name": worker.name,
+                    "role": worker.role,
+                    "aliases": _collect_prompt_aliases(worker.metadata_json),
+                }
+                for worker in planning_input.workers
+            ],
+            "shifts": [
+                {
+                    "shift_code": shift.shift_code,
+                    "name": shift.name,
+                    "is_off_shift": shift.is_off_shift,
+                    "aliases": _collect_prompt_aliases(shift.metadata_json),
+                }
+                for shift in planning_input.shifts
+            ],
+            "stations": [
+                {
+                    "station_code": station.station_code,
+                    "name": station.name,
+                    "is_active": station.is_active,
+                    "aliases": _collect_prompt_aliases(station.metadata_json),
+                }
+                for station in planning_input.stations
+            ],
+        },
+        ensure_ascii=False,
+        sort_keys=True,
+    )
+
+
+def _collect_prompt_aliases(metadata_json: dict[str, object] | None) -> list[str]:
+    if not isinstance(metadata_json, dict):
+        return []
+
+    aliases: list[str] = []
+    raw_aliases = metadata_json.get("aliases")
+    if isinstance(raw_aliases, list):
+        aliases.extend(
+            alias.strip()
+            for alias in raw_aliases
+            if isinstance(alias, str) and alias.strip()
+        )
+
+    localized_aliases = metadata_json.get("localized_aliases")
+    if isinstance(localized_aliases, dict):
+        for raw_values in localized_aliases.values():
+            if not isinstance(raw_values, list):
+                continue
+            aliases.extend(
+                alias.strip()
+                for alias in raw_values
+                if isinstance(alias, str) and alias.strip()
+            )
+    return sorted(set(aliases))
+
+
+def _coerce_model_intent_state(
+    payload: dict[str, Any],
+    *,
+    request: RefineWorkflowRequest,
+    fallback_language: str,
+) -> dict[str, object]:
+    if not isinstance(payload, dict):
+        raise ValueError("Structured refine payload must be a JSON object.")
+
+    unexpected_keys = set(payload) - _MODEL_INTENT_ALLOWED_KEYS
+    if unexpected_keys:
+        raise ValueError("Structured refine payload contained unsupported keys.")
+
+    request_language = _coerce_model_language(
+        payload.get("request_language"),
+        fallback_language=fallback_language,
+    )
+    intent_status = _coerce_required_model_text(
+        payload.get("intent_status"),
+        label="intent_status",
+    )
+    if intent_status not in {"supported", "ambiguous", "unsupported"}:
+        raise ValueError("Structured refine payload contained an invalid status.")
+
+    raw_intent_type = payload.get("intent_type")
+    intent_type = _coerce_optional_model_text(raw_intent_type, label="intent_type")
+    if intent_type is not None and intent_type not in _SUPPORTED_INTENT_TYPES:
+        raise ValueError("Structured refine payload contained an invalid intent type.")
+
+    reason_code = (
+        _coerce_optional_model_text(payload.get("reason_code"), label="reason_code")
+        or "ambiguous_reference"
+    )
+
+    if intent_status == "unsupported":
+        outcome = _build_outcome(
+            request_language,
+            status="unsupported",
+            message_key=(
+                "refine_unsupported_language"
+                if reason_code == "unsupported_language"
+                else "refine_unsupported_intent"
+            ),
+            message_values={"reason_code": reason_code},
+        )
+        return {
+            "request_language": request_language,
+            "intent_status": "unsupported",
+            "intent_type": intent_type,
+            "outcome": outcome,
+            "preview_executed": False,
+            "model_used": True,
+            "fallback_used": False,
+            "parsed_intent_json": _build_parsed_intent_json(
+                request_language=request_language,
+                intent_status="unsupported",
+                intent_type=intent_type,
+                reason_code=reason_code,
+                outcome=outcome,
+                preview_executed=False,
+                model_used=True,
+                fallback_used=False,
+            ),
+        }
+
+    if intent_status == "ambiguous":
+        return _ambiguous_state(
+            request_language,
+            reason_code=reason_code,
+            intent_type=intent_type,
+            model_used=True,
+            fallback_used=False,
+        )
+
+    if intent_type is None:
+        raise ValueError("Supported refine payload requires an intent type.")
+
+    parsed_date = _coerce_model_date(
+        payload.get("date"),
+        year=request.year,
+        month=request.month,
+    )
+    worker_code = _resolve_model_code(
+        payload.get("worker_code"),
+        allowed_codes=[worker.worker_code for worker in request.planning_input.workers],
+        label="worker_code",
+    )
+
+    if intent_type == "remove_assignment":
+        canonical_intent = {
+            "date": parsed_date.isoformat(),
+            "worker_code": worker_code,
+        }
+        adjustment_patch = [
+            AssignmentPatchInput(
+                operation="remove",
+                date=parsed_date,
+                worker_code=worker_code,
+                note="langgraph_refine_preview",
+            )
+        ]
+    else:
+        shift_code = _resolve_model_code(
+            payload.get("shift_code"),
+            allowed_codes=[
+                shift.shift_code
+                for shift in request.planning_input.shifts
+            ],
+            label="shift_code",
+        )
+        station_code = _resolve_model_code(
+            payload.get("station_code"),
+            allowed_codes=[
+                station.station_code
+                for station in request.planning_input.stations
+            ],
+            label="station_code",
+        )
+        canonical_intent = {
+            "date": parsed_date.isoformat(),
+            "worker_code": worker_code,
+            "shift_code": shift_code,
+            "station_code": station_code,
+        }
+        adjustment_patch = [
+            AssignmentPatchInput(
+                operation="set",
+                date=parsed_date,
+                worker_code=worker_code,
+                shift_code=shift_code,
+                station_code=station_code,
+                note="langgraph_refine_preview",
+            )
+        ]
+
+    return {
+        "request_language": request_language,
+        "intent_status": "supported",
+        "intent_type": intent_type,
+        "canonical_intent": canonical_intent,
+        "adjustment_patch": adjustment_patch,
+        "model_used": True,
+        "fallback_used": False,
+    }
+
+
+def _coerce_model_language(value: object, *, fallback_language: str) -> str:
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in _SUPPORTED_MODEL_LANGUAGES:
+            return normalized
+    if fallback_language in _SUPPORTED_MODEL_LANGUAGES:
+        return fallback_language
+    return "unknown"
+
+
+def _coerce_required_model_text(value: object, *, label: str) -> str:
+    text = _coerce_optional_model_text(value, label=label)
+    if text is None:
+        raise ValueError(f"Structured refine payload requires {label}.")
+    return text
+
+
+def _coerce_optional_model_text(value: object, *, label: str) -> str | None:
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise ValueError(f"Structured refine payload {label} must be a string.")
+    normalized = value.strip()
+    return normalized or None
+
+
+def _coerce_model_date(value: object, *, year: int, month: int) -> date:
+    date_text = _coerce_required_model_text(value, label="date")
+    try:
+        parsed_date = date.fromisoformat(date_text)
+    except ValueError as exc:
+        raise ValueError("Structured refine payload date must be ISO formatted.") from exc
+    if parsed_date.year != year or parsed_date.month != month:
+        raise ValueError("Structured refine payload date must stay in scope.")
+    return parsed_date
+
+
+def _resolve_model_code(
+    value: object,
+    *,
+    allowed_codes: list[str],
+    label: str,
+) -> str:
+    code_text = _coerce_required_model_text(value, label=label)
+    allowed_by_key = {code.casefold(): code for code in allowed_codes if code}
+    resolved_code = allowed_by_key.get(code_text.casefold())
+    if resolved_code is None:
+        raise ValueError(f"Structured refine payload has unknown {label}.")
+    return resolved_code
 
 
 def _detect_request_language(request_text: str) -> str:

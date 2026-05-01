@@ -4,10 +4,83 @@ import json
 
 from app.ai.interfaces import AudioTranscriptionRequest
 from app.ai.noop_client import NoopAudioTranscriptionClient
+from app.ai.noop_client import NoopStructuredOutputModelClient
 from app.ai.openai_client import (
+    OpenAIChatCompletionsStructuredOutputClient,
     OpenAIWhisperAudioTranscriptionClient,
     build_audio_transcription_client_from_env,
+    build_explain_model_client_from_env,
+    build_refine_model_client_from_env,
 )
+
+
+def test_openai_structured_output_client_posts_schema_and_parses_response(
+    monkeypatch,
+) -> None:
+    captured: dict[str, object] = {}
+
+    class _FakeHttpResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb) -> None:
+            del exc_type, exc, tb
+
+        def read(self) -> bytes:
+            return json.dumps(
+                {
+                    "choices": [
+                        {
+                            "message": {
+                                "content": json.dumps(
+                                    {
+                                        "intent_status": "supported",
+                                        "worker_code": "W1",
+                                    }
+                                )
+                            }
+                        }
+                    ]
+                }
+            ).encode("utf-8")
+
+    def _fake_urlopen(http_request, timeout):
+        captured["url"] = http_request.full_url
+        captured["method"] = http_request.get_method()
+        captured["timeout"] = timeout
+        captured["body"] = bytes(http_request.data or b"")
+        return _FakeHttpResponse()
+
+    monkeypatch.setattr("urllib.request.urlopen", _fake_urlopen)
+
+    client = OpenAIChatCompletionsStructuredOutputClient(
+        api_key="test-key",
+        model="gpt-test",
+        schema_name="sched_v2_refine_intent",
+    )
+
+    result = client.generate_json(
+        system_prompt="System prompt",
+        user_prompt="User prompt",
+        json_schema={
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {
+                "intent_status": {"type": "string"},
+                "worker_code": {"type": "string"},
+            },
+            "required": ["intent_status", "worker_code"],
+        },
+    )
+
+    body = json.loads(bytes(captured["body"]).decode("utf-8"))
+    assert captured["url"] == "https://api.openai.com/v1/chat/completions"
+    assert captured["method"] == "POST"
+    assert captured["timeout"] == 20.0
+    assert body["model"] == "gpt-test"
+    assert body["response_format"]["json_schema"]["name"] == "sched_v2_refine_intent"
+    assert body["response_format"]["json_schema"]["strict"] is True
+    assert result == {"intent_status": "supported", "worker_code": "W1"}
 
 
 def test_openai_whisper_transcription_client_posts_multipart_and_parses_response(
@@ -83,3 +156,25 @@ def test_build_audio_transcription_client_from_env_returns_noop_when_api_key_mis
     client = build_audio_transcription_client_from_env()
 
     assert isinstance(client, NoopAudioTranscriptionClient)
+
+
+def test_build_explain_model_client_from_env_returns_noop_when_api_key_missing(
+    monkeypatch,
+) -> None:
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+
+    client = build_explain_model_client_from_env()
+
+    assert isinstance(client, NoopStructuredOutputModelClient)
+
+
+def test_build_refine_model_client_from_env_uses_refine_model_env(monkeypatch) -> None:
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    monkeypatch.setenv("OPENAI_REFINE_MODEL", "gpt-refine-test")
+    monkeypatch.delenv("SCHED_V2_REFINE_MODEL", raising=False)
+
+    client = build_refine_model_client_from_env()
+
+    assert isinstance(client, OpenAIChatCompletionsStructuredOutputClient)
+    assert client.model == "gpt-refine-test"
+    assert client.schema_name == "sched_v2_refine_intent"

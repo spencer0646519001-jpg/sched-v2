@@ -3,6 +3,7 @@ from __future__ import annotations
 import datetime as dt
 from decimal import Decimal
 
+from app.ai.noop_client import NoopStructuredOutputModelClient
 from app.engine.contracts import (
     AssignmentOutput,
     MonthPlanningInput,
@@ -61,6 +62,198 @@ def test_langgraph_refine_workflow_supports_bounded_zh_set_preview() -> None:
     assert len(engine.requests) == 1
     assert engine.requests[0].adjustment_patch is not None
     assert engine.requests[0].adjustment_patch[0].shift_code == "EVE"
+
+
+def test_langgraph_refine_workflow_uses_model_intent_for_candidate_preview() -> None:
+    engine = _RecordingEngine()
+    model_client = _RecordingModelClient(
+        payload={
+            "request_language": "en",
+            "intent_status": "supported",
+            "intent_type": "set_assignment",
+            "date": "2026-04-01",
+            "worker_code": "W1",
+            "shift_code": "EVE",
+            "station_code": "GRILL",
+            "reason_code": None,
+        }
+    )
+    workflow = LangGraphRefineWorkflow(
+        engine_runner=engine,
+        model_client=model_client,
+    )
+
+    response = workflow(
+        RefineWorkflowRequest(
+            tenant_slug="tenant-a",
+            year=2026,
+            month=4,
+            workspace_id="workspace-1",
+            request_text="Please put Spencer on April 1 evening grill.",
+            planning_input=_build_planning_input(),
+        )
+    )
+
+    assert response.request_language == "en"
+    assert response.outcome.status == "preview_ready"
+    assert response.parsed_intent_json["model_used"] is True
+    assert response.parsed_intent_json["fallback_used"] is False
+    assert response.parsed_intent_json["canonical_intent"] == {
+        "date": "2026-04-01",
+        "worker_code": "W1",
+        "shift_code": "EVE",
+        "station_code": "GRILL",
+    }
+    assert response.candidate_result is not None
+    assert len(model_client.calls) == 1
+    assert len(engine.requests) == 1
+    assert engine.requests[0].adjustment_patch is not None
+    assert engine.requests[0].adjustment_patch[0].operation == "set"
+
+
+def test_langgraph_refine_workflow_noop_model_falls_back_locally() -> None:
+    engine = _RecordingEngine()
+    workflow = LangGraphRefineWorkflow(
+        engine_runner=engine,
+        model_client=NoopStructuredOutputModelClient(),
+    )
+
+    response = workflow(
+        RefineWorkflowRequest(
+            tenant_slug="tenant-a",
+            year=2026,
+            month=4,
+            workspace_id="workspace-1",
+            request_text=(
+                "\u8bf7\u628a W1 \u5b89\u6392\u5230 2026-04-01 "
+                "\u7684 EVE \u5728 GRILL"
+            ),
+            planning_input=_build_planning_input(),
+        )
+    )
+
+    assert response.outcome.status == "preview_ready"
+    assert response.parsed_intent_json["model_used"] is False
+    assert response.parsed_intent_json["fallback_used"] is True
+    assert response.candidate_result is not None
+    assert len(engine.requests) == 1
+
+
+def test_langgraph_refine_workflow_model_unsupported_preserves_local_fallback() -> None:
+    engine = _RecordingEngine()
+    model_client = _RecordingModelClient(
+        payload={
+            "request_language": "ja",
+            "intent_status": "unsupported",
+            "intent_type": None,
+            "date": None,
+            "worker_code": None,
+            "shift_code": None,
+            "station_code": None,
+            "reason_code": "unsupported_request",
+        }
+    )
+    workflow = LangGraphRefineWorkflow(
+        engine_runner=engine,
+        model_client=model_client,
+    )
+
+    response = workflow(
+        RefineWorkflowRequest(
+            tenant_slug="tenant-a",
+            year=2026,
+            month=4,
+            workspace_id="workspace-1",
+            request_text="2026-04-01 \u306e W1 \u3092 EVE \u306b\u3057\u3066 GRILL",
+            planning_input=_build_planning_input(),
+        )
+    )
+
+    assert response.request_language == "ja"
+    assert response.outcome.status == "preview_ready"
+    assert response.parsed_intent_json["model_used"] is False
+    assert response.parsed_intent_json["fallback_used"] is True
+    assert response.candidate_result is not None
+    assert len(model_client.calls) == 1
+    assert len(engine.requests) == 1
+    assert engine.requests[0].adjustment_patch is not None
+    assert engine.requests[0].adjustment_patch[0].shift_code == "EVE"
+
+
+def test_langgraph_refine_workflow_rejects_malformed_model_output_safely() -> None:
+    engine = _RecordingEngine()
+    model_client = _RecordingModelClient(
+        payload={
+            "request_language": "en",
+            "intent_status": "supported",
+            "intent_type": "set_assignment",
+            "date": "2026-05-01",
+            "worker_code": "W1",
+            "shift_code": "EVE",
+            "station_code": "GRILL",
+            "reason_code": None,
+        }
+    )
+    workflow = LangGraphRefineWorkflow(
+        engine_runner=engine,
+        model_client=model_client,
+    )
+
+    response = workflow(
+        RefineWorkflowRequest(
+            tenant_slug="tenant-a",
+            year=2026,
+            month=4,
+            workspace_id="workspace-1",
+            request_text="Please put Spencer on May 1 evening grill.",
+            planning_input=_build_planning_input(),
+        )
+    )
+
+    assert response.outcome.status == "unsupported"
+    assert response.candidate_result is None
+    assert response.parsed_intent_json["model_used"] is False
+    assert response.parsed_intent_json["fallback_used"] is True
+    assert len(model_client.calls) == 1
+    assert engine.requests == []
+
+
+def test_langgraph_refine_workflow_rejects_model_direct_apply_save_fields() -> None:
+    engine = _RecordingEngine()
+    model_client = _RecordingModelClient(
+        payload={
+            "request_language": "en",
+            "intent_status": "supported",
+            "intent_type": "set_assignment",
+            "date": "2026-04-01",
+            "worker_code": "W1",
+            "shift_code": "EVE",
+            "station_code": "GRILL",
+            "reason_code": None,
+            "apply": True,
+            "save": True,
+        }
+    )
+    workflow = LangGraphRefineWorkflow(
+        engine_runner=engine,
+        model_client=model_client,
+    )
+
+    response = workflow(
+        RefineWorkflowRequest(
+            tenant_slug="tenant-a",
+            year=2026,
+            month=4,
+            workspace_id="workspace-1",
+            request_text="Apply and save Spencer on April 1 evening grill.",
+            planning_input=_build_planning_input(),
+        )
+    )
+
+    assert response.outcome.status == "unsupported"
+    assert response.candidate_result is None
+    assert response.parsed_intent_json["fallback_used"] is True
+    assert engine.requests == []
 
 
 def test_langgraph_refine_workflow_supports_bounded_ja_remove_preview() -> None:
@@ -148,6 +341,28 @@ class _RecordingEngine:
     def __call__(self, planning_input: MonthPlanningInput) -> MonthPlanningResult:
         self.requests.append(planning_input)
         return _build_result()
+
+
+class _RecordingModelClient:
+    def __init__(self, *, payload: dict[str, object]) -> None:
+        self.payload = payload
+        self.calls: list[dict[str, object]] = []
+
+    def generate_json(
+        self,
+        *,
+        system_prompt: str,
+        user_prompt: str,
+        json_schema: dict[str, object],
+    ) -> dict[str, object]:
+        self.calls.append(
+            {
+                "system_prompt": system_prompt,
+                "user_prompt": user_prompt,
+                "json_schema": json_schema,
+            }
+        )
+        return dict(self.payload)
 
 
 def _build_planning_input() -> MonthPlanningInput:

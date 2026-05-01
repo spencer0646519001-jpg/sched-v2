@@ -45,3 +45,18 @@ rewrite.
    `.\.venv\Scripts\python manage.py runserver`
 4. Open:
    `http://127.0.0.1:8000/v2/monthly-workspace?tenant_slug=demo-restaurant&month_scope=2026-04`
+
+## Optional Model Configuration
+
+Refine and explain run locally without a model key. When `OPENAI_API_KEY` is
+absent, the structured model client is a noop and the bounded deterministic
+fallback paths continue to work.
+
+To enable real structured model calls for local review, set:
+
+- `OPENAI_API_KEY`
+- `OPENAI_REFINE_MODEL` or `SCHED_V2_REFINE_MODEL` for refine intent parsing, optional
+- `SCHED_V2_EXPLAIN_MODEL` or `OPENAI_EXPLAIN_MODEL` for day explanations, optional
+- `OPENAI_BASE_URL` for an OpenAI-compatible chat completions endpoint, optional
+
+Tests use fake/noop clients and must not call the real OpenAI API.

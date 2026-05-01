@@ -31,7 +31,8 @@ from app.ai.interfaces import (
 )
 from app.ai.openai_client import (
     build_audio_transcription_client_from_env,
-    build_structured_output_model_client_from_env,
+    build_explain_model_client_from_env,
+    build_refine_model_client_from_env,
 )
 from app.api.monthly_workspace_copy import (
     MONTHLY_WORKSPACE_UI_LANGUAGE_LABELS,
@@ -538,7 +539,7 @@ def _build_page_dependencies(
             constraint_config_repository=constraint_config_repository,
             workspace_repository=workspace_repository,
             workflow=LangGraphDayExplainWorkflow(
-                model_client=build_structured_output_model_client_from_env()
+                model_client=build_explain_model_client_from_env()
             ),
         ),
         refine_service=RefineMonthScheduleService(
@@ -551,7 +552,8 @@ def _build_page_dependencies(
             workspace_repository=workspace_repository,
             refine_request_repository=DjangoRefineRequestRepository(),
             workflow=LangGraphRefineWorkflow(
-                engine_runner=resolved_preview_engine
+                engine_runner=resolved_preview_engine,
+                model_client=build_refine_model_client_from_env(),
             ),
         ),
         export_service=ExportMonthScheduleService(

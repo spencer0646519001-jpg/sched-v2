@@ -18,7 +18,10 @@ from app.api.django_workspace import build_django_monthly_workspace_urlpatterns
 from app.api.django_urls import build_monthly_schedule_urlpatterns
 from app.api.routes import MonthlyScheduleRoutes, build_month_schedule_routes
 from app.ai.interfaces import AudioTranscriptionClient
-from app.ai.openai_client import build_structured_output_model_client_from_env
+from app.ai.openai_client import (
+    build_explain_model_client_from_env,
+    build_refine_model_client_from_env,
+)
 from app.engine.monthly import generate_month_plan
 from app.infra.django_repositories import (
     DjangoConstraintConfigRepository,
@@ -92,7 +95,7 @@ def build_django_monthly_schedule_routes(
             constraint_config_repository=constraint_config_repository,
             workspace_repository=workspace_repository,
             workflow=LangGraphDayExplainWorkflow(
-                model_client=build_structured_output_model_client_from_env()
+                model_client=build_explain_model_client_from_env()
             ),
         ),
         refine_service=RefineMonthScheduleService(
@@ -105,7 +108,8 @@ def build_django_monthly_schedule_routes(
             workspace_repository=workspace_repository,
             refine_request_repository=DjangoRefineRequestRepository(),
             workflow=LangGraphRefineWorkflow(
-                engine_runner=resolved_preview_engine
+                engine_runner=resolved_preview_engine,
+                model_client=build_refine_model_client_from_env(),
             ),
         ),
         export_service=ExportMonthScheduleService(
