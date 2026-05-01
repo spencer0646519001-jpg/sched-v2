@@ -61,6 +61,22 @@ _REFINE_OUTCOME_TEMPLATES: dict[str, dict[str, str]] = {
         "refine_unsupported_intent": (
             "\u6682\u4e0d\u652f\u6301\u8fd9\u7c7b\u8c03\u6574\u8bf7\u6c42\u3002"
         ),
+        "refine_understood_but_not_executable": (
+            "\u6211\u7406\u89e3\u8fd9\u662f\u6392\u73ed\u8bf7\u6c42"
+            "\uff08{intent_label}\uff09\uff0c\u4f46\u76ee\u524d\u8fd9\u4e2a"
+            "\u8c03\u6574\u6d41\u7a0b\u53ea\u652f\u6301\u5355\u65e5\u7f16\u8f91\u3002"
+            "\u8bf7\u5c1d\u8bd5\u8f93\u5165\u5177\u4f53\u8c03\u6574\uff0c\u4f8b\u5982\uff1a"
+            "{suggestion}"
+        ),
+        "refine_non_scheduling_request": (
+            "\u8fd9\u4e2a\u52a9\u624b\u53ea\u5904\u7406\u6392\u73ed\u8c03\u6574\u3002"
+            "\u8bf7\u8f93\u5165\u4e0e\u6392\u73ed\u76f8\u5173\u7684\u8bf7\u6c42\u3002"
+        ),
+        "refine_ambiguous_missing_information": (
+            "\u6211\u9700\u8981\u66f4\u591a\u8d44\u8baf\u624d\u80fd\u5b89\u5168"
+            "\u751f\u6210\u9884\u89c8\u3002\u8bf7\u8865\u5145\uff1a"
+            "{missing_fields}\u3002"
+        ),
         "refine_ambiguous_reference": (
             "\u65e0\u6cd5\u5b89\u5168\u89e3\u6790\u8fd9\u6761\u8c03\u6574\u8bf7\u6c42\u3002"
         ),
@@ -82,6 +98,25 @@ _REFINE_OUTCOME_TEMPLATES: dict[str, dict[str, str]] = {
             "\u3053\u306e\u8abf\u6574\u4f9d\u983c\u306b\u306f\u307e\u3060"
             "\u5bfe\u5fdc\u3057\u3066\u3044\u307e\u305b\u3093\u3002"
         ),
+        "refine_understood_but_not_executable": (
+            "\u3053\u308c\u306f\u30b9\u30b1\u30b8\u30e5\u30fc\u30eb\u4f9d\u983c"
+            "\uff08{intent_label}\uff09\u3068\u7406\u89e3\u3057\u307e\u3057\u305f\u304c\u3001"
+            "\u73fe\u5728\u306e\u8abf\u6574\u30d5\u30ed\u30fc\u306f\u5358\u65e5\u306e"
+            "\u7de8\u96c6\u3060\u3051\u306b\u5bfe\u5fdc\u3057\u3066\u3044\u307e\u3059\u3002"
+            "\u4f8b\u3048\u3070\u6b21\u306e\u3088\u3046\u306b\u5177\u4f53\u7684\u306b"
+            "\u6307\u5b9a\u3057\u3066\u304f\u3060\u3055\u3044\uff1a{suggestion}"
+        ),
+        "refine_non_scheduling_request": (
+            "\u3053\u306e\u30a2\u30b7\u30b9\u30bf\u30f3\u30c8\u306f"
+            "\u30b9\u30b1\u30b8\u30e5\u30fc\u30eb\u5909\u66f4\u306e\u307f\u5bfe\u5fdc"
+            "\u3057\u307e\u3059\u3002\u30b9\u30b1\u30b8\u30e5\u30fc\u30eb\u95a2\u9023\u306e"
+            "\u4f9d\u983c\u3092\u5165\u529b\u3057\u3066\u304f\u3060\u3055\u3044\u3002"
+        ),
+        "refine_ambiguous_missing_information": (
+            "\u5b89\u5168\u306b\u30d7\u30ec\u30d3\u30e5\u30fc\u3059\u308b\u306b\u306f"
+            "\u8ffd\u52a0\u60c5\u5831\u304c\u5fc5\u8981\u3067\u3059\u3002"
+            "\u8ffd\u52a0\u3057\u3066\u304f\u3060\u3055\u3044\uff1a{missing_fields}\u3002"
+        ),
         "refine_ambiguous_reference": (
             "\u3053\u306e\u8abf\u6574\u4f9d\u983c\u3092\u5b89\u5168\u306b"
             "\u89e3\u91c8\u3067\u304d\u307e\u305b\u3093\u3067\u3057\u305f\u3002"
@@ -92,6 +127,19 @@ _REFINE_OUTCOME_TEMPLATES: dict[str, dict[str, str]] = {
         "refine_preview_ready_remove": "Remove preview generated.",
         "refine_unsupported_language": "Unsupported request language.",
         "refine_unsupported_intent": "Unsupported refine request.",
+        "refine_understood_but_not_executable": (
+            "I understand this as a scheduling request ({intent_label}), but "
+            "this refine flow currently supports only single-day edits. Try a "
+            "concrete edit such as: {suggestion}"
+        ),
+        "refine_non_scheduling_request": (
+            "This assistant only handles scheduling changes. Please enter a "
+            "scheduling-related request."
+        ),
+        "refine_ambiguous_missing_information": (
+            "I need more information before I can preview that scheduling "
+            "change. Please include: {missing_fields}."
+        ),
         "refine_ambiguous_reference": "Unable to safely resolve this refine request.",
     },
 }

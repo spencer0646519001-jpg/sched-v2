@@ -330,22 +330,225 @@ def test_langgraph_refine_model_explicit_shift_and_station_wins_set_assignment()
     assert len(engine.requests) == 1
 
 
+def test_langgraph_refine_model_classifies_reduce_shift_as_not_executable() -> None:
+    engine = _RecordingEngine()
+    model_client = _RecordingModelClient(
+        payload={
+            "request_language": "en",
+            "domain": "scheduling",
+            "capability_status": "understood_but_not_executable",
+            "intent_status": "unsupported",
+            "intent_type": "reduce_or_avoid_shift_type",
+            "date": None,
+            "worker_code": "SPENCER",
+            "secondary_worker_code": None,
+            "shift_code": "C",
+            "shift_type": "morning",
+            "station_code": None,
+            "date_range": "next_week",
+            "preference_strength": "reduce",
+            "missing_fields": [],
+            "reason_code": "single_day_edits_only",
+        }
+    )
+    workflow = LangGraphRefineWorkflow(
+        engine_runner=engine,
+        model_client=model_client,
+    )
+
+    response = workflow(
+        _build_pr6_request("Reduce Spencer's morning shifts next week")
+    )
+
+    assert response.outcome.status == "understood_but_not_executable"
+    assert response.outcome.message_key == "refine_understood_but_not_executable"
+    assert response.parsed_intent_json["domain"] == "scheduling"
+    assert (
+        response.parsed_intent_json["capability_status"]
+        == "understood_but_not_executable"
+    )
+    assert response.parsed_intent_json["intent_type"] == (
+        "reduce_or_avoid_shift_type"
+    )
+    assert response.parsed_intent_json["canonical_intent"] == {
+        "worker_code": "SPENCER",
+        "shift_code": "C",
+        "date_range": "next_week",
+        "shift_type": "morning",
+        "preference_strength": "reduce",
+    }
+    assert response.adjustment_patch is None
+    assert response.candidate_result is None
+    assert engine.requests == []
+
+
+def test_langgraph_refine_model_cannot_execute_abstract_intent_type() -> None:
+    engine = _RecordingEngine()
+    model_client = _RecordingModelClient(
+        payload={
+            "request_language": "en",
+            "domain": "scheduling",
+            "capability_status": "executable",
+            "intent_status": "supported",
+            "intent_type": "swap_workers",
+            "date": "2026-05-02",
+            "worker_code": "SPENCER",
+            "secondary_worker_code": "MASUDA",
+            "shift_code": "C",
+            "shift_type": None,
+            "station_code": "GATEAU",
+            "date_range": None,
+            "preference_strength": None,
+            "missing_fields": [],
+            "reason_code": None,
+        }
+    )
+    workflow = LangGraphRefineWorkflow(
+        engine_runner=engine,
+        model_client=model_client,
+    )
+
+    response = workflow(_build_pr6_request("Swap Spencer and Masuda on 5/2"))
+
+    assert response.outcome.status == "understood_but_not_executable"
+    assert response.parsed_intent_json["capability_status"] == (
+        "understood_but_not_executable"
+    )
+    assert response.parsed_intent_json["intent_type"] == "swap_workers"
+    assert response.adjustment_patch is None
+    assert response.candidate_result is None
+    assert engine.requests == []
+
+
+def test_langgraph_refine_fallback_classifies_workload_fairness_as_not_executable() -> None:
+    engine = _RecordingEngine()
+    workflow = LangGraphRefineWorkflow(engine_runner=engine)
+
+    response = workflow(
+        _build_pr6_request(
+            "\u8b93\u5927\u5bb6\u73ed\u6578\u5e73\u5747\u4e00\u9ede"
+        )
+    )
+
+    assert response.request_language == "zh"
+    assert response.outcome.status == "understood_but_not_executable"
+    assert response.parsed_intent_json["capability_status"] == (
+        "understood_but_not_executable"
+    )
+    assert response.parsed_intent_json["intent_type"] == "workload_or_fairness"
+    assert response.adjustment_patch is None
+    assert response.candidate_result is None
+    assert engine.requests == []
+
+
+def test_langgraph_refine_fallback_classifies_station_coverage_as_not_executable() -> None:
+    engine = _RecordingEngine()
+    workflow = LangGraphRefineWorkflow(engine_runner=engine)
+
+    response = workflow(
+        _build_pr6_request("Add more coverage to petit_four next week")
+    )
+
+    assert response.outcome.status == "understood_but_not_executable"
+    assert response.parsed_intent_json["intent_type"] == "station_coverage"
+    assert response.parsed_intent_json["canonical_intent"] == {
+        "date_range": "next_week",
+        "station_code": "PETIT_FOUR",
+    }
+    assert response.candidate_result is None
+    assert engine.requests == []
+
+
+def test_langgraph_refine_fallback_classifies_swap_as_not_executable() -> None:
+    engine = _RecordingEngine()
+    workflow = LangGraphRefineWorkflow(engine_runner=engine)
+
+    response = workflow(
+        _build_pr6_request("5/2 Spencer \u8ddf Masuda \u5c0d\u8abf")
+    )
+
+    assert response.outcome.status == "understood_but_not_executable"
+    assert response.parsed_intent_json["intent_type"] == "swap_workers"
+    assert response.parsed_intent_json["canonical_intent"] == {
+        "date": "2026-05-02",
+        "worker_code": "SPENCER",
+        "secondary_worker_code": "MASUDA",
+    }
+    assert response.adjustment_patch is None
+    assert response.candidate_result is None
+    assert engine.requests == []
+
+
+def test_langgraph_refine_fallback_returns_ambiguous_missing_information() -> None:
+    engine = _RecordingEngine()
+    workflow = LangGraphRefineWorkflow(engine_runner=engine)
+
+    response = workflow(_build_pr6_request("Spencer \u6539\u4e00\u4e0b"))
+
+    assert response.outcome.status == "ambiguous"
+    assert response.outcome.message_key == "refine_ambiguous_missing_information"
+    assert response.parsed_intent_json["capability_status"] == (
+        "ambiguous_or_missing_information"
+    )
+    assert response.parsed_intent_json["missing_fields"] == [
+        "date",
+        "target_shift_or_station",
+    ]
+    assert response.adjustment_patch is None
+    assert response.candidate_result is None
+    assert engine.requests == []
+
+
+def test_langgraph_refine_fallback_treats_pronoun_shift_request_as_ambiguous() -> None:
+    engine = _RecordingEngine()
+    workflow = LangGraphRefineWorkflow(engine_runner=engine)
+
+    response = workflow(
+        _build_pr6_request("\u660e\u5929\u90a3\u500b\u4eba\u4e0d\u8981\u65e9\u73ed")
+    )
+
+    assert response.outcome.status == "ambiguous"
+    assert response.parsed_intent_json["capability_status"] == (
+        "ambiguous_or_missing_information"
+    )
+    assert response.parsed_intent_json["missing_fields"] == ["date", "worker"]
+    assert response.adjustment_patch is None
+    assert response.candidate_result is None
+    assert engine.requests == []
+
+
+def test_langgraph_refine_fallback_rejects_non_scheduling_request() -> None:
+    engine = _RecordingEngine()
+    workflow = LangGraphRefineWorkflow(engine_runner=engine)
+
+    response = workflow(_build_pr6_request("Write me a poem"))
+
+    assert response.outcome.status == "non_scheduling"
+    assert response.outcome.message_key == "refine_non_scheduling_request"
+    assert response.parsed_intent_json["domain"] == "non_scheduling"
+    assert response.parsed_intent_json["capability_status"] == "non_scheduling"
+    assert response.candidate_result is None
+    assert engine.requests == []
+
+
 @pytest.mark.parametrize(
-    ("request_text", "reason_code"),
+    ("request_text", "reason_code", "expected_status"),
     [
-        ("2026-06-01 Spencer \u73ed\u5225\u6539 C", "date_outside_scope"),
-        ("5/2 Alex \u73ed\u5225\u6539 C", "worker_required"),
-        ("5/2 Spencer \u73ed\u5225\u6539 Z", "shift_required"),
+        ("2026-06-01 Spencer \u73ed\u5225\u6539 C", "date_outside_scope", "ambiguous"),
+        ("5/2 Alex \u73ed\u5225\u6539 C", "worker_required", "ambiguous"),
+        ("5/2 Spencer \u73ed\u5225\u6539 Z", "shift_required", "ambiguous"),
         (
             "5/2 Spencer \u6539\u53bb saucier\uff0c\u73ed\u5225\u4e0d\u8b8a",
             "station_required",
+            "ambiguous",
         ),
-        ("Spencer likes coffee", None),
+        ("Spencer likes coffee", None, "non_scheduling"),
     ],
 )
 def test_langgraph_refine_rejects_unsafe_or_unknown_local_requests(
     request_text: str,
     reason_code: str | None,
+    expected_status: str,
 ) -> None:
     engine = _RecordingEngine()
     workflow = LangGraphRefineWorkflow(engine_runner=engine)
@@ -357,9 +560,9 @@ def test_langgraph_refine_rejects_unsafe_or_unknown_local_requests(
     assert engine.requests == []
     assert response.parsed_intent_json["preview_executed"] is False
     if reason_code is None:
-        assert response.outcome.status == "unsupported"
+        assert response.outcome.status == expected_status
     else:
-        assert response.outcome.status == "ambiguous"
+        assert response.outcome.status == expected_status
         assert response.parsed_intent_json["reason_code"] == reason_code
 
 
@@ -559,10 +762,11 @@ def test_langgraph_refine_workflow_returns_safe_ambiguous_outcome_without_previe
 
     assert response.request_language == "ja"
     assert response.outcome.status == "ambiguous"
-    assert response.outcome.message_key == "refine_ambiguous_reference"
+    assert response.outcome.message_key == "refine_ambiguous_missing_information"
     assert response.parsed_intent_json["preview_executed"] is False
     assert response.parsed_intent_json["outcome"]["message_values"] == {
-        "reason_code": "shift_required"
+        "reason_code": "shift_required",
+        "missing_fields": "target shift",
     }
     assert response.adjustment_patch is None
     assert response.candidate_result is None
@@ -669,7 +873,15 @@ def _build_pr6_planning_input() -> MonthPlanningInput:
                 is_active=True,
                 station_skills=["GATEAU", "PETIT_FOUR"],
                 scheduling_profile=WorkerSchedulingProfileInput(),
-            )
+            ),
+            WorkerInput(
+                worker_code="MASUDA",
+                name="Masuda",
+                role="employee",
+                is_active=True,
+                station_skills=["GATEAU", "PETIT_FOUR"],
+                scheduling_profile=WorkerSchedulingProfileInput(),
+            ),
         ],
         stations=[
             StationInput(
@@ -691,7 +903,9 @@ def _build_pr6_planning_input() -> MonthPlanningInput:
                 name="C",
                 paid_hours=Decimal("8"),
                 is_off_shift=False,
-                metadata_json={"aliases": ["C", "\u65e9\u73ed"]},
+                metadata_json={
+                    "aliases": ["C", "\u65e9\u73ed", "morning", "\u671d\u756a"]
+                },
             ),
             ShiftInput(
                 shift_code="D",

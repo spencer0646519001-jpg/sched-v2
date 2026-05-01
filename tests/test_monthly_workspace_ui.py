@@ -1522,7 +1522,12 @@ def test_workspace_refine_post_shows_safe_same_language_unsupported_state() -> N
     )
 
     assert response.status_code == 200
-    assert "この調整依頼にはまだ対応していません。" in html_text
+    assert (
+        "\u3053\u306e\u30a2\u30b7\u30b9\u30bf\u30f3\u30c8\u306f"
+        "\u30b9\u30b1\u30b8\u30e5\u30fc\u30eb\u5909\u66f4\u306e\u307f\u5bfe\u5fdc"
+        "\u3057\u307e\u3059\u3002\u30b9\u30b1\u30b8\u30e5\u30fc\u30eb\u95a2\u9023\u306e"
+        "\u4f9d\u983c\u3092\u5165\u529b\u3057\u3066\u304f\u3060\u3055\u3044\u3002"
+    ) in html_text
     assert 'name="candidate_id" value=""' in html_text
     assert DjangoMonthlyAssignment.objects.filter(workspace=current_workspace).count() == 30
 

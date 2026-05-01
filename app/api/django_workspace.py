@@ -1417,7 +1417,7 @@ def _render_page_refine_outcome(
 def _refine_result_message_tone(status: str) -> str:
     if status == "preview_ready":
         return "message-success"
-    if status == "ambiguous":
+    if status in {"ambiguous", "understood_but_not_executable"}:
         return "message-info"
     return "message-error"
 

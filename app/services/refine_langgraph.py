@@ -100,12 +100,138 @@ _DIRECT_MUTATION_KEYS = frozenset(
         "write_db",
     }
 )
+CAPABILITY_EXECUTABLE = "executable"
+CAPABILITY_UNDERSTOOD_BUT_NOT_EXECUTABLE = "understood_but_not_executable"
+CAPABILITY_NON_SCHEDULING = "non_scheduling"
+CAPABILITY_AMBIGUOUS = "ambiguous_or_missing_information"
+SCHEDULING_DOMAIN = "scheduling"
+NON_SCHEDULING_DOMAIN = "non_scheduling"
+UNKNOWN_DOMAIN = "unknown"
+
+_ABSTRACT_INTENT_TYPES = {
+    "reduce_or_avoid_shift_type",
+    "workload_or_fairness",
+    "station_coverage",
+    "swap_workers",
+}
+_SUPPORTED_INTENT_TYPES = {
+    "set_assignment",
+    "change_shift",
+    "change_station",
+    "remove_assignment",
+}
+_SUPPORTED_MODEL_INTENT_TYPES = _SUPPORTED_INTENT_TYPES | _ABSTRACT_INTENT_TYPES
+_SUPPORTED_MODEL_CAPABILITY_STATUSES = {
+    CAPABILITY_EXECUTABLE,
+    CAPABILITY_UNDERSTOOD_BUT_NOT_EXECUTABLE,
+    CAPABILITY_NON_SCHEDULING,
+    CAPABILITY_AMBIGUOUS,
+}
+_SUPPORTED_MODEL_DOMAINS = {
+    SCHEDULING_DOMAIN,
+    NON_SCHEDULING_DOMAIN,
+    UNKNOWN_DOMAIN,
+}
+_CONCRETE_EDIT_SUGGESTION = "2026-05-02 把 Spencer 從 D 改成 C."
+_INTENT_LABELS = {
+    "reduce_or_avoid_shift_type": "reduce or avoid a shift type",
+    "workload_or_fairness": "workload or fairness balancing",
+    "station_coverage": "station coverage adjustment",
+    "swap_workers": "worker swap",
+    "set_assignment": "single-day assignment edit",
+    "change_shift": "single-day shift change",
+    "change_station": "single-day station change",
+    "remove_assignment": "single-day remove/off edit",
+}
+_MISSING_FIELD_LABELS = {
+    "date": "date",
+    "worker": "worker",
+    "target_shift_or_station": "target shift or station",
+    "shift": "target shift",
+    "station": "target station",
+    "secondary_worker": "second worker",
+}
+_DATE_RANGE_HINTS = (
+    ("next_week", ("next week", "\u4e0b\u9031", "\u4e0b\u5468", "\u6765\u9031")),
+    ("this_week", ("this week", "\u9019\u9031", "\u8fd9\u5468", "\u4eca\u9031")),
+    ("tomorrow", ("tomorrow", "\u660e\u5929", "\u660e\u65e5")),
+    ("recently", ("recently", "\u6700\u8fd1")),
+)
+_REDUCE_SHIFT_HINTS = (
+    "reduce",
+    "fewer",
+    "less",
+    "avoid",
+    "\u5c11\u4e00\u9ede",
+    "\u5c11\u4e00\u70b9",
+    "\u4e0d\u8981\u518d\u6392\u592a\u591a",
+    "\u6e1b\u3089",
+)
+_MORNING_SHIFT_HINTS = (
+    "morning",
+    "\u65e9\u73ed",
+    "\u671d\u756a",
+)
+_WORKLOAD_FAIRNESS_HINTS = (
+    "balance the workload",
+    "workload",
+    "fair",
+    "fairer",
+    "tired",
+    "\u73ed\u6578\u5e73\u5747",
+    "\u73ed\u6570\u5e73\u5747",
+    "\u5e73\u5747\u4e00\u9ede",
+    "\u5e73\u5747\u4e00\u70b9",
+    "\u592a\u7d2f",
+)
+_STATION_COVERAGE_HINTS = (
+    "coverage",
+    "add more coverage",
+    "\u4eba\u624b\u4e0d\u5920",
+    "\u88dc\u4eba",
+    "\u8865\u4eba",
+    "\u539a\u3081",
+)
+_SWAP_HINTS = (
+    "swap",
+    "\u5c0d\u8abf",
+    "\u5bf9\u8c03",
+    "\u4ea4\u63db",
+    "\u5165\u308c\u66ff\u3048",
+)
+_VAGUE_SCHEDULING_HINTS = (
+    "\u6539\u4e00\u4e0b",
+    "\u90a3\u500b\u4eba",
+    "\u90a3\u4e2a\u4eba",
+    "\u628a\u4ed6",
+    "\u63db\u6389",
+    "\u6362\u6389",
+    "\u63db",
+    "\u6362",
+)
 
 _CHINESE_LANGUAGE_HINTS = (
     "\u8bf7",
     "\u628a",
+    "\u8b93",
+    "\u8ba9",
     *_ZH_SET_KEYWORDS,
     *_ZH_REMOVE_KEYWORDS,
+    "\u5c11\u4e00\u9ede",
+    "\u5c11\u4e00\u70b9",
+    "\u4e0d\u8981\u518d\u6392\u592a\u591a",
+    "\u73ed\u6578\u5e73\u5747",
+    "\u73ed\u6570\u5e73\u5747",
+    "\u5e73\u5747\u4e00\u9ede",
+    "\u5e73\u5747\u4e00\u70b9",
+    "\u592a\u7d2f",
+    "\u4eba\u624b\u4e0d\u5920",
+    "\u88dc\u4eba",
+    "\u8865\u4eba",
+    "\u5c0d\u8abf",
+    "\u5bf9\u8c03",
+    "\u63db\u6389",
+    "\u6362\u6389",
 )
 _JAPANESE_LANGUAGE_HINTS = (
     "\u3092",
@@ -114,10 +240,19 @@ _JAPANESE_LANGUAGE_HINTS = (
     "\u3067",
     *_JA_SET_KEYWORDS,
     *_JA_REMOVE_KEYWORDS,
+    "\u6e1b\u3089",
+    "\u671d\u756a",
+    "\u6765\u9031",
+    "\u539a\u3081",
+    "\u5165\u308c\u66ff\u3048",
 )
 _ENGLISH_LANGUAGE_HINTS = (
     *_EN_SET_KEYWORDS,
     *_EN_REMOVE_KEYWORDS,
+    *_REDUCE_SHIFT_HINTS,
+    *_WORKLOAD_FAIRNESS_HINTS,
+    *_STATION_COVERAGE_HINTS,
+    *_SWAP_HINTS,
 )
 
 _TOKEN_PATTERN = re.compile(r"[a-z0-9_-]+")
@@ -136,6 +271,19 @@ _MODEL_INTENT_JSON_SCHEMA: dict[str, Any] = {
             "type": "string",
             "enum": ["en", "zh", "ja", "unknown"],
         },
+        "domain": {
+            "type": "string",
+            "enum": ["scheduling", "non_scheduling", "unknown"],
+        },
+        "capability_status": {
+            "type": "string",
+            "enum": [
+                "executable",
+                "understood_but_not_executable",
+                "non_scheduling",
+                "ambiguous_or_missing_information",
+            ],
+        },
         "intent_status": {
             "type": "string",
             "enum": ["supported", "ambiguous", "unsupported"],
@@ -147,6 +295,10 @@ _MODEL_INTENT_JSON_SCHEMA: dict[str, Any] = {
                 "change_shift",
                 "change_station",
                 "remove_assignment",
+                "reduce_or_avoid_shift_type",
+                "workload_or_fairness",
+                "station_coverage",
+                "swap_workers",
                 None,
             ],
         },
@@ -155,8 +307,22 @@ _MODEL_INTENT_JSON_SCHEMA: dict[str, Any] = {
             "description": "ISO date inside the selected month, or null.",
         },
         "worker_code": {"type": ["string", "null"]},
+        "secondary_worker_code": {"type": ["string", "null"]},
         "shift_code": {"type": ["string", "null"]},
+        "shift_type": {"type": ["string", "null"]},
         "station_code": {"type": ["string", "null"]},
+        "date_range": {
+            "type": ["string", "null"],
+            "description": "Bounded label such as next_week, this_week, tomorrow, or recently.",
+        },
+        "preference_strength": {
+            "type": ["string", "null"],
+            "enum": ["reduce", "avoid", "increase", "balance", "unspecified", None],
+        },
+        "missing_fields": {
+            "type": "array",
+            "items": {"type": "string"},
+        },
         "reason_code": {
             "type": ["string", "null"],
             "description": "Reason when the request is ambiguous or unsupported.",
@@ -164,23 +330,24 @@ _MODEL_INTENT_JSON_SCHEMA: dict[str, Any] = {
     },
     "required": [
         "request_language",
+        "domain",
+        "capability_status",
         "intent_status",
         "intent_type",
         "date",
         "worker_code",
+        "secondary_worker_code",
         "shift_code",
+        "shift_type",
         "station_code",
+        "date_range",
+        "preference_strength",
+        "missing_fields",
         "reason_code",
     ],
 }
 _MODEL_INTENT_ALLOWED_KEYS = set(_MODEL_INTENT_JSON_SCHEMA["properties"])
 _SUPPORTED_MODEL_LANGUAGES = {"en", "zh", "ja", "unknown"}
-_SUPPORTED_INTENT_TYPES = {
-    "set_assignment",
-    "change_shift",
-    "change_station",
-    "remove_assignment",
-}
 
 
 class RefineGraphState(TypedDict, total=False):
@@ -188,9 +355,12 @@ class RefineGraphState(TypedDict, total=False):
 
     workflow_request: RefineWorkflowRequest
     request_language: str
+    domain: str
+    capability_status: str
     intent_status: str
     intent_type: str
     canonical_intent: dict[str, Any]
+    missing_fields: list[str]
     adjustment_patch: list[AssignmentPatchInput] | None
     outcome: RefineOutcome
     parsed_intent_json: dict[str, Any]
@@ -251,9 +421,17 @@ class LangGraphRefineWorkflow:
             final_state.get("parsed_intent_json")
             or _build_parsed_intent_json(
                 request_language=request_language,
+                domain=final_state.get("domain", UNKNOWN_DOMAIN),
+                capability_status=final_state.get(
+                    "capability_status",
+                    _capability_status_from_intent_status(
+                        final_state.get("intent_status", "unsupported")
+                    ),
+                ),
                 intent_status=final_state.get("intent_status", "unsupported"),
                 intent_type=final_state.get("intent_type"),
                 canonical_intent=final_state.get("canonical_intent"),
+                missing_fields=final_state.get("missing_fields"),
                 outcome=outcome,
                 adjustment_patch=final_state.get("adjustment_patch"),
                 preview_executed=bool(final_state.get("preview_executed")),
@@ -283,25 +461,20 @@ class LangGraphRefineWorkflow:
         if model_state is not None:
             return model_state
 
+        pr7_state = _classify_local_pr7_state(
+            request,
+            request_language=request_language,
+            fallback_used=fallback_used,
+        )
+        if pr7_state is not None:
+            return pr7_state
+
         if not _looks_like_scheduling_request(request.request_text):
-            outcome = _build_outcome(
+            return _non_scheduling_state(
                 request_language,
-                status="unsupported",
-                message_key="refine_unsupported_intent",
+                reason_code="non_scheduling_request",
+                fallback_used=fallback_used,
             )
-            return {
-                "intent_status": "unsupported",
-                "outcome": outcome,
-                "preview_executed": False,
-                "parsed_intent_json": _build_parsed_intent_json(
-                    request_language=request_language,
-                    intent_status="unsupported",
-                    outcome=outcome,
-                    preview_executed=False,
-                    fallback_used=fallback_used,
-                ),
-                "fallback_used": fallback_used,
-            }
 
         parsed_date, date_reason_code = _parse_request_date(
             request.request_text,
@@ -345,10 +518,14 @@ class LangGraphRefineWorkflow:
             )
             return {
                 "intent_status": "unsupported",
+                "domain": SCHEDULING_DOMAIN,
+                "capability_status": CAPABILITY_UNDERSTOOD_BUT_NOT_EXECUTABLE,
                 "outcome": outcome,
                 "preview_executed": False,
                 "parsed_intent_json": _build_parsed_intent_json(
                     request_language=request_language,
+                    domain=SCHEDULING_DOMAIN,
+                    capability_status=CAPABILITY_UNDERSTOOD_BUT_NOT_EXECUTABLE,
                     intent_status="unsupported",
                     outcome=outcome,
                     preview_executed=False,
@@ -376,6 +553,8 @@ class LangGraphRefineWorkflow:
             }
             return {
                 "intent_status": "supported",
+                "domain": SCHEDULING_DOMAIN,
+                "capability_status": CAPABILITY_EXECUTABLE,
                 "intent_type": intent_type,
                 "canonical_intent": canonical_intent,
                 "adjustment_patch": [
@@ -472,6 +651,8 @@ class LangGraphRefineWorkflow:
         }
         return {
             "intent_status": "supported",
+            "domain": SCHEDULING_DOMAIN,
+            "capability_status": CAPABILITY_EXECUTABLE,
             "intent_type": intent_type,
             "canonical_intent": canonical_intent,
             "adjustment_patch": [
@@ -506,6 +687,16 @@ class LangGraphRefineWorkflow:
             )
             if model_state.get("intent_status") == "supported":
                 return model_state, False
+            if (
+                "capability_status" in model_payload
+                and model_state.get("capability_status")
+                in {
+                    CAPABILITY_UNDERSTOOD_BUT_NOT_EXECUTABLE,
+                    CAPABILITY_NON_SCHEDULING,
+                    CAPABILITY_AMBIGUOUS,
+                }
+            ):
+                return model_state, False
             return None, True
         except _UnsafeModelIntentError:
             request_language = (
@@ -522,12 +713,16 @@ class LangGraphRefineWorkflow:
             return {
                 "request_language": request_language,
                 "intent_status": "unsupported",
+                "domain": SCHEDULING_DOMAIN,
+                "capability_status": CAPABILITY_UNDERSTOOD_BUT_NOT_EXECUTABLE,
                 "outcome": outcome,
                 "preview_executed": False,
                 "model_used": True,
                 "fallback_used": False,
                 "parsed_intent_json": _build_parsed_intent_json(
                     request_language=request_language,
+                    domain=SCHEDULING_DOMAIN,
+                    capability_status=CAPABILITY_UNDERSTOOD_BUT_NOT_EXECUTABLE,
                     intent_status="unsupported",
                     reason_code="direct_mutation_not_allowed",
                     outcome=outcome,
@@ -542,12 +737,24 @@ class LangGraphRefineWorkflow:
     def _run_preview_if_supported(self, state: RefineGraphState) -> dict[str, object]:
         request = state["workflow_request"]
         request_language = state.get("request_language", "unknown")
+        domain = state.get("domain", SCHEDULING_DOMAIN)
+        capability_status = state.get(
+            "capability_status",
+            _capability_status_from_intent_status(
+                state.get("intent_status", "unsupported")
+            ),
+        )
         intent_status = state.get("intent_status", "unsupported")
         intent_type = state.get("intent_type")
         canonical_intent = dict(state.get("canonical_intent") or {})
         adjustment_patch = state.get("adjustment_patch")
 
-        if intent_status != "supported" or not adjustment_patch or intent_type is None:
+        if (
+            intent_status != "supported"
+            or capability_status != CAPABILITY_EXECUTABLE
+            or not adjustment_patch
+            or intent_type is None
+        ):
             outcome = state.get("outcome") or _build_outcome(
                 request_language,
                 status="unsupported",
@@ -571,9 +778,12 @@ class LangGraphRefineWorkflow:
                 "fallback_used": fallback_used,
                 "parsed_intent_json": _build_parsed_intent_json(
                     request_language=request_language,
+                    domain=domain,
+                    capability_status=capability_status,
                     intent_status=intent_status,
                     intent_type=intent_type,
                     canonical_intent=canonical_intent or None,
+                    missing_fields=state.get("missing_fields"),
                     outcome=outcome,
                     adjustment_patch=adjustment_patch,
                     preview_executed=False,
@@ -609,6 +819,8 @@ class LangGraphRefineWorkflow:
             "fallback_used": fallback_used,
             "parsed_intent_json": _build_parsed_intent_json(
                 request_language=request_language,
+                domain=SCHEDULING_DOMAIN,
+                capability_status=CAPABILITY_EXECUTABLE,
                 intent_status="supported",
                 intent_type=intent_type,
                 canonical_intent=canonical_intent,
@@ -639,9 +851,12 @@ def _build_outcome(
 def _build_parsed_intent_json(
     *,
     request_language: str,
+    domain: str,
+    capability_status: str,
     intent_status: str,
     intent_type: str | None = None,
     canonical_intent: dict[str, object] | None = None,
+    missing_fields: list[str] | None = None,
     outcome: RefineOutcome,
     adjustment_patch: list[AssignmentPatchInput] | None = None,
     preview_executed: bool,
@@ -651,6 +866,8 @@ def _build_parsed_intent_json(
 ) -> dict[str, object]:
     payload: dict[str, object] = {
         "request_language": request_language,
+        "domain": domain,
+        "capability_status": capability_status,
         "intent_status": intent_status,
         "preview_executed": preview_executed,
         "model_used": model_used,
@@ -664,6 +881,8 @@ def _build_parsed_intent_json(
     }
     if reason_code is not None:
         payload["reason_code"] = reason_code
+    if missing_fields:
+        payload["missing_fields"] = list(missing_fields)
     if intent_type is not None:
         payload["intent_type"] = intent_type
     if canonical_intent is not None:
@@ -688,26 +907,40 @@ def _ambiguous_state(
     *,
     reason_code: str,
     intent_type: str | None = None,
+    canonical_intent: dict[str, object] | None = None,
+    missing_fields: list[str] | None = None,
     model_used: bool = False,
     fallback_used: bool = False,
 ) -> dict[str, object]:
+    resolved_missing_fields = missing_fields or _missing_fields_for_reason(reason_code)
     outcome = _build_outcome(
         language,
         status="ambiguous",
-        message_key="refine_ambiguous_reference",
-        message_values={"reason_code": reason_code},
+        message_key="refine_ambiguous_missing_information",
+        message_values={
+            "reason_code": reason_code,
+            "missing_fields": _render_missing_fields(resolved_missing_fields),
+        },
     )
     return {
         "intent_status": "ambiguous",
+        "domain": SCHEDULING_DOMAIN,
+        "capability_status": CAPABILITY_AMBIGUOUS,
         "intent_type": intent_type,
+        "canonical_intent": dict(canonical_intent or {}),
+        "missing_fields": list(resolved_missing_fields),
         "outcome": outcome,
         "preview_executed": False,
         "model_used": model_used,
         "fallback_used": fallback_used,
         "parsed_intent_json": _build_parsed_intent_json(
             request_language=language,
+            domain=SCHEDULING_DOMAIN,
+            capability_status=CAPABILITY_AMBIGUOUS,
             intent_status="ambiguous",
             intent_type=intent_type,
+            canonical_intent=canonical_intent,
+            missing_fields=resolved_missing_fields,
             reason_code=reason_code,
             outcome=outcome,
             preview_executed=False,
@@ -717,19 +950,134 @@ def _ambiguous_state(
     }
 
 
+def _non_scheduling_state(
+    language: str,
+    *,
+    reason_code: str,
+    model_used: bool = False,
+    fallback_used: bool = False,
+) -> dict[str, object]:
+    outcome = _build_outcome(
+        language,
+        status=CAPABILITY_NON_SCHEDULING,
+        message_key="refine_non_scheduling_request",
+        message_values={"reason_code": reason_code},
+    )
+    return {
+        "intent_status": "unsupported",
+        "domain": NON_SCHEDULING_DOMAIN,
+        "capability_status": CAPABILITY_NON_SCHEDULING,
+        "outcome": outcome,
+        "preview_executed": False,
+        "model_used": model_used,
+        "fallback_used": fallback_used,
+        "parsed_intent_json": _build_parsed_intent_json(
+            request_language=language,
+            domain=NON_SCHEDULING_DOMAIN,
+            capability_status=CAPABILITY_NON_SCHEDULING,
+            intent_status="unsupported",
+            reason_code=reason_code,
+            outcome=outcome,
+            preview_executed=False,
+            model_used=model_used,
+            fallback_used=fallback_used,
+        ),
+    }
+
+
+def _understood_but_not_executable_state(
+    language: str,
+    *,
+    intent_type: str,
+    canonical_intent: dict[str, object] | None = None,
+    reason_code: str,
+    model_used: bool = False,
+    fallback_used: bool = False,
+) -> dict[str, object]:
+    outcome = _build_outcome(
+        language,
+        status=CAPABILITY_UNDERSTOOD_BUT_NOT_EXECUTABLE,
+        message_key="refine_understood_but_not_executable",
+        message_values={
+            "intent_label": _intent_label(intent_type),
+            "intent_type": intent_type,
+            "reason_code": reason_code,
+            "suggestion": _CONCRETE_EDIT_SUGGESTION,
+        },
+    )
+    return {
+        "intent_status": "unsupported",
+        "domain": SCHEDULING_DOMAIN,
+        "capability_status": CAPABILITY_UNDERSTOOD_BUT_NOT_EXECUTABLE,
+        "intent_type": intent_type,
+        "canonical_intent": dict(canonical_intent or {}),
+        "outcome": outcome,
+        "preview_executed": False,
+        "model_used": model_used,
+        "fallback_used": fallback_used,
+        "parsed_intent_json": _build_parsed_intent_json(
+            request_language=language,
+            domain=SCHEDULING_DOMAIN,
+            capability_status=CAPABILITY_UNDERSTOOD_BUT_NOT_EXECUTABLE,
+            intent_status="unsupported",
+            intent_type=intent_type,
+            canonical_intent=canonical_intent,
+            reason_code=reason_code,
+            outcome=outcome,
+            preview_executed=False,
+            model_used=model_used,
+            fallback_used=fallback_used,
+        ),
+    }
+
+
+def _capability_status_from_intent_status(intent_status: str) -> str:
+    if intent_status == "supported":
+        return CAPABILITY_EXECUTABLE
+    if intent_status == "ambiguous":
+        return CAPABILITY_AMBIGUOUS
+    return CAPABILITY_UNDERSTOOD_BUT_NOT_EXECUTABLE
+
+
+def _missing_fields_for_reason(reason_code: str) -> list[str]:
+    return {
+        "date_required": ["date"],
+        "worker_required": ["worker"],
+        "secondary_worker_required": ["secondary_worker"],
+        "shift_required": ["shift"],
+        "station_required": ["station"],
+        "target_assignment_required": ["target_shift_or_station"],
+    }.get(reason_code, ["date", "worker", "target_shift_or_station"])
+
+
+def _render_missing_fields(missing_fields: list[str]) -> str:
+    labels = [
+        _MISSING_FIELD_LABELS.get(field_name, field_name)
+        for field_name in missing_fields
+    ]
+    return ", ".join(labels)
+
+
+def _intent_label(intent_type: str) -> str:
+    return _INTENT_LABELS.get(intent_type, intent_type)
+
+
 def _build_model_system_prompt() -> str:
     return (
         "Interpret one restaurant monthly-schedule refine request into bounded JSON. "
         "Use only the provided worker, shift, station, and month context. "
-        "Return supported only for one set_assignment, change_shift, "
-        "change_station, or remove_assignment intent. For change_shift, return "
-        "the target shift and leave station_code null. For change_station, return "
-        "the target station and leave shift_code null. If the request explicitly "
-        "contains both a station and a shift, return set_assignment, not "
-        "change_shift or change_station. If any required date, worker, target "
-        "shift, target station, or current assignment is missing or ambiguous, "
-        "return ambiguous. If the request is not a scheduling refine request, "
-        "return unsupported. Never apply, save, or mutate a schedule."
+        "Set domain to scheduling only for schedule-change requests. Set "
+        "capability_status to executable only for one set_assignment, "
+        "change_shift, change_station, or remove_assignment intent. For "
+        "change_shift, return the target shift and leave station_code null. For "
+        "change_station, return the target station and leave shift_code null. If "
+        "the request explicitly contains both a station and a shift, return "
+        "set_assignment, not change_shift or change_station. Classify reduce or "
+        "avoid shift type, workload fairness, station coverage, and worker swap "
+        "requests as scheduling with understood_but_not_executable. If required "
+        "details are missing, return ambiguous_or_missing_information and list "
+        "missing_fields. If the request is not scheduling-related, return "
+        "non_scheduling. Never apply, save, or mutate a schedule."
     )
 
 
@@ -746,6 +1094,16 @@ def _build_model_user_prompt(request: RefineWorkflowRequest) -> str:
                 "change_shift",
                 "change_station",
                 "remove_assignment",
+                "reduce_or_avoid_shift_type",
+                "workload_or_fairness",
+                "station_coverage",
+                "swap_workers",
+            ],
+            "allowed_capability_statuses": [
+                CAPABILITY_EXECUTABLE,
+                CAPABILITY_UNDERSTOOD_BUT_NOT_EXECUTABLE,
+                CAPABILITY_NON_SCHEDULING,
+                CAPABILITY_AMBIGUOUS,
             ],
             "requirements": {
                 "date_must_be_inside_selected_month": True,
@@ -771,6 +1129,8 @@ def _build_model_user_prompt(request: RefineWorkflowRequest) -> str:
                     "existing_current_assignment",
                 ],
                 "remove_assignment_requires": ["date", "worker_code"],
+                "unsupported_scheduling_intents_do_not_execute": True,
+                "non_scheduling_requests_are_rejected": True,
             },
             "current_assignments": [
                 {
@@ -840,6 +1200,210 @@ def _collect_prompt_aliases(metadata_json: dict[str, object] | None) -> list[str
     return sorted(set(aliases))
 
 
+def _classify_local_pr7_state(
+    request: RefineWorkflowRequest,
+    *,
+    request_language: str,
+    fallback_used: bool,
+) -> dict[str, object] | None:
+    request_text = request.request_text
+    normalized_text = request_text.casefold()
+    worker_codes = _resolve_worker_codes(
+        request_text,
+        workers=request.planning_input.workers,
+    )
+
+    if _contains_any_hint(normalized_text, request_text, _SWAP_HINTS):
+        canonical_intent = _build_local_abstract_canonical_intent(
+            request,
+            worker_codes=worker_codes,
+        )
+        if len(worker_codes) < 2:
+            return _ambiguous_state(
+                request_language,
+                reason_code="secondary_worker_required",
+                intent_type="swap_workers",
+                canonical_intent=canonical_intent,
+                missing_fields=["secondary_worker"],
+                fallback_used=fallback_used,
+            )
+        canonical_intent["worker_code"] = worker_codes[0]
+        canonical_intent["secondary_worker_code"] = worker_codes[1]
+        return _understood_but_not_executable_state(
+            request_language,
+            intent_type="swap_workers",
+            canonical_intent=canonical_intent,
+            reason_code="swap_not_executable",
+            fallback_used=fallback_used,
+        )
+
+    if _looks_like_reduce_or_avoid_shift_request(request_text):
+        canonical_intent = _build_local_abstract_canonical_intent(
+            request,
+            worker_codes=worker_codes,
+        )
+        shift_type = _detect_shift_type(request_text)
+        if shift_type is not None:
+            canonical_intent["shift_type"] = shift_type
+        canonical_intent["preference_strength"] = _detect_preference_strength(
+            request_text
+        )
+        return _understood_but_not_executable_state(
+            request_language,
+            intent_type="reduce_or_avoid_shift_type",
+            canonical_intent=canonical_intent,
+            reason_code="single_day_edits_only",
+            fallback_used=fallback_used,
+        )
+
+    if _contains_any_hint(normalized_text, request_text, _WORKLOAD_FAIRNESS_HINTS):
+        canonical_intent = _build_local_abstract_canonical_intent(
+            request,
+            worker_codes=worker_codes,
+        )
+        return _understood_but_not_executable_state(
+            request_language,
+            intent_type="workload_or_fairness",
+            canonical_intent=canonical_intent,
+            reason_code="planner_level_optimization_required",
+            fallback_used=fallback_used,
+        )
+
+    if _contains_any_hint(normalized_text, request_text, _STATION_COVERAGE_HINTS):
+        canonical_intent = _build_local_abstract_canonical_intent(
+            request,
+            worker_codes=worker_codes,
+        )
+        return _understood_but_not_executable_state(
+            request_language,
+            intent_type="station_coverage",
+            canonical_intent=canonical_intent,
+            reason_code="coverage_planning_not_executable",
+            fallback_used=fallback_used,
+        )
+
+    if _looks_like_vague_scheduling_request(request_text):
+        canonical_intent = _build_local_abstract_canonical_intent(
+            request,
+            worker_codes=worker_codes,
+        )
+        missing_fields = _missing_fields_for_vague_request(
+            request,
+            worker_codes=worker_codes,
+        )
+        return _ambiguous_state(
+            request_language,
+            reason_code="target_assignment_required",
+            canonical_intent=canonical_intent,
+            missing_fields=missing_fields,
+            fallback_used=fallback_used,
+        )
+
+    return None
+
+
+def _build_local_abstract_canonical_intent(
+    request: RefineWorkflowRequest,
+    *,
+    worker_codes: list[str],
+) -> dict[str, object]:
+    canonical_intent: dict[str, object] = {}
+    parsed_date, _ = _parse_request_date(
+        request.request_text,
+        year=request.year,
+        month=request.month,
+    )
+    if parsed_date is not None:
+        canonical_intent["date"] = parsed_date.isoformat()
+    date_range = _detect_date_range_label(request.request_text)
+    if date_range is not None:
+        canonical_intent["date_range"] = date_range
+    if worker_codes:
+        canonical_intent["worker_code"] = worker_codes[0]
+    shift_code = _resolve_shift_code(
+        request.request_text,
+        shifts=request.planning_input.shifts,
+    )
+    if shift_code is not None:
+        canonical_intent["shift_code"] = shift_code
+    station_code = _resolve_station_code(
+        request.request_text,
+        stations=request.planning_input.stations,
+    )
+    if station_code is not None:
+        canonical_intent["station_code"] = station_code
+    return canonical_intent
+
+
+def _build_model_non_executable_canonical_intent(
+    payload: dict[str, Any],
+    *,
+    request: RefineWorkflowRequest,
+) -> dict[str, object]:
+    canonical_intent: dict[str, object] = {}
+    date_value = _coerce_optional_model_text(payload.get("date"), label="date")
+    if date_value is not None:
+        parsed_date = _coerce_model_date(
+            date_value,
+            year=request.year,
+            month=request.month,
+        )
+        canonical_intent["date"] = parsed_date.isoformat()
+    for payload_key, canonical_key, allowed_codes in (
+        (
+            "worker_code",
+            "worker_code",
+            [
+                worker.worker_code
+                for worker in request.planning_input.workers
+                if worker.is_active
+            ],
+        ),
+        (
+            "secondary_worker_code",
+            "secondary_worker_code",
+            [
+                worker.worker_code
+                for worker in request.planning_input.workers
+                if worker.is_active
+            ],
+        ),
+        (
+            "shift_code",
+            "shift_code",
+            [
+                shift.shift_code
+                for shift in request.planning_input.shifts
+                if not shift.is_off_shift
+            ],
+        ),
+        (
+            "station_code",
+            "station_code",
+            [
+                station.station_code
+                for station in request.planning_input.stations
+                if station.is_active
+            ],
+        ),
+    ):
+        resolved_code = _resolve_optional_model_code(
+            payload.get(payload_key),
+            allowed_codes=allowed_codes,
+            label=payload_key,
+        )
+        if resolved_code is not None:
+            canonical_intent[canonical_key] = resolved_code
+    for payload_key in ("date_range", "shift_type", "preference_strength"):
+        text_value = _coerce_optional_model_text(
+            payload.get(payload_key),
+            label=payload_key,
+        )
+        if text_value is not None:
+            canonical_intent[payload_key] = text_value
+    return canonical_intent
+
+
 def _coerce_model_intent_state(
     payload: dict[str, Any],
     *,
@@ -856,7 +1420,12 @@ def _coerce_model_intent_state(
                 "Structured refine payload requested direct mutation."
             )
         raise ValueError("Structured refine payload contained unsupported keys.")
-    for command_field in ("intent_type", "reason_code"):
+    for command_field in (
+        "intent_type",
+        "reason_code",
+        "domain",
+        "capability_status",
+    ):
         command_value = payload.get(command_field)
         if (
             isinstance(command_value, str)
@@ -870,6 +1439,7 @@ def _coerce_model_intent_state(
         payload.get("request_language"),
         fallback_language=fallback_language,
     )
+    domain = _coerce_model_domain(payload.get("domain"))
     intent_status = _coerce_required_model_text(
         payload.get("intent_status"),
         label="intent_status",
@@ -879,13 +1449,60 @@ def _coerce_model_intent_state(
 
     raw_intent_type = payload.get("intent_type")
     intent_type = _coerce_optional_model_text(raw_intent_type, label="intent_type")
-    if intent_type is not None and intent_type not in _SUPPORTED_INTENT_TYPES:
+    if intent_type is not None and intent_type not in _SUPPORTED_MODEL_INTENT_TYPES:
         raise ValueError("Structured refine payload contained an invalid intent type.")
+    capability_status = _coerce_model_capability_status(
+        payload.get("capability_status"),
+        intent_status=intent_status,
+        intent_type=intent_type,
+        domain=domain,
+    )
 
     reason_code = (
         _coerce_optional_model_text(payload.get("reason_code"), label="reason_code")
         or "ambiguous_reference"
     )
+    missing_fields = _coerce_model_missing_fields(payload.get("missing_fields"))
+
+    if domain == NON_SCHEDULING_DOMAIN or capability_status == CAPABILITY_NON_SCHEDULING:
+        return _non_scheduling_state(
+            request_language,
+            reason_code=reason_code,
+            model_used=True,
+            fallback_used=False,
+        )
+
+    if capability_status == CAPABILITY_UNDERSTOOD_BUT_NOT_EXECUTABLE:
+        canonical_intent = _build_model_non_executable_canonical_intent(
+            payload,
+            request=request,
+        )
+        return _understood_but_not_executable_state(
+            request_language,
+            intent_type=intent_type or "scheduling_request",
+            canonical_intent=canonical_intent,
+            reason_code=reason_code,
+            model_used=True,
+            fallback_used=False,
+        )
+
+    if (
+        intent_status == "ambiguous"
+        or capability_status == CAPABILITY_AMBIGUOUS
+    ):
+        canonical_intent = _build_model_non_executable_canonical_intent(
+            payload,
+            request=request,
+        )
+        return _ambiguous_state(
+            request_language,
+            reason_code=reason_code,
+            intent_type=intent_type,
+            canonical_intent=canonical_intent,
+            missing_fields=missing_fields,
+            model_used=True,
+            fallback_used=False,
+        )
 
     if intent_status == "unsupported":
         outcome = _build_outcome(
@@ -901,6 +1518,8 @@ def _coerce_model_intent_state(
         return {
             "request_language": request_language,
             "intent_status": "unsupported",
+            "domain": domain,
+            "capability_status": CAPABILITY_UNDERSTOOD_BUT_NOT_EXECUTABLE,
             "intent_type": intent_type,
             "outcome": outcome,
             "preview_executed": False,
@@ -908,6 +1527,8 @@ def _coerce_model_intent_state(
             "fallback_used": False,
             "parsed_intent_json": _build_parsed_intent_json(
                 request_language=request_language,
+                domain=domain,
+                capability_status=CAPABILITY_UNDERSTOOD_BUT_NOT_EXECUTABLE,
                 intent_status="unsupported",
                 intent_type=intent_type,
                 reason_code=reason_code,
@@ -918,11 +1539,16 @@ def _coerce_model_intent_state(
             ),
         }
 
-    if intent_status == "ambiguous":
-        return _ambiguous_state(
+    if intent_type in _ABSTRACT_INTENT_TYPES:
+        canonical_intent = _build_model_non_executable_canonical_intent(
+            payload,
+            request=request,
+        )
+        return _understood_but_not_executable_state(
             request_language,
-            reason_code=reason_code,
             intent_type=intent_type,
+            canonical_intent=canonical_intent,
+            reason_code="unsupported_intent_not_executable",
             model_used=True,
             fallback_used=False,
         )
@@ -1112,6 +1738,8 @@ def _coerce_model_intent_state(
     return {
         "request_language": request_language,
         "intent_status": "supported",
+        "domain": SCHEDULING_DOMAIN,
+        "capability_status": CAPABILITY_EXECUTABLE,
         "intent_type": intent_type,
         "canonical_intent": canonical_intent,
         "adjustment_patch": adjustment_patch,
@@ -1128,6 +1756,65 @@ def _coerce_model_language(value: object, *, fallback_language: str) -> str:
     if fallback_language in _SUPPORTED_MODEL_LANGUAGES:
         return fallback_language
     return "unknown"
+
+
+def _coerce_model_domain(value: object) -> str:
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in _SUPPORTED_MODEL_DOMAINS:
+            return normalized
+        if normalized:
+            raise ValueError("Structured refine payload contained an invalid domain.")
+    elif value is not None:
+        raise ValueError("Structured refine payload domain must be a string.")
+    return SCHEDULING_DOMAIN
+
+
+def _coerce_model_capability_status(
+    value: object,
+    *,
+    intent_status: str,
+    intent_type: str | None,
+    domain: str,
+) -> str:
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in _SUPPORTED_MODEL_CAPABILITY_STATUSES:
+            return normalized
+        if normalized:
+            raise ValueError(
+                "Structured refine payload contained an invalid capability status."
+            )
+    elif value is not None:
+        raise ValueError(
+            "Structured refine payload capability_status must be a string."
+        )
+    if domain == NON_SCHEDULING_DOMAIN:
+        return CAPABILITY_NON_SCHEDULING
+    if intent_status == "supported":
+        return CAPABILITY_EXECUTABLE
+    if intent_status == "ambiguous":
+        return CAPABILITY_AMBIGUOUS
+    if intent_type in _ABSTRACT_INTENT_TYPES:
+        return CAPABILITY_UNDERSTOOD_BUT_NOT_EXECUTABLE
+    return CAPABILITY_UNDERSTOOD_BUT_NOT_EXECUTABLE
+
+
+def _coerce_model_missing_fields(value: object) -> list[str]:
+    if value is None:
+        return []
+    if not isinstance(value, list):
+        raise ValueError("Structured refine payload missing_fields must be a list.")
+    missing_fields: list[str] = []
+    for raw_item in value:
+        if not isinstance(raw_item, str):
+            raise ValueError(
+                "Structured refine payload missing_fields entries must be strings."
+            )
+        item = raw_item.strip()
+        if item:
+            missing_fields.append(item)
+    return missing_fields
 
 
 def _coerce_required_model_text(value: object, *, label: str) -> str:
@@ -1171,6 +1858,17 @@ def _resolve_model_code(
     return resolved_code
 
 
+def _resolve_optional_model_code(
+    value: object,
+    *,
+    allowed_codes: list[str],
+    label: str,
+) -> str | None:
+    if value is None:
+        return None
+    return _resolve_model_code(value, allowed_codes=allowed_codes, label=label)
+
+
 def _detect_request_language(request_text: str) -> str:
     if _contains_hiragana_or_katakana(request_text):
         return "ja"
@@ -1206,6 +1904,7 @@ def _contains_english_keyword(request_text: str, keywords: tuple[str, ...]) -> b
 
 
 def _looks_like_scheduling_request(request_text: str) -> bool:
+    normalized_text = request_text.casefold()
     return (
         any(keyword in request_text for keyword in _ZH_SET_KEYWORDS)
         or any(keyword in request_text for keyword in _ZH_REMOVE_KEYWORDS)
@@ -1213,7 +1912,102 @@ def _looks_like_scheduling_request(request_text: str) -> bool:
         or any(keyword in request_text for keyword in _JA_REMOVE_KEYWORDS)
         or _contains_english_keyword(request_text, _EN_SET_KEYWORDS)
         or _contains_english_keyword(request_text, _EN_REMOVE_KEYWORDS)
+        or _contains_any_hint(normalized_text, request_text, _REDUCE_SHIFT_HINTS)
+        or _contains_any_hint(normalized_text, request_text, _WORKLOAD_FAIRNESS_HINTS)
+        or _contains_any_hint(normalized_text, request_text, _STATION_COVERAGE_HINTS)
+        or _contains_any_hint(normalized_text, request_text, _SWAP_HINTS)
+        or _contains_any_hint(normalized_text, request_text, _VAGUE_SCHEDULING_HINTS)
     )
+
+
+def _contains_any_hint(
+    normalized_text: str,
+    request_text: str,
+    hints: tuple[str, ...],
+) -> bool:
+    return any(
+        hint.casefold() in normalized_text
+        if hint.isascii()
+        else hint in request_text
+        for hint in hints
+    )
+
+
+def _looks_like_reduce_or_avoid_shift_request(request_text: str) -> bool:
+    normalized_text = request_text.casefold()
+    return (
+        _contains_any_hint(normalized_text, request_text, _REDUCE_SHIFT_HINTS)
+        and (
+            _contains_any_hint(normalized_text, request_text, _MORNING_SHIFT_HINTS)
+            or _contains_english_keyword(request_text, ("shift", "shifts"))
+            or "\u73ed" in request_text
+        )
+    )
+
+
+def _looks_like_vague_scheduling_request(request_text: str) -> bool:
+    normalized_text = request_text.casefold()
+    return _contains_any_hint(
+        normalized_text,
+        request_text,
+        _VAGUE_SCHEDULING_HINTS,
+    )
+
+
+def _detect_date_range_label(request_text: str) -> str | None:
+    normalized_text = request_text.casefold()
+    for label, hints in _DATE_RANGE_HINTS:
+        if _contains_any_hint(normalized_text, request_text, hints):
+            return label
+    return None
+
+
+def _detect_shift_type(request_text: str) -> str | None:
+    normalized_text = request_text.casefold()
+    if _contains_any_hint(normalized_text, request_text, _MORNING_SHIFT_HINTS):
+        return "morning"
+    return None
+
+
+def _detect_preference_strength(request_text: str) -> str:
+    normalized_text = request_text.casefold()
+    if (
+        "avoid" in normalized_text
+        or "\u4e0d\u8981" in request_text
+        or "\u907f\u3051" in request_text
+    ):
+        return "avoid"
+    if _contains_any_hint(normalized_text, request_text, _REDUCE_SHIFT_HINTS):
+        return "reduce"
+    return "unspecified"
+
+
+def _missing_fields_for_vague_request(
+    request: RefineWorkflowRequest,
+    *,
+    worker_codes: list[str],
+) -> list[str]:
+    missing_fields: list[str] = []
+    parsed_date, _ = _parse_request_date(
+        request.request_text,
+        year=request.year,
+        month=request.month,
+    )
+    if parsed_date is None:
+        missing_fields.append("date")
+    if not worker_codes:
+        missing_fields.append("worker")
+    shift_code = _resolve_shift_code(
+        request.request_text,
+        shifts=request.planning_input.shifts,
+    )
+    station_code = _resolve_station_code(
+        request.request_text,
+        stations=request.planning_input.stations,
+    )
+    if shift_code is None and station_code is None:
+        missing_fields.append("target_shift_or_station")
+    return missing_fields or ["target_shift_or_station"]
 
 
 def _detect_intent_type(
@@ -1339,6 +2133,30 @@ def _resolve_worker_code(
         ),
     )
     return _resolve_single_match(matches)
+
+
+def _resolve_worker_codes(
+    request_text: str,
+    *,
+    workers: list[WorkerInput],
+) -> list[str]:
+    matches = _find_entity_match_spans(
+        request_text,
+        _build_alias_entries(
+            [worker for worker in workers if worker.is_active],
+            code_getter=lambda worker: worker.worker_code,
+            name_getter=lambda worker: worker.name,
+            metadata_getter=lambda worker: worker.metadata_json,
+        ),
+    )
+    ordered_codes: list[str] = []
+    seen: set[str] = set()
+    for match in sorted(matches, key=lambda item: (item.start, item.end)):
+        if match.canonical_code in seen:
+            continue
+        seen.add(match.canonical_code)
+        ordered_codes.append(match.canonical_code)
+    return ordered_codes
 
 
 def _resolve_station_code(
