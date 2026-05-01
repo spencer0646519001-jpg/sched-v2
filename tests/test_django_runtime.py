@@ -490,6 +490,81 @@ def test_django_runtime_refine_returns_candidate_preview_without_mutating_curren
     assert refine_request.result_preview_json is not None
 
 
+def test_django_runtime_refine_change_shift_keeps_station_without_mutating_current() -> None:
+    tenant = _seed_month_context()
+    DjangoShiftDefinition.objects.create(
+        tenant=tenant,
+        code="EVE",
+        name="Evening",
+        paid_hours=Decimal("6.00"),
+        is_off_shift=False,
+    )
+    views = {
+        pattern.name: pattern.callback
+        for pattern in build_django_monthly_schedule_urlpatterns()
+    }
+
+    preview_payload = _post_json(
+        views["preview_month_schedule"],
+        path="/v2/monthly-schedules/preview",
+        payload={
+            "tenant_slug": tenant.slug,
+            "year": 2026,
+            "month": 4,
+        },
+    )
+    _post_json(
+        views["apply_month_schedule"],
+        path="/v2/monthly-schedules/apply",
+        payload={
+            "tenant_slug": tenant.slug,
+            "year": 2026,
+            "month": 4,
+            "result": preview_payload["result"],
+        },
+    )
+
+    refine_payload = _post_json(
+        views["refine_month_schedule"],
+        path="/v2/monthly-schedules/refine",
+        payload={
+            "tenant_slug": tenant.slug,
+            "year": 2026,
+            "month": 4,
+            "request_text": (
+                f"4/1 {PRIMARY_DEMO_WORKER.code} "
+                f"\u73ed\u5225\u6539 EVE"
+            ),
+        },
+    )
+
+    current_workspace = DjangoMonthlyWorkspace.objects.get(
+        tenant=tenant,
+        year=2026,
+        month=4,
+    )
+    current_first_assignment = DjangoMonthlyAssignment.objects.get(
+        workspace=current_workspace,
+        assignment_date=dt.date(2026, 4, 1),
+        worker__code=PRIMARY_DEMO_WORKER.code,
+    )
+    refined_first_day_assignment = next(
+        assignment
+        for assignment in refine_payload["candidate_result"]["assignments"]
+        if assignment["date"] == "2026-04-01"
+        and assignment["worker_code"] == PRIMARY_DEMO_WORKER.code
+    )
+
+    assert refine_payload["outcome"]["status"] == "preview_ready"
+    assert refine_payload["parsed_intent_json"]["intent_type"] == "change_shift"
+    assert refined_first_day_assignment["shift_code"] == "EVE"
+    assert refined_first_day_assignment["station_code"] == PRIMARY_DEMO_STATION.code
+    assert refined_first_day_assignment["source"] == "adjustment_patch"
+    assert current_first_assignment.shift_definition.code == PRIMARY_DEMO_SHIFT.code
+    assert current_first_assignment.station.code == PRIMARY_DEMO_STATION.code
+    assert DjangoMonthlyAssignment.objects.filter(workspace=current_workspace).count() == 30
+
+
 def test_django_runtime_refine_does_not_read_other_tenant_current_workspace() -> None:
     tenant = _seed_named_month_context(
         slug="tenant-a",

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import django
+import pytest
 from django.apps import apps
 from django.conf import settings
 from django.core.management import call_command
@@ -31,3 +32,7 @@ if not apps.ready:
 
 call_command("migrate", interactive=False, verbosity=0)
 
+
+@pytest.fixture(autouse=True)
+def _prevent_unintended_openai_calls(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)

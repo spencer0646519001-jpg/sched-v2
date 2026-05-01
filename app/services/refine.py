@@ -15,15 +15,22 @@ from decimal import Decimal
 from typing import Protocol
 
 from app.engine.contracts import (
+    AssignmentOutput,
     AssignmentPatchInput,
     MonthPlanningEvaluation,
     MonthPlanningInput,
     MonthPlanningResult,
 )
-from app.infra.models import JsonObject, RecordId, RefineRequest
+from app.infra.models import (
+    JsonObject,
+    MonthlyAssignment,
+    RecordId,
+    RefineRequest,
+)
 from app.infra.repositories import (
     ConstraintConfigRepository,
     LeaveRequestRepository,
+    MonthlyPlanningPersistenceBundle,
     RefineRequestRepository,
     ShiftRepository,
     StationRepository,
@@ -117,6 +124,7 @@ class RefineWorkflowRequest:
     workspace_id: RecordId
     request_text: str
     planning_input: MonthPlanningInput
+    current_assignments: list[AssignmentOutput] | None = None
 
 
 @dataclass(slots=True)
@@ -223,6 +231,10 @@ class RefineMonthScheduleService:
             constraint_config_repository=self.constraint_config_repository,
         )
         base_planning_input = build_month_planning_input(bundle)
+        current_assignments = _translate_current_assignments_to_engine_rows(
+            current_state.assignments,
+            bundle=bundle,
+        )
 
         persisted_refine_request = self.refine_request_repository.create(
             RefineRequest(
@@ -245,6 +257,7 @@ class RefineMonthScheduleService:
                 workspace_id=workspace_id,
                 request_text=request.request_text,
                 planning_input=base_planning_input,
+                current_assignments=current_assignments,
             )
         )
         parsed_intent_json = _build_persisted_intent_json(workflow_result)
@@ -353,6 +366,82 @@ def _merge_adjustment_patch(
     if not refine_patch:
         return list(base_patch)
     return [*base_patch, *refine_patch]
+
+
+def _translate_current_assignments_to_engine_rows(
+    assignments: list[MonthlyAssignment],
+    *,
+    bundle: MonthlyPlanningPersistenceBundle,
+) -> list[AssignmentOutput]:
+    """Translate read-only current workspace rows into engine identifiers."""
+
+    worker_codes_by_id = {
+        _require_record_id(worker.id, label="worker.id"): _coalesce_engine_code(
+            worker.code,
+            worker.id,
+            label="worker",
+        )
+        for worker in bundle.workers
+    }
+    shift_codes_by_id = {
+        _require_record_id(shift.id, label="shift.id"): shift.code
+        for shift in bundle.shifts
+    }
+    station_codes_by_id = {
+        _require_record_id(station.id, label="station.id"): _coalesce_engine_code(
+            station.code,
+            station.id,
+            label="station",
+        )
+        for station in bundle.stations
+    }
+
+    translated_assignments: list[AssignmentOutput] = []
+    for assignment in assignments:
+        worker_code = worker_codes_by_id.get(assignment.worker_id)
+        if worker_code is None:
+            raise LookupError(
+                "Current workspace assignment references unknown worker_id "
+                f"{assignment.worker_id!r}."
+            )
+        shift_code = shift_codes_by_id.get(assignment.shift_definition_id)
+        if shift_code is None:
+            raise LookupError(
+                "Current workspace assignment references unknown "
+                f"shift_definition_id {assignment.shift_definition_id!r}."
+            )
+        station_code = None
+        if assignment.station_id is not None:
+            station_code = station_codes_by_id.get(assignment.station_id)
+            if station_code is None:
+                raise LookupError(
+                    "Current workspace assignment references unknown station_id "
+                    f"{assignment.station_id!r}."
+                )
+        translated_assignments.append(
+            AssignmentOutput(
+                date=assignment.assignment_date,
+                worker_code=worker_code,
+                shift_code=shift_code,
+                station_code=station_code,
+                source="current_workspace",
+                note=assignment.note,
+            )
+        )
+    return translated_assignments
+
+
+def _coalesce_engine_code(
+    code: str | None,
+    record_id: RecordId | None,
+    *,
+    label: str,
+) -> str:
+    if code:
+        return code
+    if record_id:
+        return record_id
+    raise ValueError(f"{label.capitalize()} requires either a code or persisted id.")
 
 
 def _build_persisted_intent_json(
