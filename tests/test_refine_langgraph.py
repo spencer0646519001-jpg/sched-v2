@@ -145,9 +145,7 @@ def test_langgraph_refine_parses_change_shift_and_keeps_current_station() -> Non
     engine = _RecordingEngine()
     workflow = LangGraphRefineWorkflow(engine_runner=engine)
 
-    response = workflow(
-        _build_pr6_request("5/2 \u628a Spencer \u5f9e D \u6539\u6210 C")
-    )
+    response = workflow(_build_pr6_request("5/2 Spencer \u6539\u6210 C"))
 
     assert response.outcome.status == "preview_ready"
     assert response.parsed_intent_json["intent_type"] == "change_shift"
@@ -185,11 +183,7 @@ def test_langgraph_refine_parses_change_station_and_keeps_current_shift() -> Non
     engine = _RecordingEngine()
     workflow = LangGraphRefineWorkflow(engine_runner=engine)
 
-    response = workflow(
-        _build_pr6_request(
-            "5/2 Spencer \u6539\u53bb gateau\uff0c\u73ed\u5225\u4e0d\u8b8a"
-        )
-    )
+    response = workflow(_build_pr6_request("5/2 Spencer \u6539\u53bb gateau"))
 
     assert response.outcome.status == "preview_ready"
     assert response.parsed_intent_json["intent_type"] == "change_station"
@@ -245,9 +239,7 @@ def test_langgraph_refine_parses_off_request_as_safe_remove_preview() -> None:
     engine = _RecordingEngine()
     workflow = LangGraphRefineWorkflow(engine_runner=engine)
 
-    response = workflow(
-        _build_pr6_request("5/2 Spencer \u4e0d\u8981\u6392\u73ed")
-    )
+    response = workflow(_build_pr6_request("5/2 Spencer \u4f11\u5047"))
 
     assert response.outcome.status == "preview_ready"
     assert response.parsed_intent_json["intent_type"] == "remove_assignment"

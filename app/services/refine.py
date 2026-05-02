@@ -122,6 +122,26 @@ _REFINE_OUTCOME_TEMPLATES: dict[str, dict[str, str]] = {
             "\u89e3\u91c8\u3067\u304d\u307e\u305b\u3093\u3067\u3057\u305f\u3002"
         ),
     },
+    "en": {
+        "refine_preview_ready_set": "Refine preview generated.",
+        "refine_preview_ready_remove": "Remove preview generated.",
+        "refine_unsupported_language": "Unsupported request language.",
+        "refine_unsupported_intent": "Unsupported refine request.",
+        "refine_understood_but_not_executable": (
+            "I understand this as a scheduling request ({intent_label}), but "
+            "this refine flow currently supports only single-day edits. Try a "
+            "concrete edit such as: {suggestion}"
+        ),
+        "refine_non_scheduling_request": (
+            "This assistant only handles scheduling changes. Please enter a "
+            "scheduling-related request."
+        ),
+        "refine_ambiguous_missing_information": (
+            "I need more information before I can preview that scheduling "
+            "change. Please include: {missing_fields}."
+        ),
+        "refine_ambiguous_reference": "Unable to safely resolve this refine request.",
+    },
     "unknown": {
         "refine_preview_ready_set": "Refine preview generated.",
         "refine_preview_ready_remove": "Remove preview generated.",

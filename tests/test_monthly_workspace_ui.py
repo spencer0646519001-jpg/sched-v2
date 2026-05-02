@@ -21,6 +21,7 @@ from app.engine.contracts import (
     MonthPlanningMetadata,
     MonthPlanningResult,
     MonthPlanningSummary,
+    WarningOutput,
 )
 from app.monthly_workspace_demo_data import (
     DEMO_TENANT_NAME,
@@ -148,6 +149,9 @@ def test_workspace_page_renders_japanese_copy_when_ui_lang_is_ja() -> None:
     assert 'placeholder="例: この日のシフト理由を説明して"' in html_text
     assert "Why was 4/1 scheduled this way?" not in html_text
     assert "調整 / 説明" in html_text
+    assert "例：5/2 Spencer を C にして" in html_text
+    assert "例：5/2 Spencer を gateau にして" in html_text
+    assert "例：来週 Spencer の朝番を減らして" in html_text
     assert "音声入力を使う" in html_text
     assert "音声入力" in html_text
     assert html_text.count(">開始</button>") >= 2
@@ -476,7 +480,111 @@ def test_workspace_preview_summarizes_warnings_before_schedule_grid() -> None:
     assert html_text.index("<h2>評估結果</h2>") < html_text.index(
         '<div class="result-grid-scroll">'
     )
-    assert html_text.index("詳細警告") < html_text.index("understaffed station day")
+    assert html_text.index("詳細警告") < html_text.index("站台人手不足")
+
+
+def test_workspace_warning_details_are_localized_and_collapsible_in_japanese() -> None:
+    tenant = _seed_custom_month_context(workers=[("COOK_A", "Cook Alpha", "employee")])
+    view = {
+        pattern.name: pattern.callback
+        for pattern in build_django_monthly_workspace_page_urlpatterns(
+            preview_engine=_FixedPreviewEngine(
+                _build_preview_result(
+                    warnings=[
+                        WarningOutput(
+                            type="understaffed_station_day",
+                            message_key="understaffed_station",
+                            date=dt.date(2026, 4, 2),
+                            details={
+                                "station_code": "GATEAU",
+                                "required_staff": 2,
+                                "assigned_staff": 1,
+                                "missing_staff": 1,
+                            },
+                        )
+                    ]
+                )
+            )
+        )
+    }["monthly_schedule_workspace"]
+
+    response = view(
+        RequestFactory().post(
+            "/v2/monthly-workspace",
+            data={
+                "form_action": "preview",
+                "tenant_slug": tenant.slug,
+                "month_scope": "2026-04",
+                "ui_lang": "ja",
+            },
+        )
+    )
+    html_text = response.content.decode()
+    visible_warning = html_text.split("<summary>技術詳細</summary>", maxsplit=1)[0]
+
+    assert response.status_code == 200
+    assert re.search(
+        r'<details class="technical-details">\s*<summary>詳細警告</summary>',
+        html_text,
+    )
+    assert '<details class="technical-details" open>' not in html_text
+    assert "ステーションの人員不足" in visible_warning
+    for label in ("日付", "ステーション", "必要人数", "割当済み", "不足人数", "対応案"):
+        assert label in visible_warning
+    for internal_label in (
+        "Understaffed Station Day",
+        "understaffed station day",
+        "understaffed station",
+        "assigned staff",
+        "missing staff",
+        "required staff",
+        "station code",
+    ):
+        assert internal_label not in visible_warning
+
+
+def test_workspace_warning_details_are_localized_in_traditional_chinese() -> None:
+    tenant = _seed_custom_month_context(workers=[("COOK_A", "Cook Alpha", "employee")])
+    view = {
+        pattern.name: pattern.callback
+        for pattern in build_django_monthly_workspace_page_urlpatterns(
+            preview_engine=_FixedPreviewEngine(
+                _build_preview_result(
+                    warnings=[
+                        WarningOutput(
+                            type="understaffed_station_day",
+                            message_key="understaffed_station",
+                            date=dt.date(2026, 4, 2),
+                            details={
+                                "station_code": "GATEAU",
+                                "required_staff": 2,
+                                "assigned_staff": 1,
+                                "missing_staff": 1,
+                            },
+                        )
+                    ]
+                )
+            )
+        )
+    }["monthly_schedule_workspace"]
+
+    response = view(
+        RequestFactory().post(
+            "/v2/monthly-workspace",
+            data={
+                "form_action": "preview",
+                "tenant_slug": tenant.slug,
+                "month_scope": "2026-04",
+                "ui_lang": "zh",
+            },
+        )
+    )
+    html_text = response.content.decode()
+
+    assert response.status_code == 200
+    assert "站台人手不足" in html_text
+    for label in ("日期", "站台", "需要人數", "已分配", "不足", "建議"):
+        assert label in html_text
 
 
 def test_workspace_preview_shows_neutral_evaluation_when_no_warnings() -> None:
@@ -569,7 +677,7 @@ def test_workspace_page_supports_leave_preview_apply_and_save_flow() -> None:
     assert "候選預覽已產生，可在套用前先審核。" in preview_html
     assert "候選預覽" in preview_html
     assert "needs_review" in preview_html
-    assert "understaffed station day" in preview_html
+    assert "站台人手不足" in preview_html
     assert candidate_id
     assert 'name="candidate_result_json"' not in preview_html
 
@@ -958,6 +1066,9 @@ def test_workspace_page_replaces_refine_placeholder_with_working_form() -> None:
     assert response.status_code == 200
     assert 'name="form_action" value="refine"' in html_text
     assert 'name="request_text"' in html_text
+    assert "例：5/2 Spencer 改成 C" in html_text
+    assert "例：5/2 Spencer 改去 gateau" in html_text
+    assert "例：下週讓 Spencer 少一點早班" in html_text
     assert "請先把目前計畫套用到月度工作區，再執行調整預覽。" in html_text
     assert "產生調整預覽" in html_text
     assert (
@@ -1998,16 +2109,23 @@ class _FixedPreviewEngine:
         return self.result
 
 
-def _build_preview_result(*assignments: AssignmentOutput) -> MonthPlanningResult:
+def _build_preview_result(
+    *assignments: AssignmentOutput,
+    warnings: list[WarningOutput] | None = None,
+) -> MonthPlanningResult:
+    warning_rows = list(warnings or [])
     return MonthPlanningResult(
         assignments=list(assignments),
-        warnings=[],
+        warnings=warning_rows,
         summary=MonthPlanningSummary(
             total_assignments=len(assignments),
-            total_warnings=0,
+            total_warnings=len(warning_rows),
             assignments_by_worker={},
             paid_hours_by_worker={},
-            warnings_by_type={},
+            warnings_by_type={
+                warning.type: sum(1 for row in warning_rows if row.type == warning.type)
+                for warning in warning_rows
+            },
         ),
         metadata=MonthPlanningMetadata(
             generated_at=dt.datetime(2026, 4, 12, tzinfo=dt.timezone.utc),

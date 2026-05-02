@@ -682,6 +682,45 @@
       margin-bottom: 6px;
     }
 
+    .warning-detail-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(132px, 1fr));
+      gap: 8px;
+      margin: 10px 0 0;
+    }
+
+    .warning-detail-grid div {
+      padding: 8px 10px;
+      border-radius: 8px;
+      background: rgba(255, 255, 255, 0.7);
+      border: 1px solid rgba(129, 88, 20, 0.12);
+    }
+
+    .warning-detail-grid dt {
+      margin: 0 0 4px;
+      font-size: 0.76rem;
+      font-weight: 800;
+      color: var(--text-muted);
+    }
+
+    .warning-detail-grid dd {
+      margin: 0;
+      color: var(--text-main);
+    }
+
+    .warning-technical-details {
+      margin-top: 10px;
+      font-size: 0.86rem;
+      color: var(--text-muted);
+    }
+
+    .warning-technical-list {
+      display: grid;
+      gap: 4px;
+      margin: 8px 0 0;
+      padding-left: 18px;
+    }
+
     .refine-result-card {
       display: grid;
       gap: 14px;
@@ -1178,7 +1217,28 @@
                 <div class="warning-title">{{ warning.title }}</div>
                 <div class="warning-meta">{{ page_copy.warnings.date_label }}: {{ warning.date }} / {{ page_copy.warnings.worker_label }}: {{ warning.worker }}</div>
                 <p><strong>{{ warning.message }}</strong></p>
-                <p>{{ warning.details }}</p>
+                {% if warning.detail_items %}
+                <dl class="warning-detail-grid">
+                  {% for item in warning.detail_items %}
+                  <div>
+                    <dt>{{ item.label }}</dt>
+                    <dd>{{ item.value }}</dd>
+                  </div>
+                  {% endfor %}
+                </dl>
+                {% else %}
+                <p>{{ page_copy.warnings.no_details }}</p>
+                {% endif %}
+                {% if warning.technical_items %}
+                <details class="warning-technical-details">
+                  <summary>{{ page_copy.warnings.technical_details_title }}</summary>
+                  <ul class="warning-technical-list">
+                    {% for item in warning.technical_items %}
+                    <li><code>{{ item.label }}</code>: {{ item.value }}</li>
+                    {% endfor %}
+                  </ul>
+                </details>
+                {% endif %}
               </li>
               {% endfor %}
             </ul>

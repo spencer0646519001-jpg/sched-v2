@@ -132,7 +132,12 @@ _SUPPORTED_MODEL_DOMAINS = {
     NON_SCHEDULING_DOMAIN,
     UNKNOWN_DOMAIN,
 }
-_CONCRETE_EDIT_SUGGESTION = "2026-05-02 把 Spencer 從 D 改成 C."
+_CONCRETE_EDIT_SUGGESTIONS = {
+    "zh": "5/2 Spencer 改成 C",
+    "ja": "5/2 Spencer を C にして",
+    "en": "Change Spencer to shift C on 5/2",
+    "unknown": "Change Spencer to shift C on 5/2",
+}
 _INTENT_LABELS = {
     "reduce_or_avoid_shift_type": "reduce or avoid a shift type",
     "workload_or_fairness": "workload or fairness balancing",
@@ -1004,7 +1009,7 @@ def _understood_but_not_executable_state(
             "intent_label": _intent_label(intent_type),
             "intent_type": intent_type,
             "reason_code": reason_code,
-            "suggestion": _CONCRETE_EDIT_SUGGESTION,
+            "suggestion": _concrete_edit_suggestion(language),
         },
     )
     return {
@@ -1062,6 +1067,13 @@ def _render_missing_fields(missing_fields: list[str]) -> str:
 
 def _intent_label(intent_type: str) -> str:
     return _INTENT_LABELS.get(intent_type, intent_type)
+
+
+def _concrete_edit_suggestion(language: str) -> str:
+    return _CONCRETE_EDIT_SUGGESTIONS.get(
+        language,
+        _CONCRETE_EDIT_SUGGESTIONS["unknown"],
+    )
 
 
 def _build_model_system_prompt() -> str:

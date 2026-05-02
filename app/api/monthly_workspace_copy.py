@@ -115,6 +115,43 @@ _MONTHLY_WORKSPACE_COPY: dict[str, dict[str, Any]] = {
             "month_value": "當月",
             "system_value": "系統",
             "no_details": "無額外詳情。",
+            "technical_details_title": "技術詳細資訊",
+            "detail_labels": {
+                "date": "日期",
+                "station": "站台",
+                "required": "需要人數",
+                "assigned": "已分配",
+                "missing": "不足",
+                "suggested_action": "建議",
+            },
+            "technical_labels": {
+                "type": "類型",
+                "message_key": "訊息代碼",
+            },
+            "type_titles": {
+                "understaffed_station_day": "站台人手不足",
+                "missing_morning_station_coverage": "早班站台人手不足",
+                "missing_required_chef": "缺少必要主廚",
+                "worker_unavailable_conflict": "員工不可排班衝突",
+                "duplicate_assignment_conflict": "重複排班衝突",
+                "worker_below_min_days_off": "休假天數不足",
+            },
+            "message_texts": {
+                "understaffed_station": "這一天的站台人手低於需求。",
+                "missing_morning_station_coverage": "早班站台覆蓋不足。",
+                "missing_required_chef": "這一天缺少必要的主廚人手。",
+                "worker_unavailable_conflict": "這名員工當天不可排班。",
+                "duplicate_assignment_conflict": "同一天同一位員工有多筆排班。",
+                "worker_below_min_days_off": "這名員工本月休假天數低於設定。",
+            },
+            "suggested_actions": {
+                "understaffed_station_day": "請為該日期的站台補上人手。",
+                "missing_morning_station_coverage": "請補上可支援早班的站台人員。",
+                "missing_required_chef": "請安排至少一位符合條件的主廚。",
+                "worker_unavailable_conflict": "請改派其他可上班的員工，或調整請假/不可上班設定。",
+                "duplicate_assignment_conflict": "請保留一筆排班，移除或改派重複項目。",
+                "worker_below_min_days_off": "請檢查本月休假分配並增加休假日。",
+            },
             "empty_no_current": "產生候選預覽後，預覽警告會顯示在這裡。",
             "empty_with_current": (
                 "產生候選預覽後，預覽警告會顯示在這裡。目前工作區警告尚未持久化。"
@@ -179,7 +216,11 @@ _MONTHLY_WORKSPACE_COPY: dict[str, dict[str, Any]] = {
             ),
             "request_label": "調整請求",
             "prompt_label": "想怎麼調整班表？",
-            "placeholder": "例如：請把 SPENCER 安排到 2026-04-01 的 EVE 在 GRILL",
+            "placeholder": (
+                "例：5/2 Spencer 改成 C\n"
+                "例：5/2 Spencer 改去 gateau\n"
+                "例：下週讓 Spencer 少一點早班"
+            ),
             "button": "產生調整預覽",
             "preview_only_note": (
                 "只會產生候選預覽，不會自動套用或儲存。"
@@ -206,7 +247,7 @@ _MONTHLY_WORKSPACE_COPY: dict[str, dict[str, Any]] = {
             "executable_status": "可以產生候選預覽",
             "not_executable_status": "目前尚不能自動執行",
             "suggestion_label": "建議改寫",
-            "default_suggestion": "請改成單日、單一員工、班次與崗位明確的調整，例如：請把 SPENCER 安排到 2026-04-01 的 EVE 在 GRILL。",
+            "default_suggestion": "請補上日期、員工，以及想改成的班次或站台，例如：5/2 Spencer 改成 C。",
             "outcome_messages": {
                 "refine_preview_ready_set": "已產生調整預覽。",
                 "refine_preview_ready_remove": "已產生移除預覽。",
@@ -235,6 +276,8 @@ _MONTHLY_WORKSPACE_COPY: dict[str, dict[str, Any]] = {
             },
             "intent_type_values": {
                 "set_assignment": "設定排班",
+                "change_shift": "變更班次",
+                "change_station": "變更站台",
                 "remove_assignment": "移除排班",
             },
             "operation_values": {
@@ -246,6 +289,10 @@ _MONTHLY_WORKSPACE_COPY: dict[str, dict[str, Any]] = {
                 "worker_required": "缺少員工",
                 "shift_required": "缺少班次",
                 "station_required": "缺少崗位",
+                "target_assignment_required": "缺少日期或要改成的班次/站台",
+                "existing_assignment_required": "找不到該日既有排班",
+                "existing_assignment_ambiguous": "該日既有排班不只一筆",
+                "existing_station_required": "既有排班缺少站台",
                 "bulk_change_not_supported": "目前僅支援單日調整",
                 "unsupported_intent": "目前不支援這類調整",
                 "non_scheduling_request": "不是排班調整請求",
@@ -444,6 +491,43 @@ _MONTHLY_WORKSPACE_COPY: dict[str, dict[str, Any]] = {
             "month_value": "当月",
             "system_value": "システム",
             "no_details": "追加の詳細はありません。",
+            "technical_details_title": "技術詳細",
+            "detail_labels": {
+                "date": "日付",
+                "station": "ステーション",
+                "required": "必要人数",
+                "assigned": "割当済み",
+                "missing": "不足人数",
+                "suggested_action": "対応案",
+            },
+            "technical_labels": {
+                "type": "種別",
+                "message_key": "メッセージキー",
+            },
+            "type_titles": {
+                "understaffed_station_day": "ステーションの人員不足",
+                "missing_morning_station_coverage": "朝番ステーションの人員不足",
+                "missing_required_chef": "必要なシェフが不足",
+                "worker_unavailable_conflict": "担当者の勤務不可と衝突",
+                "duplicate_assignment_conflict": "重複割り当て",
+                "worker_below_min_days_off": "休日日数が不足",
+            },
+            "message_texts": {
+                "understaffed_station": "この日のステーションに必要人数が足りません。",
+                "missing_morning_station_coverage": "朝番のステーション担当が不足しています。",
+                "missing_required_chef": "この日に必要なシェフ人数が足りません。",
+                "worker_unavailable_conflict": "この担当者は当日勤務不可です。",
+                "duplicate_assignment_conflict": "同じ日に同じ担当者の割り当てが複数あります。",
+                "worker_below_min_days_off": "この担当者の月内休日数が設定を下回っています。",
+            },
+            "suggested_actions": {
+                "understaffed_station_day": "該当日のステーションに追加の担当者を割り当ててください。",
+                "missing_morning_station_coverage": "朝番に対応できる担当者を追加してください。",
+                "missing_required_chef": "条件を満たすシェフを少なくとも1名割り当ててください。",
+                "worker_unavailable_conflict": "勤務可能な担当者へ変更するか、休暇/勤務不可設定を確認してください。",
+                "duplicate_assignment_conflict": "1件だけ残し、重複分を削除または別担当へ変更してください。",
+                "worker_below_min_days_off": "月内の休日配分を確認し、休日を増やしてください。",
+            },
             "empty_no_current": "候補プレビューを生成すると、プレビュー警告がここに表示されます。",
             "empty_with_current": (
                 "候補プレビューを生成すると、プレビュー警告がここに表示されます。"
@@ -509,7 +593,11 @@ _MONTHLY_WORKSPACE_COPY: dict[str, dict[str, Any]] = {
             ),
             "request_label": "調整依頼",
             "prompt_label": "どのようにシフトを調整しますか？",
-            "placeholder": "例: 2026-04-01 の SPENCER を外して",
+            "placeholder": (
+                "例：5/2 Spencer を C にして\n"
+                "例：5/2 Spencer を gateau にして\n"
+                "例：来週 Spencer の朝番を減らして"
+            ),
             "button": "調整プレビューを生成",
             "preview_only_note": (
                 "ここでは候補プレビューだけを生成します。自動適用も自動保存もしません。"
@@ -536,7 +624,7 @@ _MONTHLY_WORKSPACE_COPY: dict[str, dict[str, Any]] = {
             "executable_status": "候補プレビューを生成できます",
             "not_executable_status": "現在は自動実行できません",
             "suggestion_label": "書き換え例",
-            "default_suggestion": "日付、担当者、シフト、持ち場が明確な単日調整として入力してください。例: 2026-04-01 の SPENCER を EVE の GRILL にして。",
+            "default_suggestion": "日付、担当者、変更先のシフトまたはステーションを補足してください。例：5/2 Spencer を C にして。",
             "outcome_messages": {
                 "refine_preview_ready_set": "調整プレビューを生成しました。",
                 "refine_preview_ready_remove": "削除プレビューを生成しました。",
@@ -565,6 +653,8 @@ _MONTHLY_WORKSPACE_COPY: dict[str, dict[str, Any]] = {
             },
             "intent_type_values": {
                 "set_assignment": "割り当て設定",
+                "change_shift": "シフト変更",
+                "change_station": "ステーション変更",
                 "remove_assignment": "割り当て削除",
             },
             "operation_values": {
@@ -576,6 +666,10 @@ _MONTHLY_WORKSPACE_COPY: dict[str, dict[str, Any]] = {
                 "worker_required": "スタッフ指定が必要",
                 "shift_required": "シフト指定が必要",
                 "station_required": "持ち場指定が必要",
+                "target_assignment_required": "日付または変更先のシフト/ステーションが必要",
+                "existing_assignment_required": "該当日の既存割り当てが見つかりません",
+                "existing_assignment_ambiguous": "該当日の既存割り当てが複数あります",
+                "existing_station_required": "既存割り当てにステーションがありません",
                 "bulk_change_not_supported": "現在は単日調整のみ対応しています",
                 "unsupported_intent": "この種類の調整にはまだ対応していません",
                 "non_scheduling_request": "シフト調整ではありません",

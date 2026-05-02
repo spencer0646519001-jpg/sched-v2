@@ -12,6 +12,42 @@
     }
   },
   {
+    "case_id": "exec_zh_change_shift_partial_keeps_station",
+    "language": "zh",
+    "category": "executable",
+    "request_text": "5/2 Spencer 改成 C",
+    "expected": {
+      "domains": ["scheduling"],
+      "capability_statuses": ["executable"],
+      "intent_types": ["change_shift"],
+      "preview_executed": true
+    }
+  },
+  {
+    "case_id": "exec_zh_change_station_partial_keeps_shift",
+    "language": "zh",
+    "category": "executable",
+    "request_text": "5/2 Spencer 改去 gateau",
+    "expected": {
+      "domains": ["scheduling"],
+      "capability_statuses": ["executable"],
+      "intent_types": ["change_station"],
+      "preview_executed": true
+    }
+  },
+  {
+    "case_id": "exec_zh_remove_vacation_partial",
+    "language": "zh",
+    "category": "executable",
+    "request_text": "5/2 Spencer 休假",
+    "expected": {
+      "domains": ["scheduling"],
+      "capability_statuses": ["executable"],
+      "intent_types": ["remove_assignment"],
+      "preview_executed": true
+    }
+  },
+  {
     "case_id": "exec_zh_change_shift_iso",
     "language": "zh",
     "category": "executable",
@@ -56,6 +92,18 @@
       "domains": ["scheduling"],
       "capability_statuses": ["executable"],
       "intent_types": ["change_shift"],
+      "preview_executed": true
+    }
+  },
+  {
+    "case_id": "exec_en_change_station_partial_keeps_shift",
+    "language": "en",
+    "category": "executable",
+    "request_text": "Move Spencer to gateau on 5/2",
+    "expected": {
+      "domains": ["scheduling"],
+      "capability_statuses": ["executable"],
+      "intent_types": ["change_station"],
       "preview_executed": true
     }
   },
@@ -318,4 +366,3 @@
     }
   }
 ]
-

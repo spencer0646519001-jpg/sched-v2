@@ -2175,35 +2175,247 @@ def _build_day_headers(year: int, month: int) -> list[int]:
     return list(range(1, day_count + 1))
 
 
+_DEFAULT_WARNING_DETAIL_LABELS = {
+    "date": "Date",
+    "station": "Station",
+    "required": "Required",
+    "assigned": "Assigned",
+    "missing": "Missing",
+    "suggested_action": "Suggested action",
+}
+_DEFAULT_WARNING_TECHNICAL_LABELS = {
+    "type": "Type",
+    "message_key": "Message key",
+}
+_DEFAULT_WARNING_TYPE_TITLES = {
+    "understaffed_station_day": "Understaffed station",
+    "missing_morning_station_coverage": "Missing morning station coverage",
+    "missing_required_chef": "Missing required chef",
+    "worker_unavailable_conflict": "Worker unavailable conflict",
+    "duplicate_assignment_conflict": "Duplicate assignment conflict",
+    "worker_below_min_days_off": "Worker below minimum days off",
+}
+_DEFAULT_WARNING_MESSAGE_TEXTS = {
+    "understaffed_station": "This station does not have enough assigned staff.",
+    "missing_morning_station_coverage": "Morning station coverage is short.",
+    "missing_required_chef": "A required chef is missing for this day.",
+    "worker_unavailable_conflict": "This worker is unavailable on that date.",
+    "duplicate_assignment_conflict": "This worker has more than one assignment on the same date.",
+    "worker_below_min_days_off": "This worker has fewer days off than configured.",
+}
+_DEFAULT_WARNING_SUGGESTED_ACTIONS = {
+    "understaffed_station_day": "Add staff to cover this station on this date.",
+    "missing_morning_station_coverage": "Add someone who can cover the morning station.",
+    "missing_required_chef": "Assign at least one eligible chef.",
+    "worker_unavailable_conflict": "Move the assignment to an available worker or review availability.",
+    "duplicate_assignment_conflict": "Keep one assignment and remove or reassign the duplicate.",
+    "worker_below_min_days_off": "Review this worker's month and add more days off.",
+}
+
+
 def _build_warning_rows(
     candidate_result: MonthPlanningResultSchema | None,
     *,
     page_copy: dict[str, Any],
-) -> list[dict[str, str]]:
+) -> list[dict[str, Any]]:
     if candidate_result is None:
         return []
 
     warning_copy = page_copy["warnings"]
-    rows: list[dict[str, str]] = []
+    rows: list[dict[str, Any]] = []
     for warning in candidate_result.warnings:
-        details_text = ", ".join(
-            f"{key.replace('_', ' ')}: {value}"
-            for key, value in sorted((warning.details or {}).items())
+        details = dict(warning.details or {})
+        warning_date = (
+            warning.date.isoformat()
+            if warning.date is not None
+            else warning_copy["month_value"]
         )
         rows.append(
             {
-                "title": warning.type.replace("_", " "),
-                "message": warning.message_key.replace("_", " "),
-                "date": (
-                    warning.date.isoformat()
-                    if warning.date is not None
-                    else warning_copy["month_value"]
+                "title": _localize_warning_title(
+                    str(warning.type),
+                    warning_copy=warning_copy,
                 ),
+                "message": _localize_warning_message(
+                    str(warning.message_key),
+                    warning_copy=warning_copy,
+                ),
+                "date": warning_date,
                 "worker": warning.worker_code or warning_copy["system_value"],
-                "details": details_text or warning_copy["no_details"],
+                "detail_items": _build_warning_detail_items(
+                    warning_type=str(warning.type),
+                    warning_date=warning_date,
+                    details=details,
+                    warning_copy=warning_copy,
+                ),
+                "technical_items": _build_warning_technical_items(
+                    warning_type=str(warning.type),
+                    message_key=str(warning.message_key),
+                    details=details,
+                    warning_copy=warning_copy,
+                ),
             }
         )
     return rows
+
+
+def _localize_warning_title(
+    warning_type: str,
+    *,
+    warning_copy: dict[str, Any],
+) -> str:
+    titles = warning_copy.get("type_titles", {})
+    if isinstance(titles, dict):
+        localized = titles.get(warning_type)
+        if isinstance(localized, str) and localized:
+            return localized
+    return _DEFAULT_WARNING_TYPE_TITLES.get(
+        warning_type,
+        warning_type.replace("_", " ").capitalize(),
+    )
+
+
+def _localize_warning_message(
+    message_key: str,
+    *,
+    warning_copy: dict[str, Any],
+) -> str:
+    messages = warning_copy.get("message_texts", {})
+    if isinstance(messages, dict):
+        localized = messages.get(message_key)
+        if isinstance(localized, str) and localized:
+            return localized
+    return _DEFAULT_WARNING_MESSAGE_TEXTS.get(
+        message_key,
+        message_key.replace("_", " ").capitalize(),
+    )
+
+
+def _build_warning_detail_items(
+    *,
+    warning_type: str,
+    warning_date: str,
+    details: dict[str, Any],
+    warning_copy: dict[str, Any],
+) -> list[dict[str, str]]:
+    labels = _warning_detail_labels(warning_copy)
+    items = [{"label": labels["date"], "value": warning_date}]
+
+    station = details.get("station_code")
+    if station not in (None, ""):
+        items.append({"label": labels["station"], "value": str(station)})
+
+    required = _first_warning_detail_value(
+        details,
+        (
+            "required_staff",
+            "required_morning_staff",
+            "required_count",
+            "minimum_days_off",
+        ),
+    )
+    if required is not None:
+        items.append({"label": labels["required"], "value": str(required)})
+
+    assigned = _first_warning_detail_value(
+        details,
+        (
+            "assigned_staff",
+            "assigned_morning_staff",
+            "assigned_count",
+            "actual_days_off",
+            "assignment_count",
+        ),
+    )
+    if assigned is not None:
+        items.append({"label": labels["assigned"], "value": str(assigned)})
+
+    missing = _first_warning_detail_value(
+        details,
+        (
+            "missing_staff",
+            "missing_morning_staff",
+            "missing_count",
+        ),
+    )
+    if missing is not None:
+        items.append({"label": labels["missing"], "value": str(missing)})
+
+    suggestion = _warning_suggested_action(
+        warning_type,
+        warning_copy=warning_copy,
+    )
+    if suggestion:
+        items.append({"label": labels["suggested_action"], "value": suggestion})
+
+    return items
+
+
+def _warning_detail_labels(warning_copy: dict[str, Any]) -> dict[str, str]:
+    labels = dict(_DEFAULT_WARNING_DETAIL_LABELS)
+    localized_labels = warning_copy.get("detail_labels", {})
+    if isinstance(localized_labels, dict):
+        labels.update(
+            {
+                key: str(value)
+                for key, value in localized_labels.items()
+                if key in labels and value not in (None, "")
+            }
+        )
+    return labels
+
+
+def _first_warning_detail_value(
+    details: dict[str, Any],
+    keys: tuple[str, ...],
+) -> Any | None:
+    for key in keys:
+        value = details.get(key)
+        if value not in (None, ""):
+            return value
+    return None
+
+
+def _warning_suggested_action(
+    warning_type: str,
+    *,
+    warning_copy: dict[str, Any],
+) -> str:
+    suggestions = warning_copy.get("suggested_actions", {})
+    if isinstance(suggestions, dict):
+        localized = suggestions.get(warning_type)
+        if isinstance(localized, str) and localized:
+            return localized
+    return _DEFAULT_WARNING_SUGGESTED_ACTIONS.get(warning_type, "")
+
+
+def _build_warning_technical_items(
+    *,
+    warning_type: str,
+    message_key: str,
+    details: dict[str, Any],
+    warning_copy: dict[str, Any],
+) -> list[dict[str, str]]:
+    labels = dict(_DEFAULT_WARNING_TECHNICAL_LABELS)
+    localized_labels = warning_copy.get("technical_labels", {})
+    if isinstance(localized_labels, dict):
+        labels.update(
+            {
+                key: str(value)
+                for key, value in localized_labels.items()
+                if key in labels and value not in (None, "")
+            }
+        )
+    items = [
+        {"label": labels["type"], "value": warning_type},
+        {"label": labels["message_key"], "value": message_key},
+    ]
+    items.extend(
+        {"label": key, "value": str(value)}
+        for key, value in sorted(details.items())
+        if value not in (None, "")
+    )
+    return items
 
 
 def _default_leave_date(year: int, month: int) -> str:
