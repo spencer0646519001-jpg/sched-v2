@@ -1,9 +1,40 @@
 # Demo Deployment
 
-This project is ready for a staged portfolio/demo deployment, not a production
-SaaS deployment. The initial deployment target is the same rented server that
-currently hosts sched-mvp v1, but v2 must run as a fully separate app until it
-is verified.
+This project is deployed as a staged portfolio/demo deployment, not a
+production SaaS deployment. The deployment target is the same rented server that
+hosts sched-mvp v1, with v2 running as a fully separate app so v1 remains
+available as a legacy/reference project.
+
+## Current Deployment Status
+
+The current demo is deployed side-by-side on the same DigitalOcean server:
+
+- sched-mvp v1 remains untouched on host port `8000`.
+- sched-v2 is deployed under `/root/sched-v2`.
+- The remote v2 container runs on host port `8001`, mapped to container port
+  `8000`.
+- v2 uses its own uncommitted `.env`, Docker Compose project, and SQLite volume.
+- Domain and HTTPS setup are deferred for now.
+- v2 admin is intentionally disabled in deploy settings.
+
+Temporary public reviewer URL:
+
+```text
+http://209.97.163.98:8001/v2/monthly-workspace?tenant_slug=demo_kitchen&month_scope=2026-04&ui_lang=zh
+```
+
+Japanese UI:
+
+```text
+http://209.97.163.98:8001/v2/monthly-workspace?tenant_slug=demo_kitchen&month_scope=2026-04&ui_lang=ja
+```
+
+Latest smoke test passed:
+
+- Monthly workspace `GET` returned `200`.
+- Preview, refine, apply, save, and explain `POST` requests returned `200`.
+- CSV export returned `200`.
+- `/admin/` returned `404`.
 
 ## Runtime Design
 

@@ -12,6 +12,27 @@ Preview/apply/save/refine boundaries matter because only apply mutates the
 current workspace, only save creates version history, and refine can only
 produce a candidate preview.
 
+## Live Demo
+
+`sched-v2` is the main current demo. It is temporarily available by direct IP
+on the rented DigitalOcean server while domain and HTTPS setup are deferred.
+The public reviewer path is the monthly workspace; admin is intentionally
+disabled in deploy settings and is not part of the demo surface.
+
+Primary demo:
+
+`http://209.97.163.98:8001/v2/monthly-workspace?tenant_slug=demo_kitchen&month_scope=2026-04&ui_lang=zh`
+
+Japanese UI:
+
+`http://209.97.163.98:8001/v2/monthly-workspace?tenant_slug=demo_kitchen&month_scope=2026-04&ui_lang=ja`
+
+sched-mvp v1 remains on the same server as a legacy/reference project on host
+port `8000`. It is useful for explaining the rewrite journey, but v2 should be
+presented as the main live demo rather than treating v1 and v2 as equal demos.
+See [docs/case-study-v1-to-v2.md](docs/case-study-v1-to-v2.md) for the rewrite
+case study.
+
 ## Reviewer Path
 
 The fastest manual demo is the server-rendered monthly workspace:
@@ -90,7 +111,7 @@ part of the public reviewer demo surface.
 ## Demo Deployment
 
 See [docs/deployment.md](docs/deployment.md) for the repeatable rented-server
-demo path. The initial deployment is side-by-side with sched-mvp v1: v1 remains
+demo path. The current deployment is side-by-side with sched-mvp v1: v1 remains
 in `/root/sched-mvp` on host port `8000`, while v2 runs separately from
 `/root/sched-v2` on host port `8001` using its own `.env`, SQLite volume, and
 Compose project name.
@@ -125,10 +146,10 @@ collision. The seeded v2 demo URL is:
 
 The Compose service stores the SQLite database at `/data/sched-v2.sqlite3` in
 the project-scoped volume `sched_v2_sqlite`, so rebuilds and restarts do not
-reset the demo database. After v2 is verified, point the main public demo to v2,
-stop v1, and keep v1 as a GitHub legacy/reference project rather than an equal
-live demo. This is intentionally a portfolio/demo deployment path, not a
-production SaaS hardening pass.
+reset the demo database. This is intentionally a portfolio/demo deployment
+path, not a production SaaS hardening pass. Domain/HTTPS setup remains a future
+step, and v1 should stay positioned as a legacy/reference project rather than
+an equal main live demo.
 
 ## Architecture
 
