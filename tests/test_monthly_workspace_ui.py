@@ -141,8 +141,25 @@ def test_workspace_page_renders_japanese_copy_when_ui_lang_is_ja() -> None:
     assert "月をプレビュー" in html_text
     assert "ワークスペース状態" in html_text
     assert "月次シフト結果" in html_text
+    assert "担当者別シフト表" in html_text
+    assert "担当者グリック" not in html_text
+    assert "担当者グリッド" not in html_text
     assert "説明 / 日別" in html_text
+    assert 'placeholder="例: この日のシフト理由を説明して"' in html_text
+    assert "Why was 4/1 scheduled this way?" not in html_text
     assert "調整 / 説明" in html_text
+    assert "音声入力を使う" in html_text
+    assert "音声入力" in html_text
+    assert html_text.count(">開始</button>") >= 2
+    assert html_text.count(">停止して送信</button>") >= 2
+    assert "音声から説明を生成" in html_text
+    assert "音声からプレビュー生成" in html_text
+    assert "Voice input" not in html_text
+    assert "Start recording" not in html_text
+    assert "Stop & Submit" not in html_text
+    assert "Stop &amp; Submit" not in html_text
+    assert "Transcribe & Preview" not in html_text
+    assert "Transcribe &amp; Preview" not in html_text
     assert 'name="ui_lang" value="ja"' in html_text
     assert 'locale-toggle-link is-selected' in html_text
 

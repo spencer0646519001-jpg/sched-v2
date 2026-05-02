@@ -348,7 +348,7 @@ _MONTHLY_WORKSPACE_COPY: dict[str, dict[str, Any]] = {
             "title": "月次シフトワークスペース",
             "description": (
                 "1か月ずつ確認しながら、休暇追加、候補プレビュー、現在ワークスペース"
-                "への適用、バージョン保存、月次の担当者グリッド確認を同じ画面で行います。"
+                "への適用、バージョン保存、月次の担当者別シフト表の確認を同じ画面で行います。"
             ),
         },
         "toggle": {
@@ -366,7 +366,7 @@ _MONTHLY_WORKSPACE_COPY: dict[str, dict[str, Any]] = {
         "scope": {
             "kicker": "対象月",
             "title": "月次ワークスペースを開く",
-            "description": "慣れた月選択フローを保ちながら、表示対象のワークスペースを決めます。",
+            "description": "表示するワークスペースと月を選びます。",
             "workspace_label": "ワークスペース",
             "no_tenant": "利用可能なテナントデータはありません",
             "month_label": "月",
@@ -374,8 +374,8 @@ _MONTHLY_WORKSPACE_COPY: dict[str, dict[str, Any]] = {
         },
         "leave": {
             "kicker": "休暇申請",
-            "title": "休暇をワークフロー内で見えるままにする",
-            "description": "月次プレビューの前に、同じレビュアー向けの休暇フローを使います。",
+            "title": "休暇を追加する",
+            "description": "休暇を追加して、月次プレビューに反映します。",
             "person_label": "担当者",
             "select_worker": "担当者を選択",
             "date_label": "休暇日",
@@ -386,7 +386,7 @@ _MONTHLY_WORKSPACE_COPY: dict[str, dict[str, Any]] = {
         "actions": {
             "kicker": "主要アクション",
             "title": "プレビュー、適用、保存",
-            "description": "主要フローを読みやすく保ち、補足情報は必要以上に前面へ出しません。",
+            "description": "月次シフトのプレビュー、適用、保存を実行します。",
             "preview_title": "プレビュー",
             "preview_description": "選択した月と休暇入力から新しい候補結果を作成します。",
             "preview_submit": "月をプレビュー",
@@ -414,16 +414,13 @@ _MONTHLY_WORKSPACE_COPY: dict[str, dict[str, Any]] = {
         },
         "state": {
             "kicker": "ワークスペース状態",
-            "title": "現在のシステム状態をひと目で把握できるようにする",
-            "description": (
-                "軽いサマリーで、このワークスペースに何が存在するかをレビュアーが理解"
-                "しやすくしつつ、プランナー設定のトグルは見せません。"
-            ),
+            "title": "現在の状態",
+            "description": "候補プレビュー、現在ワークスペース、保存版の有無を確認できます。",
         },
         "result": {
             "kicker": "月次シフト結果",
-            "title": "担当者グリッドを確認する",
-            "description": "狭い画面ではセルを詰め込むより横スクロールを優先して可読性を保ちます。",
+            "title": "担当者別シフト表",
+            "description": "横スクロールで全体を確認できます。",
             "person_header": "担当者",
             "empty": "{month_label} ではまだ候補プレビューも現在ワークスペースも表示されていません。",
         },
@@ -440,11 +437,8 @@ _MONTHLY_WORKSPACE_COPY: dict[str, dict[str, Any]] = {
         },
         "warnings": {
             "kicker": "警告",
-            "title": "レビュアー向け警告を読みやすく保つ",
-            "description": (
-                "プレビュー警告はここに表示しますが、現在のバックエンド範囲を超える"
-                "機能があるかのようには見せません。"
-            ),
+            "title": "シフト警告",
+            "description": "注意が必要なシフト警告を確認できます。",
             "date_label": "日付",
             "worker_label": "担当者",
             "month_value": "当月",
@@ -461,12 +455,12 @@ _MONTHLY_WORKSPACE_COPY: dict[str, dict[str, Any]] = {
             "title": "日別シフト説明を生成",
             "description": "特定の日を選択して、その日の排班理由を確認します。",
             "body": (
-                "ここでは現在表示中の排班結果だけを説明します。候補プレビューがあれば候補プレビューを、"
-                "なければ現在ワークスペースを説明します。対応するのは排班関連の日別説明だけです。"
+                "選択した日のシフト内容を説明します。"
+                "候補プレビューがある場合は、その内容を優先して説明します。"
             ),
             "day_label": "説明対象日",
             "request_label": "説明依頼（任意）",
-            "placeholder": "例: Why was 4/1 scheduled this way?",
+            "placeholder": "例: この日のシフト理由を説明して",
             "button": "日別説明を生成",
             "default_note": "空欄の場合は、その日の標準説明を返します。",
             "result_empty": "日付を選んで依頼を送信すると、ここに制約付きの日別説明を表示します。",
@@ -508,10 +502,10 @@ _MONTHLY_WORKSPACE_COPY: dict[str, dict[str, Any]] = {
         "refine": {
             "kicker": "調整 / 説明",
             "title": "調整依頼プレビュー",
-            "description": "現在の月次ワークスペースに対して、制約付きの自然言語調整依頼を送り、候補プレビューを確認します。",
+            "description": "調整したい内容から候補プレビューを生成します。",
             "body": (
-                "ここでは中国語または日本語の調整依頼を、既存の制約付きバックエンドへ送ります。"
-                "返るのは解析結果と候補プレビューだけで、自動適用も自動保存もしません。"
+                "入力した調整依頼をもとに、候補プレビューを作成します。"
+                "自動適用や自動保存は行いません。"
             ),
             "request_label": "調整依頼",
             "prompt_label": "どのようにシフトを調整しますか？",
@@ -597,12 +591,12 @@ _MONTHLY_WORKSPACE_COPY: dict[str, dict[str, Any]] = {
         },
         "voice": {
             "summary": "音声入力を使う",
-            "input_label": "音声入力（Whisper）",
-            "start_recording": "録音開始",
+            "input_label": "音声入力",
+            "start_recording": "開始",
             "stop_submit": "停止して送信",
-            "transcribe_explain": "文字起こしして説明を生成",
-            "transcribe_preview": "文字起こししてプレビュー生成",
-            "upload_note": "音声は先に文字起こしされ、既存フローへ送信されます。",
+            "transcribe_explain": "音声から説明を生成",
+            "transcribe_preview": "音声からプレビュー生成",
+            "upload_note": "音声ファイルから依頼できます。",
             "initial_status": "音声をアップロードするか、ブラウザで録音して送信できます。",
             "disabled_status": "この音声アクションが有効になると、マイク録音を使えます。",
             "unsupported_status": "このブラウザはページ内録音に対応していません。音声アップロードは利用できます。",
@@ -612,7 +606,7 @@ _MONTHLY_WORKSPACE_COPY: dict[str, dict[str, Any]] = {
             "unavailable_status": "このブラウザではマイク録音を利用できません。音声アップロードは利用できます。",
             "recording_failed": "録音に失敗しました。音声アップロードは利用できます。",
             "empty_recording": "録音された音声がありません。もう一度お試しください。",
-            "submitting": "録音を文字起こしへ送信しています...",
+            "submitting": "録音を送信しています...",
             "submit_failed": "録音を送信できませんでした。音声アップロードは利用できます。",
             "recording": "録音中です。停止をクリックすると送信します。",
             "stopping": "録音を停止しています...",
@@ -622,7 +616,7 @@ _MONTHLY_WORKSPACE_COPY: dict[str, dict[str, Any]] = {
             "too_large_error": "音声入力ファイルは 25 MB 以下にしてください。",
             "empty_audio_error": "アップロードされた音声ファイルが空です。",
             "unusable_transcript_error": "音声を使用可能なシフト依頼に文字起こしできませんでした。",
-            "success_message": "音声{mode}依頼を {model} で文字起こししました：{text}",
+            "success_message": "音声から{mode}依頼を生成しました：{text}",
             "mode_labels": {
                 "explain": "説明",
                 "refine": "調整",
