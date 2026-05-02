@@ -1,59 +1,122 @@
 # Architecture Overview
 
-`sched-v2` is being structured around clear boundaries so scheduling logic can stay pure, persistence can remain replaceable, and future AI-assisted refinement can plug in without leaking into core domain code.
+`sched-v2` keeps scheduling logic, persistence, transport, and AI behavior in
+separate layers. The project is a restaurant monthly scheduling slice, so the
+important architectural story is state movement: persisted inputs produce a
+candidate preview; a fresh candidate can be applied into the mutable current
+workspace; the current workspace can be saved as an immutable version.
 
 ## Layers
 
-### `domain`
+### `app.api`
 
-Home for core business concepts, value objects, and domain-facing types. This layer should remain independent of transport, storage, and orchestration concerns.
+The API/page layer is Django-first. `django_workspace.py` renders the
+reviewer-visible monthly workspace page, `django_views.py` adapts JSON requests
+to schema objects, and `routes.py` keeps framework-neutral request/response
+translation for preview, apply, save, refine, explain, and export.
 
-### `engine`
+This layer should stay thin: parse, validate, render, and delegate.
 
-Home for the pure scheduling engine. It should accept explicit inputs, return deterministic outputs, and avoid direct knowledge of APIs, databases, or AI providers.
+### `app.services`
 
-### `services`
+Services coordinate use cases across repositories, engine contracts, and AI
+workflows:
 
-Home for application workflows that coordinate domain, engine, infra, and AI capabilities. Preview/apply/save/export/refine use cases belong here, while API and file-response concerns stay outside this layer.
+- `preview` loads monthly context and returns a read-only candidate result.
+- `apply` promotes a candidate result into the mutable current workspace.
+- `save` writes immutable monthly plan versions.
+- `export` reads current workspace state and builds export rows/CSV.
+- `refine` stores a refine request and returns an optional candidate preview.
+- `explain` loads one day of schedule context and returns a read-only
+  explanation.
+- `monthly_context` centralizes monthly data assembly for preview/refine/explain.
 
-### `infra`
+Services are framework-neutral and should not know about Django requests.
 
-Home for persistence-facing concerns such as repositories, storage adapters, and database models. This layer should translate between storage representations and the rest of the application.
+### `app.infra`
 
-### `ai`
+The infra layer owns persistence-facing records, Django ORM models, and
+repository adapters. Repositories translate between tenant-scoped database rows
+and service/engine-facing contracts.
 
-Home for pluggable AI interfaces and adapter implementations. This keeps future natural-language refinement logic isolated from the engine and API layers.
+Important persistence concepts:
 
-### `api`
+- `Tenant` scopes all data.
+- `Worker`, `Station`, `ShiftDefinition`, and `WorkerStationSkill` are master
+  scheduling inputs.
+- `LeaveRequest` and `ConstraintConfig` add month-specific constraints.
+- `MonthlyWorkspace` is the mutable current state for one tenant/month.
+- `MonthlyAssignment` rows belong to a workspace.
+- `MonthlyPlanVersion` stores immutable saved snapshots.
+- `MonthlyCandidatePreview` stores server-side preview artifacts with input
+  fingerprints.
+- `RefineRequest` stores one request, parsed intent, and optional preview result.
 
-Home for thin transport adapters such as request/response schemas, route translators, and Django runtime wiring. V2 is Django-first at runtime: the framework-neutral route layer remains reusable, while Django views and URL registration become the practical entry path. This layer should stay lightweight and delegate real work to services.
+### `app.engine`
 
-## Persistence Model Notes
+The engine is pure scheduling code. It accepts explicit `MonthPlanningInput`
+contracts and returns deterministic `MonthPlanningResult` data with warnings,
+summary information, and a reviewer-facing evaluation envelope. It does not
+depend on Django, the database, HTTP, or model providers.
 
-### Relationships
+The current engine is intentionally simple. It is deterministic and
+reviewable, not a full optimizer for fairness or workload balancing.
 
-- `Tenant` owns all worker, station, shift, configuration, workspace, version, and refine-request data.
-- `Worker`, `Station`, and `ShiftDefinition` are tenant-scoped master records.
-- `WorkerStationSkill` links a worker to each station they are qualified to cover.
-- `LeaveRequest` stores approved date-based worker unavailability.
-- `MonthlyWorkspace` is the mutable planning container for one tenant and one calendar month.
-- `MonthlyAssignment` rows belong to a `MonthlyWorkspace`.
-- `MonthlyPlanVersion` stores immutable saved snapshots of a monthly plan.
-- `ConstraintConfig` stores one full constraint config per scope instead of many active fragments.
-- `RefineRequest` stores one natural-language change request plus its parsed intent and preview result.
+### Candidate Preview Persistence
 
-### Meanings
+Preview and refine return candidates that are not immediately trusted back from
+the browser. The runtime persists candidate results server-side and returns a
+candidate ID. Apply then re-loads that ID for the selected tenant/month and
+checks freshness before mutating current workspace state.
 
-- Current workspace: the single mutable working state for a tenant/year/month. Intended semantics are one current workspace per tenant/month, with assignments attached to that workspace.
-- Saved version snapshot: an immutable `MonthlyPlanVersion` record whose `snapshot_json` captures the plan state at save time for history, audit, or future restore flows.
-- Constraint config: a full replacement configuration for a scope. `scope_type="default"` is the tenant baseline, while `scope_type="monthly"` targets a specific `year/month`.
-- Refine request: a lightweight record of `request_text`, parsed intent, preview output, and status. It is intentionally not a full chat transcript.
-- Engine compatibility: repositories should later translate persistence models into pure engine/domain dataclass contracts so the engine never depends on storage records directly.
+Freshness is based on a fingerprint of persisted inputs that matter to applying
+the candidate: tenant/month scope, worker/station/shift data, station skills,
+leave requests, resolved constraints, and current workspace state.
 
-## Intentional Deferrals
+### AI, Refine, And Explain
 
-- No broad natural-language parsing beyond the bounded refine slice
-- No long-running or memoryful agent loop
-- No tool-using or autonomous apply/save refine flow
-- No import workflow yet
-- No API/file download export behavior yet
+`app.ai` defines replaceable model interfaces and noop clients. Real OpenAI
+clients are built from environment variables only when configured.
+
+`refine_langgraph.py` performs scheduling-only structured intent parsing. It
+allows narrow executable single-day edits/removals to create candidate previews,
+classifies broader scheduling asks as understood but not executable, and rejects
+non-scheduling or direct apply/save-style requests.
+
+`explain_langgraph.py` is bounded to selected-day schedule context. It can use a
+model to shape a day explanation, but the service remains read-only and falls
+back safely when no model is available.
+
+### Offline Eval Harness
+
+`app.evals.refine_intent_eval` and `scripts/eval_refine_intents.py` run a fixed
+offline corpus against the deterministic refine parser path with a noop model
+client. The harness checks domain classification, capability status, intent
+type, missing-field handling, and preview creation expectations.
+
+The eval is a regression artifact for reviewers, not a real-model benchmark.
+
+## Trust And Safety Boundaries
+
+- Apply validates that all candidate assignments stay inside the target month
+  before writing.
+- Apply validates worker, station, and shift identifiers against tenant-scoped
+  repository data.
+- JSON API apply accepts `candidate_id` only and rejects full result payloads.
+- Server-rendered workspace apply uses server-side candidate IDs rather than
+  trusting hidden form schedule payloads.
+- Candidate freshness prevents applying stale previews after relevant persisted
+  inputs change.
+- Refine may produce a candidate preview, but never applies or saves it.
+- Explain is read-only and scoped to one selected day.
+- Unsupported scheduling requests produce safe non-executable outcomes.
+- Non-scheduling requests are rejected by the bounded AI workflows.
+
+## Current Deferrals
+
+- No production auth/RBAC layer.
+- No broad autonomous agent loop.
+- No full optimizer for fairness/workload balancing.
+- No candidate preview cleanup/retention policy.
+- No full saved-version restore UI.
+- No production deployment hardening beyond the local SQLite demo path.
