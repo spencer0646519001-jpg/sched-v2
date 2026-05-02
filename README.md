@@ -56,6 +56,21 @@ python scripts/eval_refine_intents.py
 
 The local Django settings use SQLite at `localdev.sqlite3`.
 
+## Tenant Data
+
+The demo tenant/data story is documented in
+[docs/tenant-data.md](docs/tenant-data.md). In short, the demo uses
+`python manage.py seed_monthly_workspace_demo`, which seeds the `demo_kitchen`
+tenant with workers, stations, shifts, worker station skills, scheduling
+profile JSON, and the default constraint config used by the DB-backed monthly
+workspace.
+
+New restaurant setup is currently internal: seed scripts, fixtures, or a
+private data-management process. Production self-serve onboarding is not built
+yet. Minimal Django admin registrations exist for core scheduling data, but the
+shipped local/demo settings do not mount admin; it is internal-only and not
+part of the public reviewer demo surface.
+
 ## Demo Deployment
 
 See [docs/deployment.md](docs/deployment.md) for the repeatable rented-server
@@ -181,6 +196,7 @@ language.
 
 - Local/demo-oriented deployment.
 - No production auth, RBAC, or tenant access-control story yet.
+- No production self-serve restaurant onboarding UI yet.
 - No full optimizer for fairness or workload balancing.
 - No candidate cleanup or retention policy yet.
 - Saved versions exist, but there is no full restore/versioning UI yet.

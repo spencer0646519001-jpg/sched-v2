@@ -59,6 +59,13 @@ Important persistence concepts:
   fingerprints.
 - `RefineRequest` stores one request, parsed intent, and optional preview result.
 
+Demo tenant setup is handled by `seed_monthly_workspace_demo`, which creates
+the `demo_kitchen` tenant plus workers, stations, shifts, worker station skills,
+worker scheduling profile JSON, and default constraint config. New restaurant
+setup is still internal-only through seed scripts, fixtures, or private data
+management; production self-serve onboarding is not part of this architecture
+yet. See [Tenant Data And Admin Boundaries](tenant-data.md).
+
 ### `app.engine`
 
 The engine is pure scheduling code. It accepts explicit `MonthPlanningInput`
@@ -118,10 +125,13 @@ The eval is a regression artifact for reviewers, not a real-model benchmark.
 - Explain is read-only and scoped to one selected day.
 - Unsupported scheduling requests produce safe non-executable outcomes.
 - Non-scheduling requests are rejected by the bounded AI workflows.
+- Django admin registrations are internal-only operator scaffolding and are not
+  mounted by the shipped local/demo settings.
 
 ## Current Deferrals
 
 - No production auth/RBAC layer.
+- No public tenant onboarding or production tenant-management UI.
 - No broad autonomous agent loop.
 - No full optimizer for fairness/workload balancing.
 - No candidate preview cleanup/retention policy.

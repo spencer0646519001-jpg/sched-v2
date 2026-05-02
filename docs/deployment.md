@@ -86,6 +86,13 @@ Open:
 http://your.server.ip:8001/v2/monthly-workspace?tenant_slug=demo_kitchen&month_scope=2026-04
 ```
 
+The seed command creates the `demo_kitchen` tenant and DB-backed demo inputs:
+workers, stations, shifts, worker station skills, worker scheduling profile
+JSON, and the default constraint config. It does not create a current monthly
+workspace; reviewers create that by generating a preview and applying it once.
+See [Tenant Data And Admin Boundaries](tenant-data.md) for the full data setup
+story.
+
 To inspect logs:
 
 ```bash
@@ -177,11 +184,24 @@ migrations. Keep this database separate from any v1 database.
 - Only after verification, move the main public demo link/domain to v2 and stop
   v1.
 
+## Admin And Tenant Setup Boundary
+
+This deployment is intentionally not a production tenant-management system.
+New restaurant setup currently requires internal seed scripts, fixtures, or a
+private data-management process. Production self-serve onboarding, production
+auth/RBAC, and a public rule editor are not part of this deployment path.
+
+Django admin is not mounted by the shipped demo settings and should not be part
+of the public reviewer surface. Minimal model registrations exist for future
+internal use, but do not expose admin publicly until authentication, RBAC,
+tenant access control, and operational ownership are designed.
+
 ## Remaining Limitations
 
 - SQLite is for the demo deployment only.
 - There is no production auth, RBAC, or tenant access-control layer yet.
-- The app is currently single-demo-tenant oriented.
+- The app is currently single-demo-tenant oriented, with no self-serve tenant
+  onboarding UI.
 - There is no Caddy/domain/TLS setup in this PR.
 - There is no automated remote SSH deployment in this PR.
 - There is no production hardening in this PR.
