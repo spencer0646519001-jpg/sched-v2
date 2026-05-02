@@ -791,6 +791,7 @@ def test_monthly_candidate_preview_repository_scopes_preview_results_by_month() 
         year=2026,
         month=4,
         result_json={"summary": {"total_assignments": 30}},
+        input_fingerprint=created.input_fingerprint,
         created_at=created.created_at,
     )
     assert (
@@ -811,6 +812,37 @@ def test_monthly_candidate_preview_repository_scopes_preview_results_by_month() 
         )
         is None
     )
+
+
+def test_monthly_candidate_preview_repository_detects_stale_inputs() -> None:
+    tenant = DjangoTenant.objects.create(
+        slug="tenant-a",
+        name="Tenant A",
+        default_locale="en-US",
+    )
+    worker = DjangoWorker.objects.create(
+        tenant=tenant,
+        code="W1",
+        name="Worker One",
+        role="cook",
+        is_active=True,
+    )
+    repository = DjangoMonthlyCandidatePreviewRepository()
+
+    created = repository.create(
+        tenant_id=str(tenant.id),
+        year=2026,
+        month=4,
+        result_json={"summary": {"total_assignments": 30}},
+    )
+
+    assert created.input_fingerprint
+    assert repository.is_fresh(created) is True
+
+    worker.name = "Worker One Updated"
+    worker.save(update_fields=["name"])
+
+    assert repository.is_fresh(created) is False
 
 
 def test_refine_request_repository_persists_and_updates_preview_payloads() -> None:

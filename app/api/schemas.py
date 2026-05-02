@@ -117,12 +117,14 @@ class PreviewMonthScheduleResponseSchema(ApiSchema):
 
     request: PreviewMonthScheduleRequestSchema
     result: MonthPlanningResultSchema
+    candidate_id: str | None = Field(default=None, min_length=1)
 
 
 class ApplyMonthScheduleRequestSchema(TenantMonthScopeSchema):
-    """Transport request for applying a planning result to current workspace."""
+    """Transport request for applying a server-side candidate preview."""
 
-    result: MonthPlanningResultSchema
+    candidate_id: str | None = Field(default=None, min_length=1)
+    result: MonthPlanningResultSchema | None = None
 
 
 class ApplyMonthScheduleResponseSchema(TenantMonthScopeSchema):
@@ -213,6 +215,7 @@ class RefineMonthScheduleResponseSchema(TenantMonthScopeSchema):
     outcome: RefineOutcomeSchema
     parsed_intent_json: ApiJsonObject
     candidate_result: MonthPlanningResultSchema | None = None
+    candidate_id: str | None = Field(default=None, min_length=1)
 
 
 class ExplainDayScheduleRequestSchema(TenantMonthScopeSchema):

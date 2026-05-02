@@ -13,6 +13,8 @@ import datetime as dt
 from collections.abc import Callable
 from dataclasses import dataclass
 
+from pydantic import ValidationError
+
 from app.api.schemas import (
     ApiJsonObject,
     ApiSchema,
@@ -47,6 +49,11 @@ from app.engine.contracts import (
     MonthPlanningResult,
     MonthPlanningSummary,
     WarningOutput,
+)
+from app.infra.models import RecordId
+from app.infra.repositories import (
+    MonthlyCandidatePreviewRepository,
+    TenantRepository,
 )
 from app.services.apply import (
     ApplyMonthScheduleRequest as ApplyServiceRequest,
@@ -110,6 +117,7 @@ class MonthlyScheduleRoutes:
     explain_service: ExplainDayScheduleService | None = None
     refine_service: RefineMonthScheduleService | None = None
     export_service: ExportMonthScheduleService | None = None
+    candidate_preview_repository: MonthlyCandidatePreviewRepository | None = None
 
     def route_definitions(self) -> tuple[RouteDefinition, ...]:
         """Return the minimal route table the Django adapter can register."""
@@ -184,16 +192,52 @@ class MonthlyScheduleRoutes:
         service_response = self.preview_service.preview_month_schedule(
             _map_preview_request_to_service(request)
         )
-        return _map_preview_response_to_api(service_response)
+        api_response = _map_preview_response_to_api(service_response)
+        candidate_id = _store_server_side_candidate(
+            candidate_preview_repository=self.candidate_preview_repository,
+            tenant_repository=self.preview_service.tenant_repository,
+            tenant_slug=request.tenant_slug,
+            year=request.year,
+            month=request.month,
+            result=api_response.result,
+        )
+        return api_response.model_copy(update={"candidate_id": candidate_id})
 
     def apply_month_schedule(
         self,
         request: ApplyMonthScheduleRequestSchema,
     ) -> ApplyMonthScheduleResponseSchema:
-        """Translate apply transport input into one service call."""
+        """Resolve a fresh server-side candidate before applying it."""
 
+        if request.candidate_id is None:
+            if request.result is not None:
+                raise ValueError(
+                    "API apply requires candidate_id from a server-side preview; "
+                    "full result apply is not accepted."
+                )
+            raise ValueError(
+                "API apply requires candidate_id from a server-side preview."
+            )
+        if request.result is not None:
+            raise ValueError(
+                "API apply accepts candidate_id only; do not submit result."
+            )
+
+        candidate_result = _load_fresh_server_side_candidate(
+            candidate_preview_repository=self.candidate_preview_repository,
+            tenant_repository=self.apply_service.tenant_repository,
+            candidate_id=request.candidate_id,
+            tenant_slug=request.tenant_slug,
+            year=request.year,
+            month=request.month,
+        )
         service_response = self.apply_service.apply_month_schedule(
-            _map_apply_request_to_service(request)
+            ApplyServiceRequest(
+                tenant_slug=request.tenant_slug,
+                year=request.year,
+                month=request.month,
+                result=_map_month_planning_result_to_contract(candidate_result),
+            )
         )
         return _map_apply_response_to_api(service_response)
 
@@ -232,7 +276,20 @@ class MonthlyScheduleRoutes:
         service_response = self.refine_service.refine_month_schedule(
             _map_refine_request_to_service(request)
         )
-        return _map_refine_response_to_api(service_response)
+        api_response = _map_refine_response_to_api(service_response)
+        candidate_id = (
+            _store_server_side_candidate(
+                candidate_preview_repository=self.candidate_preview_repository,
+                tenant_repository=self.refine_service.tenant_repository,
+                tenant_slug=request.tenant_slug,
+                year=request.year,
+                month=request.month,
+                result=api_response.candidate_result,
+            )
+            if api_response.candidate_result is not None
+            else None
+        )
+        return api_response.model_copy(update={"candidate_id": candidate_id})
 
     def export_month_schedule(
         self,
@@ -256,6 +313,7 @@ def build_month_schedule_routes(
     explain_service: ExplainDayScheduleService | None = None,
     refine_service: RefineMonthScheduleService | None = None,
     export_service: ExportMonthScheduleService | None = None,
+    candidate_preview_repository: MonthlyCandidatePreviewRepository | None = None,
 ) -> MonthlyScheduleRoutes:
     """Create the route bundle without introducing Django startup wiring.
 
@@ -270,7 +328,87 @@ def build_month_schedule_routes(
         explain_service=explain_service,
         refine_service=refine_service,
         export_service=export_service,
+        candidate_preview_repository=candidate_preview_repository,
     )
+
+
+def _store_server_side_candidate(
+    *,
+    candidate_preview_repository: MonthlyCandidatePreviewRepository | None,
+    tenant_repository: TenantRepository,
+    tenant_slug: str,
+    year: int,
+    month: int,
+    result: MonthPlanningResultSchema | None,
+) -> RecordId | None:
+    if candidate_preview_repository is None or result is None:
+        return None
+
+    tenant_id = _resolve_tenant_id(
+        tenant_repository,
+        tenant_slug=tenant_slug,
+    )
+    candidate = candidate_preview_repository.create(
+        tenant_id=tenant_id,
+        year=year,
+        month=month,
+        result_json=result.model_dump(mode="json"),
+    )
+    return _require_record_id(candidate.id, label="candidate.id")
+
+
+def _load_fresh_server_side_candidate(
+    *,
+    candidate_preview_repository: MonthlyCandidatePreviewRepository | None,
+    tenant_repository: TenantRepository,
+    candidate_id: RecordId,
+    tenant_slug: str,
+    year: int,
+    month: int,
+) -> MonthPlanningResultSchema:
+    if candidate_preview_repository is None:
+        raise ValueError("API apply requires server-side candidate storage.")
+
+    tenant_id = _resolve_tenant_id(
+        tenant_repository,
+        tenant_slug=tenant_slug,
+    )
+    candidate = candidate_preview_repository.get_for_scope(
+        candidate_id,
+        tenant_id=tenant_id,
+        year=year,
+        month=month,
+    )
+    if candidate is None:
+        raise LookupError(
+            "Candidate preview not found for selected tenant/month."
+        )
+    if not candidate_preview_repository.is_fresh(candidate):
+        raise ValueError(
+            "Candidate preview is stale; generate a new preview before applying."
+        )
+
+    try:
+        return MonthPlanningResultSchema.model_validate(candidate.result_json)
+    except ValidationError as exc:
+        raise ValueError("Candidate preview payload is invalid.") from exc
+
+
+def _resolve_tenant_id(
+    tenant_repository: TenantRepository,
+    *,
+    tenant_slug: str,
+) -> RecordId:
+    tenant = tenant_repository.get_by_slug(tenant_slug)
+    if tenant is None:
+        raise LookupError(f"Tenant not found: {tenant_slug!r}")
+    return _require_record_id(tenant.id, label="tenant.id")
+
+
+def _require_record_id(record_id: RecordId | None, *, label: str) -> RecordId:
+    if record_id is None:
+        raise ValueError(f"{label} must be populated.")
+    return record_id
 
 
 def _map_preview_request_to_service(
@@ -282,19 +420,6 @@ def _map_preview_request_to_service(
         tenant_slug=request.tenant_slug,
         year=request.year,
         month=request.month,
-    )
-
-
-def _map_apply_request_to_service(
-    request: ApplyMonthScheduleRequestSchema,
-) -> ApplyServiceRequest:
-    """Convert apply API input into the apply service request shape."""
-
-    return ApplyServiceRequest(
-        tenant_slug=request.tenant_slug,
-        year=request.year,
-        month=request.month,
-        result=_map_month_planning_result_to_contract(request.result),
     )
 
 

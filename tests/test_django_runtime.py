@@ -94,6 +94,7 @@ def test_django_runtime_preview_apply_save_flow_uses_real_persistence() -> None:
         "year": 2026,
         "month": 4,
     }
+    assert preview_payload["candidate_id"]
     assert preview_payload["result"]["summary"]["total_assignments"] == 30
     assert preview_payload["result"]["summary"]["total_warnings"] == 0
     assert preview_payload["result"]["metadata"]["source_type"] == "monthly_planner"
@@ -127,7 +128,7 @@ def test_django_runtime_preview_apply_save_flow_uses_real_persistence() -> None:
             "tenant_slug": tenant.slug,
             "year": 2026,
             "month": 4,
-            "result": preview_payload["result"],
+            "candidate_id": preview_payload["candidate_id"],
         },
     )
 
@@ -283,12 +284,12 @@ def test_django_runtime_apply_rejects_candidate_from_other_tenant_scope() -> Non
             "tenant_slug": tenant.slug,
             "year": 2026,
             "month": 4,
-            "result": other_preview_payload["result"],
+            "candidate_id": other_preview_payload["candidate_id"],
         },
     )
 
     assert response.status_code == 404
-    assert "unknown worker_code" in response.content.decode()
+    assert "Candidate preview not found" in response.content.decode()
     assert not DjangoMonthlyWorkspace.objects.filter(
         tenant=tenant,
         year=2026,
@@ -312,7 +313,11 @@ def test_django_runtime_apply_rejects_off_month_candidate_payload() -> None:
             "month": 4,
         },
     )
-    preview_payload["result"]["assignments"][0]["date"] = "2026-05-01"
+    candidate_preview = DjangoMonthlyCandidatePreview.objects.get(
+        pk=int(preview_payload["candidate_id"])
+    )
+    candidate_preview.result_json["assignments"][0]["date"] = "2026-05-01"
+    candidate_preview.save(update_fields=["result_json"])
 
     response = _post_json_response(
         views["apply_month_schedule"],
@@ -321,7 +326,7 @@ def test_django_runtime_apply_rejects_off_month_candidate_payload() -> None:
             "tenant_slug": tenant.slug,
             "year": 2026,
             "month": 4,
-            "result": preview_payload["result"],
+            "candidate_id": preview_payload["candidate_id"],
         },
     )
 
@@ -336,6 +341,243 @@ def test_django_runtime_apply_rejects_off_month_candidate_payload() -> None:
         month=4,
     ).exists()
     assert DjangoMonthlyAssignment.objects.count() == 0
+
+
+def test_django_runtime_apply_rejects_unknown_candidate_id() -> None:
+    tenant = _seed_month_context()
+    views = {
+        pattern.name: pattern.callback
+        for pattern in build_django_monthly_schedule_urlpatterns()
+    }
+
+    response = _post_json_response(
+        views["apply_month_schedule"],
+        path="/v2/monthly-schedules/apply",
+        payload={
+            "tenant_slug": tenant.slug,
+            "year": 2026,
+            "month": 4,
+            "candidate_id": "999999",
+        },
+    )
+
+    assert response.status_code == 404
+    assert "Candidate preview not found" in response.content.decode()
+    assert not DjangoMonthlyWorkspace.objects.filter(
+        tenant=tenant,
+        year=2026,
+        month=4,
+    ).exists()
+
+
+def test_django_runtime_apply_rejects_candidate_from_other_month_scope() -> None:
+    tenant = _seed_month_context()
+    views = {
+        pattern.name: pattern.callback
+        for pattern in build_django_monthly_schedule_urlpatterns()
+    }
+    may_preview_payload = _post_json(
+        views["preview_month_schedule"],
+        path="/v2/monthly-schedules/preview",
+        payload={
+            "tenant_slug": tenant.slug,
+            "year": 2026,
+            "month": 5,
+        },
+    )
+
+    response = _post_json_response(
+        views["apply_month_schedule"],
+        path="/v2/monthly-schedules/apply",
+        payload={
+            "tenant_slug": tenant.slug,
+            "year": 2026,
+            "month": 4,
+            "candidate_id": may_preview_payload["candidate_id"],
+        },
+    )
+
+    assert response.status_code == 404
+    assert "Candidate preview not found" in response.content.decode()
+    assert not DjangoMonthlyWorkspace.objects.filter(
+        tenant=tenant,
+        year=2026,
+        month=4,
+    ).exists()
+
+
+def test_django_runtime_apply_rejects_stale_candidate_after_leave_changes() -> None:
+    tenant = _seed_month_context()
+    views = {
+        pattern.name: pattern.callback
+        for pattern in build_django_monthly_schedule_urlpatterns()
+    }
+    preview_payload = _post_json(
+        views["preview_month_schedule"],
+        path="/v2/monthly-schedules/preview",
+        payload={
+            "tenant_slug": tenant.slug,
+            "year": 2026,
+            "month": 4,
+        },
+    )
+    worker = DjangoWorker.objects.get(tenant=tenant, code=PRIMARY_DEMO_WORKER.code)
+    DjangoLeaveRequest.objects.create(
+        tenant=tenant,
+        worker=worker,
+        leave_date=dt.date(2026, 4, 10),
+        reason="vacation",
+    )
+
+    response = _post_json_response(
+        views["apply_month_schedule"],
+        path="/v2/monthly-schedules/apply",
+        payload={
+            "tenant_slug": tenant.slug,
+            "year": 2026,
+            "month": 4,
+            "candidate_id": preview_payload["candidate_id"],
+        },
+    )
+
+    assert response.status_code == 400
+    assert "Candidate preview is stale" in response.content.decode()
+    assert not DjangoMonthlyWorkspace.objects.filter(
+        tenant=tenant,
+        year=2026,
+        month=4,
+    ).exists()
+
+
+def test_django_runtime_apply_rejects_stale_candidate_after_workspace_changes() -> None:
+    tenant = _seed_month_context()
+    views = {
+        pattern.name: pattern.callback
+        for pattern in build_django_monthly_schedule_urlpatterns()
+    }
+    stale_preview_payload = _post_json(
+        views["preview_month_schedule"],
+        path="/v2/monthly-schedules/preview",
+        payload={
+            "tenant_slug": tenant.slug,
+            "year": 2026,
+            "month": 4,
+        },
+    )
+    fresh_preview_payload = _post_json(
+        views["preview_month_schedule"],
+        path="/v2/monthly-schedules/preview",
+        payload={
+            "tenant_slug": tenant.slug,
+            "year": 2026,
+            "month": 4,
+        },
+    )
+    _post_json(
+        views["apply_month_schedule"],
+        path="/v2/monthly-schedules/apply",
+        payload={
+            "tenant_slug": tenant.slug,
+            "year": 2026,
+            "month": 4,
+            "candidate_id": fresh_preview_payload["candidate_id"],
+        },
+    )
+
+    response = _post_json_response(
+        views["apply_month_schedule"],
+        path="/v2/monthly-schedules/apply",
+        payload={
+            "tenant_slug": tenant.slug,
+            "year": 2026,
+            "month": 4,
+            "candidate_id": stale_preview_payload["candidate_id"],
+        },
+    )
+
+    assert response.status_code == 400
+    assert "Candidate preview is stale" in response.content.decode()
+    assert DjangoMonthlyWorkspace.objects.filter(
+        tenant=tenant,
+        year=2026,
+        month=4,
+    ).count() == 1
+    assert DjangoMonthlyAssignment.objects.count() == 30
+
+
+def test_django_runtime_apply_rejects_full_client_result_payload() -> None:
+    tenant = _seed_month_context()
+    views = {
+        pattern.name: pattern.callback
+        for pattern in build_django_monthly_schedule_urlpatterns()
+    }
+    preview_payload = _post_json(
+        views["preview_month_schedule"],
+        path="/v2/monthly-schedules/preview",
+        payload={
+            "tenant_slug": tenant.slug,
+            "year": 2026,
+            "month": 4,
+        },
+    )
+    preview_payload["result"]["assignments"][0]["date"] = "2026-05-01"
+
+    response = _post_json_response(
+        views["apply_month_schedule"],
+        path="/v2/monthly-schedules/apply",
+        payload={
+            "tenant_slug": tenant.slug,
+            "year": 2026,
+            "month": 4,
+            "result": preview_payload["result"],
+        },
+    )
+
+    assert response.status_code == 400
+    assert "full result apply is not accepted" in response.content.decode()
+    assert not DjangoMonthlyWorkspace.objects.filter(
+        tenant=tenant,
+        year=2026,
+        month=4,
+    ).exists()
+
+
+def test_django_runtime_apply_rejects_candidate_id_with_client_result_payload() -> None:
+    tenant = _seed_month_context()
+    views = {
+        pattern.name: pattern.callback
+        for pattern in build_django_monthly_schedule_urlpatterns()
+    }
+    preview_payload = _post_json(
+        views["preview_month_schedule"],
+        path="/v2/monthly-schedules/preview",
+        payload={
+            "tenant_slug": tenant.slug,
+            "year": 2026,
+            "month": 4,
+        },
+    )
+    preview_payload["result"]["assignments"][0]["date"] = "2026-05-01"
+
+    response = _post_json_response(
+        views["apply_month_schedule"],
+        path="/v2/monthly-schedules/apply",
+        payload={
+            "tenant_slug": tenant.slug,
+            "year": 2026,
+            "month": 4,
+            "candidate_id": preview_payload["candidate_id"],
+            "result": preview_payload["result"],
+        },
+    )
+
+    assert response.status_code == 400
+    assert "candidate_id only" in response.content.decode()
+    assert not DjangoMonthlyWorkspace.objects.filter(
+        tenant=tenant,
+        year=2026,
+        month=4,
+    ).exists()
 
 
 def test_django_runtime_save_does_not_read_other_tenant_current_workspace() -> None:
@@ -380,7 +622,7 @@ def test_django_runtime_save_does_not_read_other_tenant_current_workspace() -> N
             "tenant_slug": other_tenant.slug,
             "year": 2026,
             "month": 4,
-            "result": other_preview_payload["result"],
+            "candidate_id": other_preview_payload["candidate_id"],
         },
     )
     response = _post_json_response(
@@ -429,7 +671,7 @@ def test_django_runtime_refine_returns_candidate_preview_without_mutating_curren
             "tenant_slug": tenant.slug,
             "year": 2026,
             "month": 4,
-            "result": preview_payload["result"],
+            "candidate_id": preview_payload["candidate_id"],
         },
     )
     refine_request_text = (
@@ -520,7 +762,7 @@ def test_django_runtime_refine_change_shift_keeps_station_without_mutating_curre
             "tenant_slug": tenant.slug,
             "year": 2026,
             "month": 4,
-            "result": preview_payload["result"],
+            "candidate_id": preview_payload["candidate_id"],
         },
     )
 
@@ -607,7 +849,7 @@ def test_django_runtime_refine_does_not_read_other_tenant_current_workspace() ->
             "tenant_slug": other_tenant.slug,
             "year": 2026,
             "month": 4,
-            "result": other_preview_payload["result"],
+            "candidate_id": other_preview_payload["candidate_id"],
         },
     )
     response = _post_json_response(
@@ -656,7 +898,7 @@ def test_django_runtime_explain_day_returns_bounded_day_explanation() -> None:
             "tenant_slug": tenant.slug,
             "year": 2026,
             "month": 4,
-            "result": preview_payload["result"],
+            "candidate_id": preview_payload["candidate_id"],
         },
     )
     refine_payload = _post_json(
@@ -832,7 +1074,7 @@ def test_django_runtime_export_does_not_read_other_tenant_current_workspace() ->
             "tenant_slug": other_tenant.slug,
             "year": 2026,
             "month": 4,
-            "result": other_preview_payload["result"],
+            "candidate_id": other_preview_payload["candidate_id"],
         },
     )
     response = _post_json_response(

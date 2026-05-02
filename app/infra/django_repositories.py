@@ -7,8 +7,11 @@ consumed by services and the engine boundary.
 
 from __future__ import annotations
 
+import hashlib
+import json
 from collections.abc import Sequence
 from copy import deepcopy
+from decimal import Decimal
 
 from django.db import transaction
 from django.db.models import Max
@@ -231,6 +234,7 @@ def _candidate_preview_from_model(
         year=model.year,
         month=model.month,
         result_json=deepcopy(model.result_json),
+        input_fingerprint=model.input_fingerprint,
         created_at=model.created_at,
     )
 
@@ -333,6 +337,194 @@ def _assert_record_ids_belong_to_tenant(
     )
     if matching_ids != record_ids:
         raise LookupError(f"{record_label} must belong to the workspace tenant.")
+
+
+def _calculate_monthly_candidate_input_fingerprint(
+    *,
+    tenant_pk: int,
+    year: int,
+    month: int,
+) -> str:
+    """Hash the persisted inputs that make a candidate safe to apply later."""
+
+    payload = {
+        "tenant_id": tenant_pk,
+        "year": year,
+        "month": month,
+        "workers": list(
+            DjangoWorker.objects.filter(tenant_id=tenant_pk)
+            .order_by("code", "id")
+            .values(
+                "id",
+                "code",
+                "name",
+                "role",
+                "is_active",
+                "scheduling_profile_json",
+            )
+        ),
+        "worker_station_skills": list(
+            DjangoWorkerStationSkill.objects.filter(tenant_id=tenant_pk)
+            .order_by("worker_id", "station_id", "id")
+            .values(
+                "id",
+                "worker_id",
+                "station_id",
+                "created_at",
+                "updated_at",
+            )
+        ),
+        "stations": list(
+            DjangoStation.objects.filter(tenant_id=tenant_pk)
+            .order_by("code", "id")
+            .values("id", "code", "name", "is_active")
+        ),
+        "shifts": list(
+            DjangoShiftDefinition.objects.filter(tenant_id=tenant_pk)
+            .order_by("code", "id")
+            .values(
+                "id",
+                "code",
+                "name",
+                "paid_hours",
+                "is_off_shift",
+                "start_time",
+                "end_time",
+            )
+        ),
+        "leave_requests": list(
+            DjangoLeaveRequest.objects.filter(
+                tenant_id=tenant_pk,
+                leave_date__year=year,
+                leave_date__month=month,
+            )
+            .order_by("leave_date", "worker_id", "id")
+            .values(
+                "id",
+                "worker_id",
+                "leave_date",
+                "reason",
+                "created_at",
+                "updated_at",
+            )
+        ),
+        "constraint_config": _resolved_constraint_config_fingerprint_payload(
+            tenant_pk=tenant_pk,
+            year=year,
+            month=month,
+        ),
+        "current_workspace": _current_workspace_fingerprint_payload(
+            tenant_pk=tenant_pk,
+            year=year,
+            month=month,
+        ),
+    }
+    encoded = json.dumps(
+        payload,
+        sort_keys=True,
+        separators=(",", ":"),
+        default=_fingerprint_json_default,
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def _resolved_constraint_config_fingerprint_payload(
+    *,
+    tenant_pk: int,
+    year: int,
+    month: int,
+) -> dict[str, object] | None:
+    config = (
+        DjangoConstraintConfig.objects.filter(
+            tenant_id=tenant_pk,
+            scope_type="monthly",
+            year=year,
+            month=month,
+        )
+        .order_by("id")
+        .values(
+            "id",
+            "scope_type",
+            "year",
+            "month",
+            "config_json",
+            "created_at",
+            "updated_at",
+        )
+        .first()
+    )
+    if config is not None:
+        return config
+
+    return (
+        DjangoConstraintConfig.objects.filter(
+            tenant_id=tenant_pk,
+            scope_type="default",
+        )
+        .order_by("id")
+        .values(
+            "id",
+            "scope_type",
+            "year",
+            "month",
+            "config_json",
+            "created_at",
+            "updated_at",
+        )
+        .first()
+    )
+
+
+def _current_workspace_fingerprint_payload(
+    *,
+    tenant_pk: int,
+    year: int,
+    month: int,
+) -> dict[str, object] | None:
+    workspace = (
+        DjangoMonthlyWorkspace.objects.filter(
+            tenant_id=tenant_pk,
+            year=year,
+            month=month,
+        )
+        .order_by("id")
+        .values(
+            "id",
+            "status",
+            "source_type",
+            "source_version_id",
+            "created_at",
+            "updated_at",
+        )
+        .first()
+    )
+    if workspace is None:
+        return None
+
+    workspace["assignments"] = list(
+        DjangoMonthlyAssignment.objects.filter(workspace_id=workspace["id"])
+        .order_by("assignment_date", "worker_id", "id")
+        .values(
+            "id",
+            "assignment_date",
+            "worker_id",
+            "shift_definition_id",
+            "station_id",
+            "assignment_source",
+            "note",
+            "created_at",
+            "updated_at",
+        )
+    )
+    return workspace
+
+
+def _fingerprint_json_default(value: object) -> str:
+    if isinstance(value, Decimal):
+        return str(value)
+    if hasattr(value, "isoformat"):
+        return value.isoformat()
+    return str(value)
 
 
 class DjangoTenantRepository:
@@ -674,12 +866,24 @@ class DjangoMonthlyCandidatePreviewRepository:
         year: int,
         month: int,
         result_json: JsonObject,
+        input_fingerprint: str | None = None,
     ) -> MonthlyCandidatePreview:
+        tenant_pk = _parse_record_id(tenant_id, label="tenant_id")
+        resolved_input_fingerprint = (
+            input_fingerprint
+            if input_fingerprint is not None
+            else _calculate_monthly_candidate_input_fingerprint(
+                tenant_pk=tenant_pk,
+                year=year,
+                month=month,
+            )
+        )
         persisted = DjangoMonthlyCandidatePreview.objects.create(
-            tenant_id=_parse_record_id(tenant_id, label="tenant_id"),
+            tenant_id=tenant_pk,
             year=year,
             month=month,
             result_json=deepcopy(result_json),
+            input_fingerprint=resolved_input_fingerprint,
         )
         return _candidate_preview_from_model(persisted)
 
@@ -700,6 +904,28 @@ class DjangoMonthlyCandidatePreviewRepository:
         if candidate is None:
             return None
         return _candidate_preview_from_model(candidate)
+
+    def current_input_fingerprint(
+        self,
+        *,
+        tenant_id: RecordId,
+        year: int,
+        month: int,
+    ) -> str:
+        return _calculate_monthly_candidate_input_fingerprint(
+            tenant_pk=_parse_record_id(tenant_id, label="tenant_id"),
+            year=year,
+            month=month,
+        )
+
+    def is_fresh(self, candidate: MonthlyCandidatePreview) -> bool:
+        if not candidate.input_fingerprint:
+            return False
+        return candidate.input_fingerprint == self.current_input_fingerprint(
+            tenant_id=candidate.tenant_id,
+            year=candidate.year,
+            month=candidate.month,
+        )
 
 
 class DjangoRefineRequestRepository:

@@ -317,6 +317,7 @@ class MonthlyCandidatePreview(models.Model):
     year = models.PositiveIntegerField()
     month = models.PositiveSmallIntegerField()
     result_json = models.JSONField()
+    input_fingerprint = models.CharField(max_length=64, default="", blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

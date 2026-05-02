@@ -812,6 +812,58 @@ def test_workspace_apply_rejects_unknown_candidate_id() -> None:
     ).exists()
 
 
+def test_workspace_apply_rejects_stale_candidate_after_leave_changes() -> None:
+    tenant = _seed_month_context()
+    page_copy = get_monthly_workspace_copy("zh")
+    view = {
+        pattern.name: pattern.callback
+        for pattern in build_django_monthly_workspace_page_urlpatterns()
+    }["monthly_schedule_workspace"]
+
+    preview_response = view(
+        RequestFactory().post(
+            "/v2/monthly-workspace",
+            data={
+                "form_action": "preview",
+                "tenant_slug": tenant.slug,
+                "month_scope": "2026-04",
+                "ui_lang": "zh",
+            },
+        )
+    )
+    candidate_id = _extract_candidate_id(preview_response.content.decode())
+    worker = DjangoWorker.objects.get(tenant=tenant, code=PRIMARY_DEMO_WORKER.code)
+    DjangoLeaveRequest.objects.create(
+        tenant=tenant,
+        worker=worker,
+        leave_date=dt.date(2026, 4, 10),
+        reason="vacation",
+    )
+
+    response = view(
+        RequestFactory().post(
+            "/v2/monthly-workspace",
+            data={
+                "form_action": "apply",
+                "tenant_slug": tenant.slug,
+                "month_scope": "2026-04",
+                "ui_lang": "zh",
+                "candidate_id": candidate_id,
+            },
+        )
+    )
+    html_text = response.content.decode()
+
+    assert preview_response.status_code == 200
+    assert response.status_code == 200
+    assert page_copy["messages"]["candidate_reuse_failed"] in html_text
+    assert not DjangoMonthlyWorkspace.objects.filter(
+        tenant=tenant,
+        year=2026,
+        month=4,
+    ).exists()
+
+
 def test_workspace_apply_still_rejects_server_side_off_month_candidate_preview() -> None:
     tenant = _seed_month_context()
     view = {

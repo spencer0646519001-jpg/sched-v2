@@ -650,6 +650,11 @@ def _load_candidate_result(
             _message("error", page_copy["messages"]["candidate_reuse_failed"])
         )
         return None, True
+    if not candidate_preview_repository.is_fresh(candidate_preview):
+        messages.append(
+            _message("error", page_copy["messages"]["candidate_reuse_failed"])
+        )
+        return None, True
 
     try:
         return (

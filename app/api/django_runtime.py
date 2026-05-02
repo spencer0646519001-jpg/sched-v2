@@ -26,6 +26,7 @@ from app.engine.monthly import generate_month_plan
 from app.infra.django_repositories import (
     DjangoConstraintConfigRepository,
     DjangoLeaveRequestRepository,
+    DjangoMonthlyCandidatePreviewRepository,
     DjangoPlanVersionRepository,
     DjangoRefineRequestRepository,
     DjangoShiftRepository,
@@ -60,6 +61,7 @@ def build_django_monthly_schedule_routes(
     leave_request_repository = DjangoLeaveRequestRepository()
     constraint_config_repository = DjangoConstraintConfigRepository()
     workspace_repository = DjangoWorkspaceRepository()
+    candidate_preview_repository = DjangoMonthlyCandidatePreviewRepository()
     resolved_preview_engine = (
         preview_engine if preview_engine is not None else generate_month_plan
     )
@@ -119,6 +121,7 @@ def build_django_monthly_schedule_routes(
             shift_repository=shift_repository,
             workspace_repository=workspace_repository,
         ),
+        candidate_preview_repository=candidate_preview_repository,
     )
 
 

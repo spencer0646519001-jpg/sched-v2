@@ -165,6 +165,7 @@ class MonthlyCandidatePreview:
     year: int
     month: int
     result_json: JsonObject
+    input_fingerprint: str = ""
     id: RecordId | None = None
     created_at: datetime | None = None
 

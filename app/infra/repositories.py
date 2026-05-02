@@ -17,6 +17,7 @@ from app.infra.models import (
     JsonObject,
     LeaveRequest,
     MonthlyAssignment,
+    MonthlyCandidatePreview,
     MonthlyPlanVersion,
     MonthlyWorkspace,
     RecordId,
@@ -160,6 +161,34 @@ class PlanVersionRepository(Protocol):
         ...
 
 
+class MonthlyCandidatePreviewRepository(Protocol):
+    """Persist and validate server-side candidate preview artifacts."""
+
+    def create(
+        self,
+        *,
+        tenant_id: RecordId,
+        year: int,
+        month: int,
+        result_json: JsonObject,
+        input_fingerprint: str | None = None,
+    ) -> MonthlyCandidatePreview:
+        ...
+
+    def get_for_scope(
+        self,
+        candidate_id: RecordId,
+        *,
+        tenant_id: RecordId,
+        year: int,
+        month: int,
+    ) -> MonthlyCandidatePreview | None:
+        ...
+
+    def is_fresh(self, candidate: MonthlyCandidatePreview) -> bool:
+        ...
+
+
 class RefineRequestRepository(Protocol):
     """Create, list, and later enrich refine requests with parsed preview data."""
 
@@ -184,6 +213,7 @@ __all__ = [
     "ConstraintConfigRepository",
     "CurrentWorkspaceState",
     "LeaveRequestRepository",
+    "MonthlyCandidatePreviewRepository",
     "MonthlyPlanningPersistenceBundle",
     "PlanVersionRepository",
     "RefineRequestRepository",
