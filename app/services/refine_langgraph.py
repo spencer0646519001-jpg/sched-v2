@@ -183,6 +183,7 @@ _WORKLOAD_FAIRNESS_HINTS = (
     "\u5e73\u5747\u4e00\u9ede",
     "\u5e73\u5747\u4e00\u70b9",
     "\u592a\u7d2f",
+    "\u516c\u5e73",
 )
 _STATION_COVERAGE_HINTS = (
     "coverage",
@@ -201,6 +202,7 @@ _SWAP_HINTS = (
 )
 _VAGUE_SCHEDULING_HINTS = (
     "\u6539\u4e00\u4e0b",
+    "\u5909\u66f4\u3057\u3066",
     "\u90a3\u500b\u4eba",
     "\u90a3\u4e2a\u4eba",
     "\u628a\u4ed6",

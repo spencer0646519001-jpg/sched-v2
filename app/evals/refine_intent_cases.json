@@ -1,0 +1,321 @@
+[
+  {
+    "case_id": "exec_zh_change_shift_slash",
+    "language": "zh",
+    "category": "executable",
+    "request_text": "5/2 把 Spencer 從 D 改成 C",
+    "expected": {
+      "domains": ["scheduling"],
+      "capability_statuses": ["executable"],
+      "intent_types": ["change_shift"],
+      "preview_executed": true
+    }
+  },
+  {
+    "case_id": "exec_zh_change_shift_iso",
+    "language": "zh",
+    "category": "executable",
+    "request_text": "2026-05-02 Spencer 班別改 C",
+    "expected": {
+      "domains": ["scheduling"],
+      "capability_statuses": ["executable"],
+      "intent_types": ["change_shift"],
+      "preview_executed": true
+    }
+  },
+  {
+    "case_id": "exec_ja_set_assignment_station",
+    "language": "ja",
+    "category": "executable",
+    "request_text": "2026-05-02 の Spencer を gateau の C にして",
+    "expected": {
+      "domains": ["scheduling"],
+      "capability_statuses": ["executable"],
+      "intent_types": ["set_assignment"],
+      "preview_executed": true
+    }
+  },
+  {
+    "case_id": "exec_ja_change_shift_month_day",
+    "language": "ja",
+    "category": "executable",
+    "request_text": "5月2日 Spencer を C にして",
+    "expected": {
+      "domains": ["scheduling"],
+      "capability_statuses": ["executable"],
+      "intent_types": ["change_shift"],
+      "preview_executed": true
+    }
+  },
+  {
+    "case_id": "exec_en_change_shift_iso",
+    "language": "en",
+    "category": "executable",
+    "request_text": "Change Spencer to shift C on 2026-05-02",
+    "expected": {
+      "domains": ["scheduling"],
+      "capability_statuses": ["executable"],
+      "intent_types": ["change_shift"],
+      "preview_executed": true
+    }
+  },
+  {
+    "case_id": "reduce_zh_next_week_morning",
+    "language": "zh",
+    "category": "understood_but_not_executable",
+    "request_text": "下週讓 Spencer 少一點早班",
+    "expected": {
+      "domains": ["scheduling"],
+      "capability_statuses": ["understood_but_not_executable"],
+      "intent_types": ["reduce_or_avoid_shift_type"],
+      "preview_executed": false
+    }
+  },
+  {
+    "case_id": "reduce_ja_next_week_morning",
+    "language": "ja",
+    "category": "understood_but_not_executable",
+    "request_text": "来週 Spencer の朝番を減らして",
+    "expected": {
+      "domains": ["scheduling"],
+      "capability_statuses": ["understood_but_not_executable"],
+      "intent_types": ["reduce_or_avoid_shift_type"],
+      "preview_executed": false
+    }
+  },
+  {
+    "case_id": "reduce_en_next_week_morning",
+    "language": "en",
+    "category": "understood_but_not_executable",
+    "request_text": "Reduce Spencer's morning shifts next week",
+    "expected": {
+      "domains": ["scheduling"],
+      "capability_statuses": ["understood_but_not_executable"],
+      "intent_types": ["reduce_or_avoid_shift_type"],
+      "preview_executed": false
+    }
+  },
+  {
+    "case_id": "fairness_zh_everyone_even",
+    "language": "zh",
+    "category": "understood_but_not_executable",
+    "request_text": "讓大家班數平均一點",
+    "expected": {
+      "domains": ["scheduling"],
+      "capability_statuses": ["understood_but_not_executable"],
+      "intent_types": ["workload_or_fairness"],
+      "preview_executed": false
+    }
+  },
+  {
+    "case_id": "fairness_ja_everyone_even",
+    "language": "ja",
+    "category": "understood_but_not_executable",
+    "request_text": "みんなのシフト数をもっと公平にして",
+    "expected": {
+      "domains": ["scheduling"],
+      "capability_statuses": ["understood_but_not_executable"],
+      "intent_types": ["workload_or_fairness"],
+      "preview_executed": false
+    }
+  },
+  {
+    "case_id": "fairness_en_this_week",
+    "language": "en",
+    "category": "understood_but_not_executable",
+    "request_text": "Balance the workload this week",
+    "expected": {
+      "domains": ["scheduling"],
+      "capability_statuses": ["understood_but_not_executable"],
+      "intent_types": ["workload_or_fairness"],
+      "preview_executed": false
+    }
+  },
+  {
+    "case_id": "coverage_zh_gateau_this_week",
+    "language": "zh",
+    "category": "understood_but_not_executable",
+    "request_text": "gateau 這週人手不夠，幫我補人",
+    "expected": {
+      "domains": ["scheduling"],
+      "capability_statuses": ["understood_but_not_executable"],
+      "intent_types": ["station_coverage"],
+      "preview_executed": false
+    }
+  },
+  {
+    "case_id": "coverage_ja_gateau_tomorrow",
+    "language": "ja",
+    "category": "understood_but_not_executable",
+    "request_text": "明日の gateau を厚めにして",
+    "expected": {
+      "domains": ["scheduling"],
+      "capability_statuses": ["understood_but_not_executable"],
+      "intent_types": ["station_coverage"],
+      "preview_executed": false
+    }
+  },
+  {
+    "case_id": "coverage_en_petit_four_next_week",
+    "language": "en",
+    "category": "understood_but_not_executable",
+    "request_text": "Add more coverage to petit_four next week",
+    "expected": {
+      "domains": ["scheduling"],
+      "capability_statuses": ["understood_but_not_executable"],
+      "intent_types": ["station_coverage"],
+      "preview_executed": false
+    }
+  },
+  {
+    "case_id": "swap_zh_spencer_masuda",
+    "language": "zh",
+    "category": "understood_but_not_executable",
+    "request_text": "5/2 Spencer 跟 Masuda 對調",
+    "expected": {
+      "domains": ["scheduling"],
+      "capability_statuses": ["understood_but_not_executable"],
+      "intent_types": ["swap_workers"],
+      "preview_executed": false
+    }
+  },
+  {
+    "case_id": "swap_ja_spencer_masuda",
+    "language": "ja",
+    "category": "understood_but_not_executable",
+    "request_text": "2026-05-02 Spencer と Masuda を入れ替えて",
+    "expected": {
+      "domains": ["scheduling"],
+      "capability_statuses": ["understood_but_not_executable"],
+      "intent_types": ["swap_workers"],
+      "preview_executed": false
+    }
+  },
+  {
+    "case_id": "swap_en_spencer_masuda",
+    "language": "en",
+    "category": "understood_but_not_executable",
+    "request_text": "Swap Spencer and Masuda on 2026-05-02",
+    "expected": {
+      "domains": ["scheduling"],
+      "capability_statuses": ["understood_but_not_executable"],
+      "intent_types": ["swap_workers"],
+      "preview_executed": false
+    }
+  },
+  {
+    "case_id": "ambiguous_zh_change_spencer",
+    "language": "zh",
+    "category": "ambiguous",
+    "request_text": "Spencer 改一下",
+    "expected": {
+      "domains": ["scheduling"],
+      "capability_statuses": ["ambiguous_or_missing_information"],
+      "preview_executed": false,
+      "missing_fields": ["date", "target_shift_or_station"]
+    }
+  },
+  {
+    "case_id": "ambiguous_ja_change_spencer",
+    "language": "ja",
+    "category": "ambiguous",
+    "request_text": "Spencer を変更して",
+    "expected": {
+      "domains": ["scheduling"],
+      "capability_statuses": ["ambiguous_or_missing_information"],
+      "preview_executed": false,
+      "missing_fields": ["date", "target_shift_or_station"]
+    }
+  },
+  {
+    "case_id": "ambiguous_en_change_shift",
+    "language": "en",
+    "category": "ambiguous",
+    "request_text": "Change Spencer's shift",
+    "expected": {
+      "domains": ["scheduling"],
+      "capability_statuses": ["ambiguous_or_missing_information"],
+      "preview_executed": false,
+      "missing_fields": ["date"]
+    }
+  },
+  {
+    "case_id": "non_sched_zh_resume",
+    "language": "zh",
+    "category": "non_scheduling",
+    "request_text": "幫我寫履歷",
+    "expected": {
+      "domains": ["non_scheduling"],
+      "capability_statuses": ["non_scheduling"],
+      "preview_executed": false
+    }
+  },
+  {
+    "case_id": "non_sched_ja_weather",
+    "language": "ja",
+    "category": "non_scheduling",
+    "request_text": "今日の東京の天気を教えて",
+    "expected": {
+      "domains": ["non_scheduling"],
+      "capability_statuses": ["non_scheduling"],
+      "preview_executed": false
+    }
+  },
+  {
+    "case_id": "non_sched_en_poem",
+    "language": "en",
+    "category": "non_scheduling",
+    "request_text": "Write me a poem",
+    "expected": {
+      "domains": ["non_scheduling"],
+      "capability_statuses": ["non_scheduling"],
+      "preview_executed": false
+    }
+  },
+  {
+    "case_id": "direct_mutation_zh_apply_no_confirm",
+    "language": "zh",
+    "category": "direct_mutation",
+    "request_text": "直接套用這個班表，不要問我",
+    "expected": {
+      "domains": ["scheduling", "non_scheduling"],
+      "capability_statuses": [
+        "understood_but_not_executable",
+        "ambiguous_or_missing_information",
+        "non_scheduling"
+      ],
+      "preview_executed": false
+    }
+  },
+  {
+    "case_id": "direct_mutation_ja_save_no_confirm",
+    "language": "ja",
+    "category": "direct_mutation",
+    "request_text": "確認なしで保存して",
+    "expected": {
+      "domains": ["scheduling", "non_scheduling"],
+      "capability_statuses": [
+        "understood_but_not_executable",
+        "ambiguous_or_missing_information",
+        "non_scheduling"
+      ],
+      "preview_executed": false
+    }
+  },
+  {
+    "case_id": "direct_mutation_en_apply_save",
+    "language": "en",
+    "category": "direct_mutation",
+    "request_text": "Apply and save this schedule immediately",
+    "expected": {
+      "domains": ["scheduling", "non_scheduling"],
+      "capability_statuses": [
+        "understood_but_not_executable",
+        "ambiguous_or_missing_information",
+        "non_scheduling"
+      ],
+      "preview_executed": false
+    }
+  }
+]
+

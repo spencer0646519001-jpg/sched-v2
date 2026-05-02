@@ -31,6 +31,27 @@ request:
 - `.\.venv\Scripts\python -m ruff check .`
 - `.\.venv\Scripts\python -m pytest`
 
+## Refine Intent Eval
+
+The repo includes a tiny offline eval for the AI-assisted refine intent layer:
+
+`python scripts/eval_refine_intents.py`
+
+It runs a fixed zh/ja/en corpus through the deterministic local parser with a
+noop model client, so it does not require `OPENAI_API_KEY` and does not call the
+real OpenAI API. The cases cover executable single-assignment edits,
+understood-but-not-executable scheduling asks, ambiguous requests,
+non-scheduling requests, and direct apply/save-style mutation requests.
+
+The output table compares expected versus actual domain, capability status,
+intent type, and preview creation. A passing executable case means the refine
+flow produced a candidate preview; a passing non-executable case means no
+candidate preview was produced. The summary reports total pass/fail counts plus
+accuracy by category and language.
+
+This eval is a small reviewer-facing regression artifact, not a benchmark,
+training set, prompt telemetry system, or claim about real-model quality.
+
 ## Local Manual Review
 
 The repo includes a tiny local Django bootstrap path for manually reviewing the
