@@ -1,0 +1,20 @@
+services:
+  web:
+    build: .
+    ports:
+      - "${SCHED_V2_PORT:-8001}:8000"
+    environment:
+      DJANGO_SETTINGS_MODULE: app.deploy_settings
+      DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:?Set DJANGO_SECRET_KEY before starting sched-v2}
+      DJANGO_DEBUG: ${DJANGO_DEBUG:-False}
+      ALLOWED_HOSTS: ${ALLOWED_HOSTS:?Set ALLOWED_HOSTS before starting sched-v2}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_REFINE_MODEL: ${OPENAI_REFINE_MODEL:-gpt-4o-mini}
+      OPENAI_EXPLAIN_MODEL: ${OPENAI_EXPLAIN_MODEL:-gpt-4o-mini}
+      SCHED_V2_SQLITE_PATH: /data/sched-v2.sqlite3
+    volumes:
+      - sched_v2_sqlite:/data
+    restart: unless-stopped
+
+volumes:
+  sched_v2_sqlite:

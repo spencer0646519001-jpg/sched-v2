@@ -31,7 +31,7 @@ baseline, then run the refine/review/apply part of the flow.
 
 Seeded local URL:
 
-`http://127.0.0.1:8000/v2/monthly-workspace?tenant_slug=demo-restaurant&month_scope=2026-04`
+`http://127.0.0.1:8000/v2/monthly-workspace?tenant_slug=demo_kitchen&month_scope=2026-04`
 
 Model-backed refine and explain are optional. Without model environment
 variables, the app uses noop/fallback clients so local review, tests, and the
@@ -55,6 +55,49 @@ python scripts/eval_refine_intents.py
 ```
 
 The local Django settings use SQLite at `localdev.sqlite3`.
+
+## Demo Deployment
+
+See [docs/deployment.md](docs/deployment.md) for the repeatable rented-server
+demo path. The initial deployment is side-by-side with sched-mvp v1: v1 remains
+in `/root/sched-mvp` on host port `8000`, while v2 runs separately from
+`/root/sched-v2` on host port `8001` using its own `.env`, SQLite volume, and
+Compose project name.
+
+```bash
+docker compose -p sched-v2 build
+docker compose -p sched-v2 run --rm web python manage.py migrate
+docker compose -p sched-v2 run --rm web python manage.py seed_monthly_workspace_demo
+docker compose -p sched-v2 up -d
+```
+
+The container starts Django with:
+
+```bash
+python manage.py runserver 0.0.0.0:8000 --noreload
+```
+
+Required demo server environment variables:
+
+- `DJANGO_SECRET_KEY`
+- `DJANGO_DEBUG`
+- `ALLOWED_HOSTS`
+- `OPENAI_API_KEY`
+- `OPENAI_REFINE_MODEL`
+- `OPENAI_EXPLAIN_MODEL`
+
+For side-by-side deployment, set `SCHED_V2_PORT=8001`. Host port `8001` maps to
+the container's internal port `8000`, avoiding the v1 host-port `8000`
+collision. The seeded v2 demo URL is:
+
+`http://your.server.ip:8001/v2/monthly-workspace?tenant_slug=demo_kitchen&month_scope=2026-04`
+
+The Compose service stores the SQLite database at `/data/sched-v2.sqlite3` in
+the project-scoped volume `sched_v2_sqlite`, so rebuilds and restarts do not
+reset the demo database. After v2 is verified, point the main public demo to v2,
+stop v1, and keep v1 as a GitHub legacy/reference project rather than an equal
+live demo. This is intentionally a portfolio/demo deployment path, not a
+production SaaS hardening pass.
 
 ## Architecture
 
@@ -141,7 +184,7 @@ language.
 - No full optimizer for fairness or workload balancing.
 - No candidate cleanup or retention policy yet.
 - Saved versions exist, but there is no full restore/versioning UI yet.
-- SQLite/localdev assumptions in the default manual-review path.
+- SQLite demo deployment; not a production database architecture.
 - AI behavior is bounded and conservative rather than a broad scheduling agent.
 
 ## Reviewer Checklist

@@ -17,6 +17,13 @@ translation for preview, apply, save, refine, explain, and export.
 
 This layer should stay thin: parse, validate, render, and delegate.
 
+The runtime starts through `manage.py`. Local review uses
+`app.localdev_settings`; rented-server demo deployment uses
+`app.deploy_settings` with environment variables and the same URLConf. The
+initial rented-server rollout is side-by-side with sched-mvp v1, using a
+separate v2 checkout, environment file, SQLite volume, Compose project name,
+and host port.
+
 ### `app.services`
 
 Services coordinate use cases across repositories, engine contracts, and AI
@@ -119,4 +126,4 @@ The eval is a regression artifact for reviewers, not a real-model benchmark.
 - No full optimizer for fairness/workload balancing.
 - No candidate preview cleanup/retention policy.
 - No full saved-version restore UI.
-- No production deployment hardening beyond the local SQLite demo path.
+- No production SaaS hardening beyond the Docker Compose/SQLite demo path.
