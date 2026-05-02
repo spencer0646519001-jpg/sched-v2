@@ -63,9 +63,20 @@ plan versions, and candidate previews.
 These registrations are an internal operator convenience only. The shipped
 local and deployment settings do not install `django.contrib.admin` or mount an
 `/admin` URL, and the public reviewer demo should focus on the monthly
-workspace page. To use them, create a private/internal Django settings profile
-that enables the standard admin stack, or register the models on an explicitly
-private `AdminSite`.
+workspace page.
+
+For local-only inspection, use `app.admin_local_settings`. It extends the local
+SQLite settings, enables the standard Django admin stack, and flips the private
+URL flag that mounts `/admin/`:
+
+```bat
+set DJANGO_SETTINGS_MODULE=app.admin_local_settings
+python manage.py migrate
+python manage.py createsuperuser
+python manage.py runserver
+```
+
+Then open `http://127.0.0.1:8000/admin/`.
 
 Do not expose Django admin publicly until authentication, RBAC, tenant access
 control, audit expectations, and operational ownership are designed. Even then,

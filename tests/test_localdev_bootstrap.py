@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import importlib
 from io import StringIO
 
 import pytest
 from django.core.management import call_command
+from django.test import override_settings
 
 from app.monthly_workspace_demo_data import (
     DEMO_CONSTRAINT_CONFIG,
@@ -54,6 +56,61 @@ def test_localdev_urlconf_exposes_monthly_workspace_page() -> None:
         "v2/monthly-workspace",
         "v2/monthly-workspace/export.csv",
     ]
+
+
+def test_localdev_urlconf_mounts_admin_only_when_enabled() -> None:
+    import app.localdev_urls as localdev_urls
+
+    localdev_urls = importlib.reload(localdev_urls)
+
+    assert "admin/" not in {str(pattern.pattern) for pattern in localdev_urls.urlpatterns}
+
+    with override_settings(
+        ENABLE_DJANGO_ADMIN=True,
+        INSTALLED_APPS=[
+            "django.contrib.admin",
+            "django.contrib.auth",
+            "django.contrib.contenttypes",
+            "django.contrib.sessions",
+            "django.contrib.messages",
+            "django.contrib.staticfiles",
+            "app.infra.django_app.apps.SchedulerInfraConfig",
+        ],
+    ):
+        localdev_urls = importlib.reload(localdev_urls)
+
+    assert "admin/" in {str(pattern.pattern) for pattern in localdev_urls.urlpatterns}
+
+    localdev_urls = importlib.reload(localdev_urls)
+
+    assert "admin/" not in {str(pattern.pattern) for pattern in localdev_urls.urlpatterns}
+
+
+def test_admin_local_settings_enable_private_admin_stack() -> None:
+    from app import admin_local_settings
+
+    assert admin_local_settings.ROOT_URLCONF == "app.localdev_urls"
+    assert admin_local_settings.ENABLE_DJANGO_ADMIN is True
+    assert "django.contrib.admin" in admin_local_settings.INSTALLED_APPS
+    assert "django.contrib.auth" in admin_local_settings.INSTALLED_APPS
+    assert "django.contrib.sessions.middleware.SessionMiddleware" in (
+        admin_local_settings.MIDDLEWARE
+    )
+    assert "django.contrib.auth.middleware.AuthenticationMiddleware" in (
+        admin_local_settings.MIDDLEWARE
+    )
+
+
+def test_deploy_settings_keep_admin_disabled(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("DJANGO_SECRET_KEY", "test-secret")
+    monkeypatch.setenv("ALLOWED_HOSTS", "testserver")
+
+    from app import deploy_settings
+
+    deploy_settings = importlib.reload(deploy_settings)
+
+    assert deploy_settings.ENABLE_DJANGO_ADMIN is False
+    assert "django.contrib.admin" not in deploy_settings.INSTALLED_APPS
 
 
 def test_seed_monthly_workspace_demo_is_idempotent_and_reviewable() -> None:

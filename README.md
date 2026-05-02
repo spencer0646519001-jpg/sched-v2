@@ -56,6 +56,22 @@ python scripts/eval_refine_intents.py
 
 The local Django settings use SQLite at `localdev.sqlite3`.
 
+### Private Local Admin
+
+For local tenant/demo data sanity checks, use the private admin settings
+profile. This reuses `localdev.sqlite3`, installs the standard Django admin
+stack, and mounts `/admin/` only for that settings module:
+
+```bat
+set DJANGO_SETTINGS_MODULE=app.admin_local_settings
+python manage.py migrate
+python manage.py createsuperuser
+python manage.py runserver
+```
+
+Open `http://127.0.0.1:8000/admin/`. The normal local and demo deployment
+settings leave admin disabled.
+
 ## Tenant Data
 
 The demo tenant/data story is documented in

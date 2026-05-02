@@ -38,6 +38,7 @@ SECRET_KEY = _required_env("DJANGO_SECRET_KEY")
 ALLOWED_HOSTS = _comma_separated_env("ALLOWED_HOSTS")
 
 ROOT_URLCONF = "app.localdev_urls"
+ENABLE_DJANGO_ADMIN = False
 
 INSTALLED_APPS = [
     "django.contrib.contenttypes",

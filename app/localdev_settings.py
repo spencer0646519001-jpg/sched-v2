@@ -11,6 +11,7 @@ SECRET_KEY = "sched-v2-localdev-secret-key"
 ALLOWED_HOSTS = ["127.0.0.1", "localhost"]
 
 ROOT_URLCONF = "app.localdev_urls"
+ENABLE_DJANGO_ADMIN = False
 
 INSTALLED_APPS = [
     "django.contrib.contenttypes",

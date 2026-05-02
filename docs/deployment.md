@@ -193,8 +193,10 @@ auth/RBAC, and a public rule editor are not part of this deployment path.
 
 Django admin is not mounted by the shipped demo settings and should not be part
 of the public reviewer surface. Minimal model registrations exist for future
-internal use, but do not expose admin publicly until authentication, RBAC,
-tenant access control, and operational ownership are designed.
+internal use. The local-only `app.admin_local_settings` profile can mount
+`/admin/` for private data inspection, but `app.deploy_settings` keeps admin
+disabled and should not be changed to expose it publicly until authentication,
+RBAC, tenant access control, and operational ownership are designed.
 
 ## Remaining Limitations
 
