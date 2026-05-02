@@ -319,7 +319,8 @@ def build_django_monthly_workspace_view(
                     field_name="explain_audio",
                     transcription_client=dependencies.transcription_client,
                     messages=messages,
-                    mode_label="explain",
+                    page_copy=page_copy,
+                    mode_key="explain",
                 )
                 if transcription_result is not None:
                     explain_request_text_override = transcription_result.text
@@ -363,7 +364,8 @@ def build_django_monthly_workspace_view(
                     field_name="refine_audio",
                     transcription_client=dependencies.transcription_client,
                     messages=messages,
-                    mode_label="refine",
+                    page_copy=page_copy,
+                    mode_key="refine",
                 )
                 if transcription_result is not None:
                     refine_request_text_override = transcription_result.text
@@ -980,20 +982,25 @@ def _transcribe_voice_request(
     field_name: str,
     transcription_client: AudioTranscriptionClient,
     messages: list[dict[str, str]],
-    mode_label: str,
+    page_copy: dict[str, Any],
+    mode_key: str,
 ) -> AudioTranscriptionResult | None:
+    voice_copy = page_copy["voice"]
     uploaded_file = request.FILES.get(field_name)
     if uploaded_file is None:
         messages.append(
             _message(
                 "error",
-                "Select an audio file before using the voice input path.",
+                voice_copy["select_audio_error"],
             )
         )
         return None
 
     try:
-        transcription_request = _build_audio_transcription_request(uploaded_file)
+        transcription_request = _build_audio_transcription_request(
+            uploaded_file,
+            voice_copy=voice_copy,
+        )
         transcription_result = transcription_client.transcribe_audio(
             request=transcription_request
         )
@@ -1006,17 +1013,19 @@ def _transcribe_voice_request(
         messages.append(
             _message(
                 "error",
-                "The audio could not be transcribed into a usable scheduling request.",
+                voice_copy["unusable_transcript_error"],
             )
         )
         return None
 
+    mode_label = voice_copy["mode_labels"].get(mode_key, mode_key)
     messages.append(
         _message(
             "success",
-            (
-                f"Voice {mode_label} request transcribed via "
-                f"{transcription_result.model}: {_clip_transcript_preview(normalized_text)}"
+            voice_copy["success_message"].format(
+                mode=mode_label,
+                model=transcription_result.model,
+                text=_clip_transcript_preview(normalized_text),
             ),
         )
     )
@@ -1030,10 +1039,12 @@ def _transcribe_voice_request(
 
 def _build_audio_transcription_request(
     uploaded_file: UploadedFile,
+    *,
+    voice_copy: dict[str, Any],
 ) -> AudioTranscriptionRequest:
     filename = Path(uploaded_file.name or "").name
     if not filename:
-        raise ValueError("Voice input requires a named audio upload.")
+        raise ValueError(voice_copy["named_audio_error"])
 
     content_type = str(uploaded_file.content_type or "").split(";", 1)[0].lower()
     extension = Path(filename).suffix.lower()
@@ -1041,19 +1052,17 @@ def _build_audio_transcription_request(
         extension not in _VOICE_ALLOWED_AUDIO_EXTENSIONS
         and content_type not in _VOICE_ALLOWED_CONTENT_TYPES
     ):
-        raise ValueError(
-            "Voice input supports mp3, mp4, m4a, ogg, wav, and webm files only."
-        )
+        raise ValueError(voice_copy["unsupported_type_error"])
 
     size = uploaded_file.size
     if size is not None and size > _VOICE_MAX_AUDIO_BYTES:
-        raise ValueError("Voice input files must be 25 MB or smaller.")
+        raise ValueError(voice_copy["too_large_error"])
 
     audio_bytes = uploaded_file.read()
     if not audio_bytes:
-        raise ValueError("The uploaded audio file is empty.")
+        raise ValueError(voice_copy["empty_audio_error"])
     if len(audio_bytes) > _VOICE_MAX_AUDIO_BYTES:
-        raise ValueError("Voice input files must be 25 MB or smaller.")
+        raise ValueError(voice_copy["too_large_error"])
 
     return AudioTranscriptionRequest(
         filename=filename,
@@ -1165,6 +1174,11 @@ def _build_workspace_context(
             "state_cards": state_cards,
             "display_surface": None,
             "warnings": [],
+            "evaluation_summary": _build_evaluation_summary(
+                candidate_result=candidate_result,
+                warnings=[],
+                page_copy=page_copy,
+            ),
             "warnings_note": page_copy["warnings"]["empty_no_current"],
             "candidate_id": candidate_id or "",
             "apply_disabled": True,
@@ -1221,6 +1235,11 @@ def _build_workspace_context(
     )
 
     warnings = _build_warning_rows(candidate_result, page_copy=page_copy)
+    evaluation_summary = _build_evaluation_summary(
+        candidate_result=candidate_result,
+        warnings=warnings,
+        page_copy=page_copy,
+    )
     warnings_note = page_copy["warnings"]["empty_with_current"]
     explain_disabled = current_state is None and candidate_result is None
     explain_disabled_note = (
@@ -1278,6 +1297,7 @@ def _build_workspace_context(
         ),
         "display_surface": display_surface,
         "warnings": warnings,
+        "evaluation_summary": evaluation_summary,
         "warnings_note": warnings_note,
         "candidate_id": candidate_id or "",
         "apply_disabled": candidate_result is None,
@@ -1314,6 +1334,7 @@ def _build_refine_result_context(
         if isinstance(message_values, dict):
             outcome_message_values = dict(message_values)
     preview_executed = bool(parsed_intent_json.get("preview_executed"))
+    capability_status = str(parsed_intent_json.get("capability_status") or "")
     intent_status = str(
         parsed_intent_json.get("intent_status") or response.outcome.status
     )
@@ -1375,13 +1396,45 @@ def _build_refine_result_context(
                 ),
             }
         )
+    suggestion = outcome_message_values.get("suggestion")
+    suggestion_text = (
+        str(suggestion)
+        if isinstance(suggestion, str) and suggestion
+        else refine_copy["default_suggestion"]
+    )
+    reason_text = (
+        _localize_refine_value(reason_code, refine_copy["reason_values"])
+        if isinstance(reason_code, str) and reason_code
+        else ""
+    )
+    summary_title = refine_copy["understanding_executable_title"]
+    status_text = refine_copy["executable_status"]
+    if capability_status == "non_scheduling" or response.outcome.status == "non_scheduling":
+        summary_title = refine_copy["non_scheduling_message"]
+        status_text = ""
+    elif (
+        capability_status == "understood_but_not_executable"
+        or response.outcome.status == "understood_but_not_executable"
+    ):
+        summary_title = refine_copy["understanding_limited_title"]
+        status_text = refine_copy["not_executable_status"]
+    elif response.outcome.status != "preview_ready":
+        status_text = _localize_refine_value(
+            intent_status,
+            refine_copy["intent_status_values"],
+        )
 
     return {
         "message_tone": _refine_result_message_tone(response.outcome.status),
         "message_text": _render_page_refine_outcome(
             response=response,
             ui_lang=ui_lang,
+            page_copy=page_copy,
         ),
+        "summary_title": summary_title,
+        "status_text": status_text,
+        "reason_text": reason_text,
+        "suggestion_text": suggestion_text,
         "meta": meta_items,
         "canonical_items": _build_refine_canonical_items(
             canonical_intent=canonical_intent,
@@ -1403,7 +1456,12 @@ def _render_page_refine_outcome(
     *,
     response: RefineMonthScheduleResponse,
     ui_lang: str,
+    page_copy: dict[str, Any],
 ) -> str:
+    outcome_messages = page_copy["refine"].get("outcome_messages", {})
+    localized = outcome_messages.get(response.outcome.message_key)
+    if localized:
+        return str(localized)
     if response.outcome.language in {"zh", "ja"}:
         return render_refine_outcome(response.outcome)
     return render_refine_outcome(
@@ -1757,6 +1815,38 @@ def _build_state_cards(
             "tone": evaluation_tone,
         },
     ]
+
+
+def _build_evaluation_summary(
+    *,
+    candidate_result: MonthPlanningResultSchema | None,
+    warnings: list[dict[str, str]],
+    page_copy: dict[str, Any],
+) -> dict[str, str]:
+    evaluation_copy = page_copy["evaluation"]
+    warning_count = len(warnings)
+    if warning_count:
+        return {
+            "tone": "tone-warn",
+            "message": evaluation_copy["has_warnings"],
+            "detail": evaluation_copy["expand_hint"],
+            "count_label": evaluation_copy["warning_count"].format(
+                count=warning_count
+            ),
+        }
+    if candidate_result is not None:
+        return {
+            "tone": "tone-good",
+            "message": evaluation_copy["no_warnings"],
+            "detail": "",
+            "count_label": evaluation_copy["warning_count"].format(count=0),
+        }
+    return {
+        "tone": "tone-neutral",
+        "message": evaluation_copy["empty"],
+        "detail": "",
+        "count_label": "",
+    }
 
 
 def _evaluation_tone(label: str) -> str:

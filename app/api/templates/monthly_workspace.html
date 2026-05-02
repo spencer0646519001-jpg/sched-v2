@@ -300,6 +300,30 @@
       gap: 10px;
     }
 
+    .voice-details,
+    .technical-details,
+    .secondary-details {
+      border-radius: 14px;
+      border: 1px solid rgba(89, 106, 126, 0.14);
+      background: rgba(255, 255, 255, 0.7);
+      padding: 12px 14px;
+    }
+
+    .voice-details summary,
+    .technical-details summary,
+    .secondary-details summary {
+      cursor: pointer;
+      font-weight: 800;
+      color: var(--text-main);
+    }
+
+    .voice-details-content,
+    .details-content {
+      display: grid;
+      gap: 12px;
+      margin-top: 12px;
+    }
+
     .voice-capture-actions {
       display: flex;
       flex-wrap: wrap;
@@ -497,6 +521,27 @@
 
     .tone-neutral {
       background: rgba(255, 255, 255, 0.74);
+    }
+
+    .evaluation-card {
+      display: grid;
+      gap: 12px;
+      border-radius: 16px;
+      padding: 16px;
+      border: 1px solid rgba(89, 106, 126, 0.14);
+    }
+
+    .evaluation-card h3 {
+      margin: 0;
+      font-size: 1.05rem;
+      color: var(--text-main);
+    }
+
+    .evaluation-summary {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      align-items: center;
     }
 
     .result-meta {
@@ -747,11 +792,11 @@
     </section>
     {% endif %}
 
-    <section class="panel">
+    <section class="panel" aria-labelledby="monthly-controls-title">
       <div class="section-head">
         <div>
           <div class="section-kicker">{{ page_copy.scope.kicker }}</div>
-          <h2>{{ page_copy.scope.title }}</h2>
+          <h2 id="monthly-controls-title">{{ page_copy.scope.title }}</h2>
           <p>{{ page_copy.scope.description }}</p>
         </div>
       </div>
@@ -791,6 +836,71 @@
           </label>
         </div>
       </form>
+      <div class="actions-stack">
+        <div class="action-grid">
+          <form method="post" class="action-card preview-form">
+            <input type="hidden" name="form_action" value="preview">
+            <input type="hidden" name="ui_lang" value="{{ ui_lang }}">
+            {% if selected_tenant %}
+            <input type="hidden" name="tenant_slug" value="{{ selected_tenant.slug }}">
+            {% endif %}
+            <input type="hidden" name="month_scope" value="{{ month_value }}">
+            <div>
+              <h3>{{ page_copy.actions.preview_title }}</h3>
+              <p>{{ page_copy.actions.preview_description }}</p>
+            </div>
+            <button type="submit" class="btn btn-primary">{{ page_copy.actions.preview_submit }}</button>
+          </form>
+
+          <form method="post" class="action-card apply-form">
+            <input type="hidden" name="form_action" value="apply">
+            <input type="hidden" name="ui_lang" value="{{ ui_lang }}">
+            {% if selected_tenant %}
+            <input type="hidden" name="tenant_slug" value="{{ selected_tenant.slug }}">
+            {% endif %}
+            <input type="hidden" name="month_scope" value="{{ month_value }}">
+            <input type="hidden" name="candidate_id" value="{{ candidate_id }}">
+            <div>
+              <h3>{{ page_copy.actions.apply_title }}</h3>
+              <p>{{ page_copy.actions.apply_description }}</p>
+            </div>
+            <button type="submit" class="btn btn-primary"{% if apply_disabled %} disabled{% endif %}>{{ page_copy.actions.apply_submit }}</button>
+          </form>
+
+          <form method="post" class="action-card save-form">
+            <input type="hidden" name="form_action" value="save">
+            <input type="hidden" name="ui_lang" value="{{ ui_lang }}">
+            {% if selected_tenant %}
+            <input type="hidden" name="tenant_slug" value="{{ selected_tenant.slug }}">
+            {% endif %}
+            <input type="hidden" name="month_scope" value="{{ month_value }}">
+            <input type="hidden" name="candidate_id" value="{{ candidate_id }}">
+            <div>
+              <h3>{{ page_copy.actions.save_title }}</h3>
+              <p>{{ page_copy.actions.save_description }}</p>
+            </div>
+            <label>
+              {{ page_copy.actions.save_label }}
+              <input type="text" name="save_label" value="{{ save_label_value }}" placeholder="{{ page_copy.actions.save_placeholder }}">
+            </label>
+            <button type="submit" class="btn btn-secondary"{% if save_disabled %} disabled{% endif %}>{{ page_copy.actions.save_submit }}</button>
+          </form>
+
+          <div class="action-card export-card">
+            <div>
+              <h3>{{ page_copy.actions.export_title }}</h3>
+              <p>{{ page_copy.actions.export_description }}</p>
+            </div>
+            {% if csv_export_url %}
+            <a class="btn btn-soft" href="{{ csv_export_url }}" download>{{ page_copy.actions.export_submit }}</a>
+            {% else %}
+            <button type="button" class="btn btn-soft" disabled>{{ page_copy.actions.export_submit }}</button>
+            <p class="muted-note">{{ csv_export_disabled_note }}</p>
+            {% endif %}
+          </div>
+        </div>
+        <p class="muted-note">{{ page_copy.actions.footer_note }}</p>
+      </div>
     </section>
 
     <section class="panel">
@@ -887,29 +997,46 @@
               <textarea name="explain_request_text" placeholder="{{ page_copy.explain.placeholder }}">{{ explain_request_text }}</textarea>
             </label>
             <p class="muted-note">{{ page_copy.explain.default_note }}</p>
-            <label>
-              Voice input (Whisper)
-              <input type="file" name="explain_audio" accept="audio/*,.m4a,.mp3,.mp4,.mpeg,.mpga,.ogg,.wav,.webm">
-            </label>
-            <div
-              class="voice-capture"
-              data-voice-capture="explain"
-              data-audio-field="explain_audio"
-              data-submit-action="explain_voice"
-            >
-              <div class="voice-capture-actions">
-                <button type="button" class="btn btn-soft" data-voice-start{% if explain_disabled %} disabled{% endif %}>Start recording</button>
-                <button type="button" class="btn btn-secondary" data-voice-stop disabled>Stop &amp; Submit</button>
+            <details class="voice-details">
+              <summary>{{ page_copy.voice.summary }}</summary>
+              <div class="voice-details-content">
+                <label>
+                  {{ page_copy.voice.input_label }}
+                  <input type="file" name="explain_audio" accept="audio/*,.m4a,.mp3,.mp4,.mpeg,.mpga,.ogg,.wav,.webm">
+                </label>
+                <div
+                  class="voice-capture"
+                  data-voice-capture="explain"
+                  data-audio-field="explain_audio"
+                  data-submit-action="explain_voice"
+                  data-message-disabled="{{ page_copy.voice.disabled_status }}"
+                  data-message-unsupported="{{ page_copy.voice.unsupported_status }}"
+                  data-message-requesting-permission="{{ page_copy.voice.requesting_permission }}"
+                  data-message-permission-denied="{{ page_copy.voice.permission_denied }}"
+                  data-message-start-failed="{{ page_copy.voice.start_failed }}"
+                  data-message-unavailable="{{ page_copy.voice.unavailable_status }}"
+                  data-message-recording-failed="{{ page_copy.voice.recording_failed }}"
+                  data-message-empty-recording="{{ page_copy.voice.empty_recording }}"
+                  data-message-submitting="{{ page_copy.voice.submitting }}"
+                  data-message-submit-failed="{{ page_copy.voice.submit_failed }}"
+                  data-message-recording="{{ page_copy.voice.recording }}"
+                  data-message-stopping="{{ page_copy.voice.stopping }}"
+                >
+                  <div class="voice-capture-actions">
+                    <button type="button" class="btn btn-soft" data-voice-start{% if explain_disabled %} disabled{% endif %}>{{ page_copy.voice.start_recording }}</button>
+                    <button type="button" class="btn btn-secondary" data-voice-stop disabled>{{ page_copy.voice.stop_submit }}</button>
+                  </div>
+                  <div class="voice-note voice-status" data-voice-status data-tone="info" aria-live="polite">{{ page_copy.voice.initial_status }}</div>
+                </div>
+                <div class="voice-note">{{ page_copy.voice.upload_note }}</div>
               </div>
-              <div class="voice-note voice-status" data-voice-status data-tone="info" aria-live="polite">Record in the browser, then submit through the existing bounded day-explain voice path.</div>
-            </div>
-            <div class="voice-note">Audio is transcribed to text first, then passed through the existing bounded day-explain flow.</div>
+            </details>
             {% if explain_disabled_note %}
             <div class="empty-state">{{ explain_disabled_note }}</div>
             {% endif %}
             <div class="form-actions">
               <button type="submit" class="btn btn-secondary" name="form_action" value="explain"{% if explain_disabled %} disabled{% endif %}>{{ page_copy.explain.button }}</button>
-              <button type="submit" class="btn btn-soft" name="form_action" value="explain_voice"{% if explain_disabled %} disabled{% endif %}>Transcribe &amp; Explain</button>
+              <button type="submit" class="btn btn-soft" name="form_action" value="explain_voice"{% if explain_disabled %} disabled{% endif %}>{{ page_copy.voice.transcribe_explain }}</button>
             </div>
           </div>
         </form>
@@ -967,160 +1094,176 @@
           <input type="hidden" name="month_scope" value="{{ month_value }}">
           <div class="detail-block">
             <p>{{ page_copy.refine.body }}</p>
+            <p class="muted-note">{{ page_copy.refine.prompt_label }}</p>
             <label>
               {{ page_copy.refine.request_label }}
               <textarea name="request_text" placeholder="{{ page_copy.refine.placeholder }}">{{ refine_request_text }}</textarea>
             </label>
             <p class="muted-note">{{ page_copy.refine.preview_only_note }}</p>
-            <label>
-              Voice input (Whisper)
-              <input type="file" name="refine_audio" accept="audio/*,.m4a,.mp3,.mp4,.mpeg,.mpga,.ogg,.wav,.webm">
-            </label>
-            <div
-              class="voice-capture"
-              data-voice-capture="refine"
-              data-audio-field="refine_audio"
-              data-submit-action="refine_voice"
-            >
-              <div class="voice-capture-actions">
-                <button type="button" class="btn btn-soft" data-voice-start{% if refine_disabled %} disabled{% endif %}>Start recording</button>
-                <button type="button" class="btn btn-secondary" data-voice-stop disabled>Stop &amp; Submit</button>
+            <details class="voice-details">
+              <summary>{{ page_copy.voice.summary }}</summary>
+              <div class="voice-details-content">
+                <label>
+                  {{ page_copy.voice.input_label }}
+                  <input type="file" name="refine_audio" accept="audio/*,.m4a,.mp3,.mp4,.mpeg,.mpga,.ogg,.wav,.webm">
+                </label>
+                <div
+                  class="voice-capture"
+                  data-voice-capture="refine"
+                  data-audio-field="refine_audio"
+                  data-submit-action="refine_voice"
+                  data-message-disabled="{{ page_copy.voice.disabled_status }}"
+                  data-message-unsupported="{{ page_copy.voice.unsupported_status }}"
+                  data-message-requesting-permission="{{ page_copy.voice.requesting_permission }}"
+                  data-message-permission-denied="{{ page_copy.voice.permission_denied }}"
+                  data-message-start-failed="{{ page_copy.voice.start_failed }}"
+                  data-message-unavailable="{{ page_copy.voice.unavailable_status }}"
+                  data-message-recording-failed="{{ page_copy.voice.recording_failed }}"
+                  data-message-empty-recording="{{ page_copy.voice.empty_recording }}"
+                  data-message-submitting="{{ page_copy.voice.submitting }}"
+                  data-message-submit-failed="{{ page_copy.voice.submit_failed }}"
+                  data-message-recording="{{ page_copy.voice.recording }}"
+                  data-message-stopping="{{ page_copy.voice.stopping }}"
+                >
+                  <div class="voice-capture-actions">
+                    <button type="button" class="btn btn-soft" data-voice-start{% if refine_disabled %} disabled{% endif %}>{{ page_copy.voice.start_recording }}</button>
+                    <button type="button" class="btn btn-secondary" data-voice-stop disabled>{{ page_copy.voice.stop_submit }}</button>
+                  </div>
+                  <div class="voice-note voice-status" data-voice-status data-tone="info" aria-live="polite">{{ page_copy.voice.initial_status }}</div>
+                </div>
+                <div class="voice-note">{{ page_copy.voice.upload_note }}</div>
               </div>
-              <div class="voice-note voice-status" data-voice-status data-tone="info" aria-live="polite">Record in the browser, then submit through the existing preview-only refine voice path.</div>
-            </div>
-            <div class="voice-note">Audio is transcribed to text first, then passed through the existing preview-only refine flow.</div>
+            </details>
             {% if refine_disabled_note %}
             <div class="empty-state">{{ refine_disabled_note }}</div>
             {% endif %}
             <div class="form-actions">
               <button type="submit" class="btn btn-secondary" name="form_action" value="refine"{% if refine_disabled %} disabled{% endif %}>{{ page_copy.refine.button }}</button>
-              <button type="submit" class="btn btn-soft" name="form_action" value="refine_voice"{% if refine_disabled %} disabled{% endif %}>Transcribe &amp; Preview</button>
+              <button type="submit" class="btn btn-soft" name="form_action" value="refine_voice"{% if refine_disabled %} disabled{% endif %}>{{ page_copy.voice.transcribe_preview }}</button>
             </div>
           </div>
         </form>
 
-        <div class="refine-result-card">
-          {% if refine_result %}
-          <div class="message {{ refine_result.message_tone }}">{{ refine_result.message_text }}</div>
-          <div class="detail-block">
-            <div class="result-meta">
-              {% for item in refine_result.meta %}
-              <span class="meta-pill">{{ item.label }}: {{ item.value }}</span>
-              {% endfor %}
-            </div>
-            {% if refine_result.canonical_items %}
-            <div>
-              <h3>{{ page_copy.refine.canonical_title }}</h3>
-              <ul class="detail-list">
-                {% for item in refine_result.canonical_items %}
-                <li class="detail-item">
-                  <span class="detail-label">{{ item.label }}:</span>
-                  <span>{{ item.value }}</span>
-                </li>
-                {% endfor %}
-              </ul>
-            </div>
-            {% endif %}
-
-            {% if refine_result.adjustment_items %}
-            <div>
-              <h3>{{ page_copy.refine.adjustment_title }}</h3>
-              <ul class="detail-list">
-                {% for item in refine_result.adjustment_items %}
-                <li class="detail-item">
-                  <div class="detail-label">{{ item.title }}</div>
-                  {% if item.summary %}
-                  <div class="detail-summary">{{ item.summary }}</div>
-                  {% endif %}
-                </li>
-                {% endfor %}
-              </ul>
-            </div>
-            {% endif %}
-
-            <p class="muted-note">{{ refine_result.candidate_note }}</p>
-          </div>
-          {% else %}
-          <div class="empty-state">{{ page_copy.refine.result_empty }}</div>
-          {% endif %}
-        </div>
       </div>
     </section>
 
     <section class="panel">
       <div class="section-head">
         <div>
-          <div class="section-kicker">{{ page_copy.actions.kicker }}</div>
-          <h2>{{ page_copy.actions.title }}</h2>
-          <p>{{ page_copy.actions.description }}</p>
+          <div class="section-kicker">{{ page_copy.evaluation.kicker }}</div>
+          <h2>{{ page_copy.evaluation.title }}</h2>
+          <p>{{ page_copy.evaluation.description }}</p>
         </div>
       </div>
-      <div class="actions-stack">
-        <div class="action-grid">
-          <form method="post" class="action-card preview-form">
-            <input type="hidden" name="form_action" value="preview">
-            <input type="hidden" name="ui_lang" value="{{ ui_lang }}">
-            {% if selected_tenant %}
-            <input type="hidden" name="tenant_slug" value="{{ selected_tenant.slug }}">
-            {% endif %}
-            <input type="hidden" name="month_scope" value="{{ month_value }}">
-            <div>
-              <h3>{{ page_copy.actions.preview_title }}</h3>
-              <p>{{ page_copy.actions.preview_description }}</p>
-            </div>
-            <button type="submit" class="btn btn-primary">{{ page_copy.actions.preview_submit }}</button>
-          </form>
 
-          <form method="post" class="action-card apply-form">
-            <input type="hidden" name="form_action" value="apply">
-            <input type="hidden" name="ui_lang" value="{{ ui_lang }}">
-            {% if selected_tenant %}
-            <input type="hidden" name="tenant_slug" value="{{ selected_tenant.slug }}">
-            {% endif %}
-            <input type="hidden" name="month_scope" value="{{ month_value }}">
-            <input type="hidden" name="candidate_id" value="{{ candidate_id }}">
-            <div>
-              <h3>{{ page_copy.actions.apply_title }}</h3>
-              <p>{{ page_copy.actions.apply_description }}</p>
-            </div>
-            <button type="submit" class="btn btn-primary"{% if apply_disabled %} disabled{% endif %}>{{ page_copy.actions.apply_submit }}</button>
-          </form>
-
-          <form method="post" class="action-card save-form">
-            <input type="hidden" name="form_action" value="save">
-            <input type="hidden" name="ui_lang" value="{{ ui_lang }}">
-            {% if selected_tenant %}
-            <input type="hidden" name="tenant_slug" value="{{ selected_tenant.slug }}">
-            {% endif %}
-            <input type="hidden" name="month_scope" value="{{ month_value }}">
-            <input type="hidden" name="candidate_id" value="{{ candidate_id }}">
-            <div>
-              <h3>{{ page_copy.actions.save_title }}</h3>
-              <p>{{ page_copy.actions.save_description }}</p>
-            </div>
-            <label>
-              {{ page_copy.actions.save_label }}
-              <input type="text" name="save_label" value="{{ save_label_value }}" placeholder="{{ page_copy.actions.save_placeholder }}">
-            </label>
-            <button type="submit" class="btn btn-secondary"{% if save_disabled %} disabled{% endif %}>{{ page_copy.actions.save_submit }}</button>
-          </form>
-
-          <div class="action-card export-card">
-            <div>
-              <h3>{{ page_copy.actions.export_title }}</h3>
-              <p>{{ page_copy.actions.export_description }}</p>
-            </div>
-            {% if csv_export_url %}
-            <a class="btn btn-soft" href="{{ csv_export_url }}" download>{{ page_copy.actions.export_submit }}</a>
-            {% else %}
-            <button type="button" class="btn btn-soft" disabled>{{ page_copy.actions.export_submit }}</button>
-            <p class="muted-note">{{ csv_export_disabled_note }}</p>
-            {% endif %}
-          </div>
+      <div class="evaluation-card {{ evaluation_summary.tone }}">
+        <div>
+          <h3>{{ evaluation_summary.message }}</h3>
+          {% if evaluation_summary.detail %}
+          <p>{{ evaluation_summary.detail }}</p>
+          {% endif %}
         </div>
-        <p class="muted-note">{{ page_copy.actions.footer_note }}</p>
+        {% if evaluation_summary.count_label %}
+        <div class="evaluation-summary">
+          <span class="summary-pill">{{ evaluation_summary.count_label }}</span>
+        </div>
+        {% endif %}
+        {% if warnings %}
+        <details class="technical-details">
+          <summary>{{ page_copy.evaluation.details_title }}</summary>
+          <div class="details-content">
+            <ul class="warning-list">
+              {% for warning in warnings %}
+              <li class="warning-item">
+                <div class="warning-title">{{ warning.title }}</div>
+                <div class="warning-meta">{{ page_copy.warnings.date_label }}: {{ warning.date }} / {{ page_copy.warnings.worker_label }}: {{ warning.worker }}</div>
+                <p><strong>{{ warning.message }}</strong></p>
+                <p>{{ warning.details }}</p>
+              </li>
+              {% endfor %}
+            </ul>
+          </div>
+        </details>
+        {% endif %}
       </div>
     </section>
+
+    {% if refine_result %}
+    <section class="panel">
+      <div class="section-head">
+        <div>
+          <div class="section-kicker">{{ page_copy.refine.kicker }}</div>
+          <h2>{{ page_copy.refine.canonical_title }}</h2>
+        </div>
+      </div>
+      <div class="refine-result-card">
+        <div class="message {{ refine_result.message_tone }}">{{ refine_result.message_text }}</div>
+        <div class="detail-block">
+          <h3>{{ refine_result.summary_title }}</h3>
+          {% if refine_result.canonical_items %}
+          <div>
+            <ul class="detail-list">
+              {% for item in refine_result.canonical_items %}
+              <li class="detail-item">
+                <span class="detail-label">{{ item.label }}:</span>
+                <span>{{ item.value }}</span>
+              </li>
+              {% endfor %}
+            </ul>
+          </div>
+          {% endif %}
+
+          {% if refine_result.adjustment_items %}
+          <div>
+            <h3>{{ page_copy.refine.adjustment_title }}</h3>
+            <ul class="detail-list">
+              {% for item in refine_result.adjustment_items %}
+              <li class="detail-item">
+                <div class="detail-label">{{ item.title }}</div>
+                {% if item.summary %}
+                <div class="detail-summary">{{ item.summary }}</div>
+                {% endif %}
+              </li>
+              {% endfor %}
+            </ul>
+          </div>
+          {% endif %}
+
+          {% if refine_result.status_text %}
+          <div class="detail-item">
+            <span class="detail-label">{{ page_copy.refine.status_label }}:</span>
+            <span>{{ refine_result.status_text }}</span>
+          </div>
+          {% endif %}
+
+          {% if refine_result.reason_text %}
+          <div class="detail-item">
+            <span class="detail-label">{{ page_copy.refine.reason_label }}:</span>
+            <span>{{ refine_result.reason_text }}</span>
+          </div>
+          {% endif %}
+
+          {% if refine_result.status_text == page_copy.refine.not_executable_status %}
+          <div class="detail-item">
+            <span class="detail-label">{{ page_copy.refine.suggestion_label }}:</span>
+            <span>{{ refine_result.suggestion_text }}</span>
+          </div>
+          {% endif %}
+
+          <p class="muted-note">{{ refine_result.candidate_note }}</p>
+
+          <details class="technical-details">
+            <summary>{{ page_copy.refine.technical_details_title }}</summary>
+            <div class="result-meta">
+              {% for item in refine_result.meta %}
+              <span class="meta-pill">{{ item.label }}: {{ item.value }}</span>
+              {% endfor %}
+            </div>
+          </details>
+        </div>
+      </div>
+    </section>
+    {% endif %}
 
     <section class="panel">
       <div class="section-head">
@@ -1139,31 +1282,6 @@
         </article>
         {% endfor %}
       </div>
-    </section>
-
-    <section class="panel">
-      <div class="section-head">
-        <div>
-          <div class="section-kicker">{{ page_copy.warnings.kicker }}</div>
-          <h2>{{ page_copy.warnings.title }}</h2>
-          <p>{{ page_copy.warnings.description }}</p>
-        </div>
-      </div>
-
-      {% if warnings %}
-      <ul class="warning-list">
-        {% for warning in warnings %}
-        <li class="warning-item">
-          <div class="warning-title">{{ warning.title }}</div>
-          <div class="warning-meta">{{ page_copy.warnings.date_label }}: {{ warning.date }} / {{ page_copy.warnings.worker_label }}: {{ warning.worker }}</div>
-          <p><strong>{{ warning.message }}</strong></p>
-          <p>{{ warning.details }}</p>
-        </li>
-        {% endfor %}
-      </ul>
-      {% else %}
-      <div class="empty-state">{{ warnings_note }}</div>
-      {% endif %}
     </section>
 
     <section class="panel">
@@ -1258,6 +1376,7 @@
         if (!form || !startButton || !stopButton || !status) {
           continue;
         }
+        const messages = panel.dataset;
 
         const setStatus = (message, tone) => {
           status.textContent = message;
@@ -1271,7 +1390,7 @@
 
         if (startButton.disabled) {
           setStatus(
-            "Microphone recording becomes available when this voice action is enabled.",
+            messages.messageDisabled,
             "info",
           );
           continue;
@@ -1284,7 +1403,7 @@
         ) {
           setButtons(false, false);
           setStatus(
-            "This browser does not support in-page microphone recording. You can still upload audio.",
+            messages.messageUnsupported,
             "error",
           );
           continue;
@@ -1339,7 +1458,7 @@
           }
 
           setButtons(false, false);
-          setStatus("Requesting microphone permission...", "info");
+          setStatus(messages.messageRequestingPermission, "info");
 
           try {
             stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -1348,12 +1467,12 @@
             setButtons(true, false);
             if (error && error.name === "NotAllowedError") {
               setStatus(
-                "Microphone access was denied. You can still upload audio instead.",
+                messages.messagePermissionDenied,
                 "error",
               );
             } else {
               setStatus(
-                "Microphone recording could not start. You can still upload audio instead.",
+                messages.messageStartFailed,
                 "error",
               );
             }
@@ -1370,7 +1489,7 @@
             resetRecorder();
             setButtons(true, false);
             setStatus(
-              "Microphone recording is not available in this browser. You can still upload audio instead.",
+              messages.messageUnavailable,
               "error",
             );
             return;
@@ -1386,7 +1505,7 @@
             resetRecorder();
             setButtons(true, false);
             setStatus(
-              "Microphone recording failed. You can still upload audio instead.",
+              messages.messageRecordingFailed,
               "error",
             );
           });
@@ -1399,19 +1518,19 @@
 
             if (!blob.size) {
               setButtons(true, false);
-              setStatus("No recorded audio was captured. Please try again.", "error");
+              setStatus(messages.messageEmptyRecording, "error");
               return;
             }
 
             setButtons(false, false);
-            setStatus("Submitting recorded audio for transcription...", "info");
+            setStatus(messages.messageSubmitting, "info");
 
             try {
               await submitRecordedAudio(blob);
             } catch (error) {
               setButtons(true, false);
               setStatus(
-                "Recorded audio could not be submitted. You can still upload audio instead.",
+                messages.messageSubmitFailed,
                 "error",
               );
             }
@@ -1420,7 +1539,7 @@
           recorder.start();
           setButtons(false, true);
           setStatus(
-            "Recording from microphone. Click stop to submit through the existing voice flow.",
+            messages.messageRecording,
             "recording",
           );
         });
@@ -1430,7 +1549,7 @@
             return;
           }
           setButtons(false, false);
-          setStatus("Stopping recording...", "info");
+          setStatus(messages.messageStopping, "info");
           recorder.stop();
         });
       }

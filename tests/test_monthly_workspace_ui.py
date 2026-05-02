@@ -96,17 +96,20 @@ def test_workspace_page_renders_reviewer_visible_structure_without_config_contro
     assert 'lang="zh"' in html_text
     assert "月度排班工作台" in html_text
     assert 'type="month"' in html_text
-    assert "界面语言" in html_text
+    assert "介面語言" in html_text
     assert ">中文</a>" in html_text
     assert ">日本語</a>" in html_text
-    assert "请假申请" in html_text
-    assert "预览、应用与保存" in html_text
-    assert "工作区状态" in html_text
-    assert "月度排班结果" in html_text
-    assert "警告" in html_text
-    assert "说明 / 当日" in html_text
-    assert "细化 / 说明" in html_text
-    assert "result-grid-scroll" in html_text
+    assert "月份" in html_text
+    assert "產生預覽" in html_text
+    assert "套用候選班表" in html_text
+    assert "儲存版本" in html_text
+    assert "匯出 CSV" in html_text
+    assert "請假申請" in html_text
+    assert "評估結果" in html_text
+    assert "完整月度排班" in html_text
+    assert "說明 / 當日" in html_text
+    assert "AI 排班助手" in html_text
+    assert "尚未顯示 2026年4月 的候選預覽或目前工作區。" in html_text
     assert "require_one_chef" not in html_text
     assert "count_chefs_in_headcount" not in html_text
 
@@ -135,7 +138,7 @@ def test_workspace_page_renders_japanese_copy_when_ui_lang_is_ja() -> None:
     assert "月次シフトワークスペース" in html_text
     assert "表示言語" in html_text
     assert "休暇申請" in html_text
-    assert "プレビュー、適用、保存" in html_text
+    assert "月をプレビュー" in html_text
     assert "ワークスペース状態" in html_text
     assert "月次シフト結果" in html_text
     assert "説明 / 日別" in html_text
@@ -370,7 +373,7 @@ def test_workspace_page_css_keeps_overflow_scoped_to_grid_and_state_cards_wrappi
     assert "overflow-x: auto;" in html_text
 
 
-def test_workspace_page_places_explain_and_refine_sections_directly_after_leave() -> None:
+def test_workspace_page_places_controls_assistant_evaluation_before_grid() -> None:
     tenant = _seed_month_context()
     view = {
         pattern.name: pattern.callback
@@ -378,27 +381,32 @@ def test_workspace_page_places_explain_and_refine_sections_directly_after_leave(
     }["monthly_schedule_workspace"]
 
     response = view(
-        RequestFactory().get(
+        RequestFactory().post(
             "/v2/monthly-workspace",
-            data={"tenant_slug": tenant.slug, "month_scope": "2026-04"},
+            data={
+                "form_action": "preview",
+                "tenant_slug": tenant.slug,
+                "month_scope": "2026-04",
+            },
         )
     )
     html_text = response.content.decode()
 
     assert response.status_code == 200
-    leave_index = html_text.index('<div class="leave-layout">')
-    explain_index = html_text.index(
-        '<input type="hidden" name="form_action" value="explain">'
+    controls_index = html_text.index('id="monthly-controls-title"')
+    preview_index = html_text.index(
+        '<input type="hidden" name="form_action" value="preview">'
     )
     refine_index = html_text.index(
         '<input type="hidden" name="form_action" value="refine">'
     )
-    actions_index = html_text.index('<div class="actions-stack">')
+    evaluation_index = html_text.index("<h2>評估結果</h2>")
+    grid_index = html_text.index('<div class="result-grid-scroll">')
 
-    assert leave_index < explain_index < refine_index < actions_index
+    assert controls_index < preview_index < refine_index < evaluation_index < grid_index
 
 
-def test_workspace_preview_places_warning_section_before_schedule_grid() -> None:
+def test_workspace_preview_summarizes_warnings_before_schedule_grid() -> None:
     tenant = _seed_month_context()
     worker = DjangoWorker.objects.get(
         tenant=tenant,
@@ -436,11 +444,62 @@ def test_workspace_preview_places_warning_section_before_schedule_grid() -> None
 
     assert add_leave_response.status_code == 200
     assert response.status_code == 200
+    assert "評估結果" in html_text
+    assert "有需要注意的排班警告" in html_text
+    assert "點擊展開查看詳細警告" in html_text
+    assert "詳細警告" in html_text
     assert '<ul class="warning-list">' in html_text
     assert '<div class="result-grid-scroll">' in html_text
-    assert html_text.index('<ul class="warning-list">') < html_text.index(
+    details_match = re.search(
+        r'<details class="technical-details">\s*<summary>詳細警告</summary>',
+        html_text,
+    )
+    assert details_match is not None
+    assert '<details class="technical-details" open>' not in html_text
+    assert html_text.index("<h2>評估結果</h2>") < html_text.index(
         '<div class="result-grid-scroll">'
     )
+    assert html_text.index("詳細警告") < html_text.index("understaffed station day")
+
+
+def test_workspace_preview_shows_neutral_evaluation_when_no_warnings() -> None:
+    tenant = _seed_custom_month_context(workers=[("COOK_A", "Cook Alpha", "employee")])
+    view = {
+        pattern.name: pattern.callback
+        for pattern in build_django_monthly_workspace_page_urlpatterns(
+            preview_engine=_FixedPreviewEngine(
+                _build_preview_result(
+                    AssignmentOutput(
+                        date=dt.date(2026, 4, 1),
+                        worker_code="COOK_A",
+                        shift_code="DAY",
+                        station_code="GRILL",
+                        source="preview",
+                        note=None,
+                    )
+                )
+            )
+        )
+    }["monthly_schedule_workspace"]
+
+    response = view(
+        RequestFactory().post(
+            "/v2/monthly-workspace",
+            data={
+                "form_action": "preview",
+                "tenant_slug": tenant.slug,
+                "month_scope": "2026-04",
+                "ui_lang": "zh",
+            },
+        )
+    )
+    html_text = response.content.decode()
+
+    assert response.status_code == 200
+    assert "評估結果" in html_text
+    assert "目前沒有需要注意的警告。" in html_text
+    assert "詳細警告" not in html_text
+    assert '<ul class="warning-list">' not in html_text
 
 
 def test_workspace_page_supports_leave_preview_apply_and_save_flow() -> None:
@@ -471,7 +530,7 @@ def test_workspace_page_supports_leave_preview_apply_and_save_flow() -> None:
     add_leave_html = add_leave_response.content.decode()
 
     assert add_leave_response.status_code == 200
-    assert "已为 Spencer 添加 2026-04-10 的请假。" in add_leave_html
+    assert "已為 Spencer 新增 2026-04-10 的請假。" in add_leave_html
     assert "Spencer (SPENCER)" in add_leave_html
     assert DjangoLeaveRequest.objects.count() == 1
 
@@ -490,8 +549,8 @@ def test_workspace_page_supports_leave_preview_apply_and_save_flow() -> None:
     candidate_id = _extract_candidate_id(preview_html)
 
     assert preview_response.status_code == 200
-    assert "候选预览已生成，可在应用前先进行审核。" in preview_html
-    assert "候选预览" in preview_html
+    assert "候選預覽已產生，可在套用前先審核。" in preview_html
+    assert "候選預覽" in preview_html
     assert "needs_review" in preview_html
     assert "understaffed station day" in preview_html
     assert candidate_id
@@ -512,8 +571,8 @@ def test_workspace_page_supports_leave_preview_apply_and_save_flow() -> None:
     apply_html = apply_response.content.decode()
 
     assert apply_response.status_code == 200
-    assert "已将候选预览应用到当前工作区" in apply_html
-    assert "当前工作区" in apply_html
+    assert "已將候選預覽套用到目前工作區" in apply_html
+    assert "目前工作區" in apply_html
     assert DjangoMonthlyWorkspace.objects.count() == 1
     assert DjangoMonthlyAssignment.objects.count() == 29
 
@@ -533,8 +592,8 @@ def test_workspace_page_supports_leave_preview_apply_and_save_flow() -> None:
     save_html = save_response.content.decode()
 
     assert save_response.status_code == 200
-    assert "已保存 2026-04 的版本 1。" in save_html
-    assert "已保存版本" in save_html
+    assert "已儲存 2026-04 的版本 1。" in save_html
+    assert "已儲存版本" in save_html
     assert DjangoMonthlyPlanVersion.objects.count() == 1
     assert DjangoMonthlyPlanVersion.objects.get().summary == "Reviewer baseline"
 
@@ -563,7 +622,7 @@ def test_workspace_refine_candidate_can_be_applied_via_server_side_candidate_id(
                 "month_scope": "2026-04",
                 "ui_lang": "zh",
                 "request_text": (
-                    f"请把 {PRIMARY_DEMO_WORKER.code} "
+                    f"請把 {PRIMARY_DEMO_WORKER.code} "
                     f"安排到 2026-04-01 的 EVE 在 {PRIMARY_DEMO_STATION.code}"
                 ),
             },
@@ -830,8 +889,8 @@ def test_workspace_page_replaces_refine_placeholder_with_working_form() -> None:
     assert response.status_code == 200
     assert 'name="form_action" value="refine"' in html_text
     assert 'name="request_text"' in html_text
-    assert "请先把当前计划应用到月度工作区，再运行细化预览。" in html_text
-    assert "生成细化预览" in html_text
+    assert "請先把目前計畫套用到月度工作區，再執行調整預覽。" in html_text
+    assert "產生調整預覽" in html_text
     assert (
         'class="btn btn-secondary" name="form_action" value="refine" disabled'
         in html_text
@@ -857,8 +916,8 @@ def test_workspace_page_renders_bounded_day_explain_form() -> None:
     assert 'name="form_action" value="explain"' in html_text
     assert 'name="explain_day"' in html_text
     assert 'name="explain_request_text"' in html_text
-    assert "请先生成候选预览或应用当前工作区，再请求当日说明。" in html_text
-    assert "生成当日说明" in html_text
+    assert "請先產生候選預覽或套用目前工作區，再請求當日說明。" in html_text
+    assert "產生當日說明" in html_text
     assert (
         'class="btn btn-secondary" name="form_action" value="explain" disabled'
         in html_text
@@ -890,24 +949,26 @@ def test_workspace_page_renders_bounded_voice_upload_controls() -> None:
     assert 'data-audio-field="refine_audio"' in html_text
     assert 'data-submit-action="explain_voice"' in html_text
     assert 'data-submit-action="refine_voice"' in html_text
-    assert "Voice input (Whisper)" in html_text
-    assert html_text.count("Start recording") >= 2
-    assert html_text.count("Stop &amp; Submit") >= 2
+    assert html_text.count('<details class="voice-details">') >= 2
+    assert "語音輸入（Whisper）" in html_text
+    assert html_text.count("開始錄音") >= 2
+    assert html_text.count("停止並送出") >= 2
+    assert "Voice input" not in html_text
+    assert "Start recording" not in html_text
+    assert "Stop &amp; Submit" not in html_text
+    assert "Transcribe &amp; Preview" not in html_text
     assert 'aria-live="polite"' in html_text
-    assert "Transcribe &amp; Explain" in html_text
-    assert "Transcribe &amp; Preview" in html_text
+    assert "轉錄並產生說明" in html_text
+    assert "轉錄並產生預覽" in html_text
     assert "navigator.mediaDevices.getUserMedia" in html_text
     assert "MediaRecorder" in html_text
-    assert (
-        "This browser does not support in-page microphone recording. "
-        "You can still upload audio."
-    ) in html_text
+    assert "此瀏覽器不支援頁面內錄音。你仍可上傳音訊。" in html_text
 
 
 @pytest.mark.parametrize(
     ("ui_lang", "request_category", "expected_headline"),
     [
-        ("zh", "day_overview", "2026-04-01 的排班说明"),
+        ("zh", "day_overview", "2026-04-01 的排班說明"),
         ("ja", "refine_change_summary", "2026-04-01 の日別説明"),
     ],
 )
@@ -981,7 +1042,7 @@ def test_workspace_explain_post_supports_current_workspace_day_explanation() -> 
                 "month_scope": "2026-04",
                 "ui_lang": "zh",
                 "explain_day": "2026-04-01",
-                "explain_request_text": "请说明 4/1 为什么这样排班",
+                "explain_request_text": "",
             },
         )
     )
@@ -993,9 +1054,9 @@ def test_workspace_explain_post_supports_current_workspace_day_explanation() -> 
     )
 
     assert response.status_code == 200
-    assert "已生成当日排班说明。" in html_text
-    assert "2026-04-01 的排班说明" in html_text
-    assert "当前工作区" in html_text
+    assert "已產生當日排班說明。" in html_text
+    assert "2026-04-01 的排班說明" in html_text
+    assert "目前工作區" in html_text
     assert 'name="ui_lang" value="zh"' in html_text
     assert DjangoMonthlyAssignment.objects.filter(workspace=current_workspace).count() == 30
 
@@ -1105,7 +1166,7 @@ def test_workspace_voice_refine_upload_transcribes_and_routes_into_preview_only_
     )
     transcriber = _RecordingAudioTranscriptionClient(
         text=(
-            f"请把 {PRIMARY_DEMO_WORKER.code} "
+            f"請把 {PRIMARY_DEMO_WORKER.code} "
             f"安排到 2026-04-01 的 EVE 在 {PRIMARY_DEMO_STATION.code}"
         ),
         language="zh",
@@ -1157,7 +1218,7 @@ def test_workspace_voice_refine_upload_transcribes_and_routes_into_preview_only_
     assert len(transcriber.calls) == 1
     assert transcriber.calls[0]["filename"] == "refine.webm"
     assert transcriber.calls[0]["content_type"] == "audio/webm"
-    assert "Voice refine request transcribed via whisper-1" in html_text
+    assert "語音調整請求已透過 whisper-1 轉錄" in html_text
     assert "安排到 2026-04-01 的 EVE" in html_text
     assert refined_first_day_assignment == {
         "date": "2026-04-01",
@@ -1195,7 +1256,7 @@ def test_workspace_voice_refine_does_not_use_other_tenant_current_workspace() ->
     )
     page_copy = get_monthly_workspace_copy("zh")
     transcriber = _RecordingAudioTranscriptionClient(
-        text="请把 ALEX_A 安排到 2026-04-01。",
+        text="請把 ALEX_A 安排到 2026-04-01。",
         language="zh",
     )
     view = {
@@ -1226,7 +1287,7 @@ def test_workspace_voice_refine_does_not_use_other_tenant_current_workspace() ->
 
     assert response.status_code == 200
     assert len(transcriber.calls) == 1
-    assert "Voice refine request transcribed via whisper-1" in html_text
+    assert "語音調整請求已透過 whisper-1 轉錄" in html_text
     assert page_copy["messages"]["refine_requires_current_workspace"] in html_text
     assert "Blair B" not in html_text
 
@@ -1273,7 +1334,7 @@ def test_workspace_voice_explain_upload_transcribes_and_routes_into_existing_gat
     assert len(transcriber.calls) == 1
     assert transcriber.calls[0]["filename"] == "explain.webm"
     assert transcriber.calls[0]["content_type"] == "audio/webm"
-    assert "Voice explain request transcribed via whisper-1" in html_text
+    assert "語音說明請求已透過 whisper-1 轉錄" in html_text
     assert "Why was 4/1 scheduled this way?" in html_text
     assert "Schedule explanation for 2026-04-01" in html_text
     assert DjangoMonthlyAssignment.objects.filter(workspace=current_workspace).count() == 30
@@ -1352,7 +1413,7 @@ def test_workspace_voice_upload_rejects_invalid_audio_type_before_transcription(
     html_text = response.content.decode()
 
     assert response.status_code == 200
-    assert "Voice input supports mp3, mp4, m4a, ogg, wav, and webm files only." in html_text
+    assert "語音輸入僅支援 mp3、mp4、m4a、ogg、wav、webm 檔案。" in html_text
     assert transcriber.calls == []
 
 
@@ -1412,7 +1473,7 @@ def test_workspace_refine_post_supports_bounded_chinese_preview_without_mutating
                 "month_scope": "2026-04",
                 "ui_lang": "zh",
                 "request_text": (
-                    f"请把 {PRIMARY_DEMO_WORKER.code} "
+                    f"請把 {PRIMARY_DEMO_WORKER.code} "
                     f"安排到 2026-04-01 的 EVE 在 {PRIMARY_DEMO_STATION.code}"
                 ),
             },
@@ -1438,10 +1499,10 @@ def test_workspace_refine_post_supports_bounded_chinese_preview_without_mutating
     )
 
     assert response.status_code == 200
-    assert "已生成调整预览。" in html_text
+    assert "已產生調整預覽。" in html_text
     assert 'name="ui_lang" value="zh"' in html_text
-    assert "规范化意图" in html_text
-    assert "预览变更" in html_text
+    assert "我理解你要做的是：" in html_text
+    assert "變更" in html_text
     assert refined_first_day_assignment == {
         "date": "2026-04-01",
         "worker_code": PRIMARY_DEMO_WORKER.code,
@@ -1523,10 +1584,8 @@ def test_workspace_refine_post_shows_safe_same_language_unsupported_state() -> N
 
     assert response.status_code == 200
     assert (
-        "\u3053\u306e\u30a2\u30b7\u30b9\u30bf\u30f3\u30c8\u306f"
-        "\u30b9\u30b1\u30b8\u30e5\u30fc\u30eb\u5909\u66f4\u306e\u307f\u5bfe\u5fdc"
-        "\u3057\u307e\u3059\u3002\u30b9\u30b1\u30b8\u30e5\u30fc\u30eb\u95a2\u9023\u306e"
-        "\u4f9d\u983c\u3092\u5165\u529b\u3057\u3066\u304f\u3060\u3055\u3044\u3002"
+        "このアシスタントはシフト調整のみ対応しています。"
+        "シフト関連の依頼を入力してください。"
     ) in html_text
     assert 'name="candidate_id" value=""' in html_text
     assert DjangoMonthlyAssignment.objects.filter(workspace=current_workspace).count() == 30
@@ -1587,7 +1646,7 @@ def test_workspace_page_orders_people_leave_and_grid_rows_chef_first() -> None:
 
     assert response.status_code == 200
     assert _extract_worker_option_labels(html_text) == [
-        "请选择员工",
+        "請選擇員工",
         "Chef Alpha (Z_CHEF_1)",
         "Chef Beta (Y_CHEF_2)",
         "Cook Alpha (A_COOK)",
