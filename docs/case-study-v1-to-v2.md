@@ -17,10 +17,14 @@ what can be applied, saved, exported, or explained.
 
 ## Positioning
 
-v2 is the main live demo. It is currently deployed on the rented server at the
-temporary IP-based monthly workspace URL:
+v2 is the main live demo. It is hosted on a rented DigitalOcean server behind
+Caddy HTTPS:
 
-`http://209.97.163.98:8001/v2/monthly-workspace?tenant_slug=demo_kitchen&month_scope=2026-04&ui_lang=zh`
+`https://sched.spencerailab.com/v2/monthly-workspace?tenant_slug=demo_kitchen&month_scope=2026-04&ui_lang=zh`
+
+Japanese UI:
+
+`https://sched.spencerailab.com/v2/monthly-workspace?tenant_slug=demo_kitchen&month_scope=2026-04&ui_lang=ja`
 
 v1 remains on the same server on host port `8000` as a legacy/reference project.
 It is useful for explaining the rewrite journey, but it should not be presented
@@ -96,22 +100,23 @@ The rewrite adds reviewer-visible engineering structure:
 The current deployment runs v2 from `/root/sched-v2` on host port `8001`.
 sched-mvp v1 remains untouched on host port `8000`. v2 uses its own `.env`,
 Docker Compose project, and SQLite volume. Admin is intentionally disabled in
-deployment settings. Domain and HTTPS setup are deferred.
+deployment settings. Caddy provides HTTPS for the public v2 demo domain.
 
 Public reviewer path:
 
-`http://209.97.163.98:8001/v2/monthly-workspace?tenant_slug=demo_kitchen&month_scope=2026-04&ui_lang=zh`
+`https://sched.spencerailab.com/v2/monthly-workspace?tenant_slug=demo_kitchen&month_scope=2026-04&ui_lang=zh`
 
 Japanese UI:
 
-`http://209.97.163.98:8001/v2/monthly-workspace?tenant_slug=demo_kitchen&month_scope=2026-04&ui_lang=ja`
+`https://sched.spencerailab.com/v2/monthly-workspace?tenant_slug=demo_kitchen&month_scope=2026-04&ui_lang=ja`
 
 ## Honest Limitations
 
 - Demo/localdev oriented rather than production SaaS hardened.
 - No production auth or RBAC.
 - No full tenant onboarding UI.
-- No domain or HTTPS yet.
+- Caddy HTTPS is configured for the demo domain, but production auth/RBAC is
+  still out of scope.
 - No full optimizer for fairness or workload balancing.
 - SQLite-backed demo deployment rather than production database architecture.
 - AI behavior is intentionally narrow and conservative.

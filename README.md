@@ -14,18 +14,18 @@ produce a candidate preview.
 
 ## Live Demo
 
-`sched-v2` is the main current demo. It is temporarily available by direct IP
-on the rented DigitalOcean server while domain and HTTPS setup are deferred.
-The public reviewer path is the monthly workspace; admin is intentionally
-disabled in deploy settings and is not part of the demo surface.
+`sched-v2` is the main current live demo. It is hosted on a rented
+DigitalOcean server behind Caddy HTTPS. The public reviewer path is the monthly
+workspace; admin is intentionally disabled in deploy settings and is not part
+of the demo surface.
 
 Primary demo:
 
-`http://209.97.163.98:8001/v2/monthly-workspace?tenant_slug=demo_kitchen&month_scope=2026-04&ui_lang=zh`
+`https://sched.spencerailab.com/v2/monthly-workspace?tenant_slug=demo_kitchen&month_scope=2026-04&ui_lang=zh`
 
 Japanese UI:
 
-`http://209.97.163.98:8001/v2/monthly-workspace?tenant_slug=demo_kitchen&month_scope=2026-04&ui_lang=ja`
+`https://sched.spencerailab.com/v2/monthly-workspace?tenant_slug=demo_kitchen&month_scope=2026-04&ui_lang=ja`
 
 sched-mvp v1 remains on the same server as a legacy/reference project on host
 port `8000`. It is useful for explaining the rewrite journey, but v2 should be
@@ -111,10 +111,11 @@ part of the public reviewer demo surface.
 ## Demo Deployment
 
 See [docs/deployment.md](docs/deployment.md) for the repeatable rented-server
-demo path. The current deployment is side-by-side with sched-mvp v1: v1 remains
-in `/root/sched-mvp` on host port `8000`, while v2 runs separately from
-`/root/sched-v2` on host port `8001` using its own `.env`, SQLite volume, and
-Compose project name.
+demo path. The current deployment is side-by-side with sched-mvp v1 on a
+rented DigitalOcean server: v1 remains in `/root/sched-mvp` on host port
+`8000`, while v2 runs separately from `/root/sched-v2` on host port `8001`
+using its own `.env`, SQLite volume, and Compose project name. Caddy provides
+HTTPS for the public v2 demo domain.
 
 ```bash
 docker compose -p sched-v2 build
@@ -142,13 +143,13 @@ For side-by-side deployment, set `SCHED_V2_PORT=8001`. Host port `8001` maps to
 the container's internal port `8000`, avoiding the v1 host-port `8000`
 collision. The seeded v2 demo URL is:
 
-`http://your.server.ip:8001/v2/monthly-workspace?tenant_slug=demo_kitchen&month_scope=2026-04`
+`https://sched.spencerailab.com/v2/monthly-workspace?tenant_slug=demo_kitchen&month_scope=2026-04&ui_lang=zh`
 
 The Compose service stores the SQLite database at `/data/sched-v2.sqlite3` in
 the project-scoped volume `sched_v2_sqlite`, so rebuilds and restarts do not
 reset the demo database. This is intentionally a portfolio/demo deployment
-path, not a production SaaS hardening pass. Domain/HTTPS setup remains a future
-step, and v1 should stay positioned as a legacy/reference project rather than
+path, not a production SaaS hardening pass. Production auth/RBAC remains out of
+scope, and v1 should stay positioned as a legacy/reference project rather than
 an equal main live demo.
 
 ## Architecture
