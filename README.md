@@ -190,9 +190,30 @@ Important guarantees for review:
 
 ## AI Behavior
 
-Refine uses scheduling-only structured intent parsing. Supported executable
-requests are currently narrow single-day assignment edits/removals that produce
-a candidate preview. Abstract but scheduling-related requests, such as workload
+### Bounded AI-Assisted Refine Workflow
+
+`sched-v2` includes a human-in-the-loop refine workflow for bounded
+AI-assisted scheduling refinement:
+
+1. The user enters a free-form scheduling instruction.
+2. `LangGraphRefineWorkflow` parses it into structured scheduling intent using
+   deterministic fallback and optional structured LLM support.
+3. The server generates a non-mutating candidate preview and computes a
+   before/after `preview_diff`.
+4. The monthly UI renders a compact Proposed changes block for review.
+5. The user explicitly applies the candidate before it affects the current
+   workspace.
+6. Save remains a separate persistence action when version history is needed.
+
+Refine does not mutate the current workspace directly. The parser/model
+proposes structured changes, the backend validates and previews them, and the
+candidate preview remains inspectable before apply. This demonstrates backend
+state boundaries and applied AI integration without giving the model direct
+write access, while keeping the model layer replaceable and offline-testable
+through deterministic/noop fallback clients.
+
+Supported executable refine requests are currently narrow single-day assignment
+edits/removals. Abstract but scheduling-related requests, such as workload
 fairness or broad station coverage changes, are understood but not executable.
 Non-scheduling requests are rejected.
 
