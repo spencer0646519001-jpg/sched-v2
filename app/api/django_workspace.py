@@ -123,6 +123,7 @@ _REFINE_PREVIEW_DIFF_GROUPS = (
     ("added", "Added"),
     ("removed", "Removed"),
 )
+_REFINE_PREVIEW_DIFF_VISIBLE_ROW_LIMIT = 5
 
 
 @dataclass(slots=True)
@@ -1689,7 +1690,19 @@ def _build_refine_preview_diff_groups(
             if summary
         ]
         if rows:
-            groups.append({"label": group_label, "rows": rows})
+            visible_rows = rows[:_REFINE_PREVIEW_DIFF_VISIBLE_ROW_LIMIT]
+            remaining_count = len(rows) - len(visible_rows)
+            groups.append(
+                {
+                    "label": group_label,
+                    "rows": visible_rows,
+                    "remaining_text": (
+                        f"+ {remaining_count} more {group_key} rows"
+                        if remaining_count > 0
+                        else ""
+                    ),
+                }
+            )
     return groups
 
 

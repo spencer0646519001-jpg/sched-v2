@@ -1337,6 +1337,19 @@
 
           <p class="muted-note">{{ refine_result.candidate_note }}</p>
 
+          {% if candidate_id %}
+          <form method="post" class="form-actions refine-apply-form">
+            <input type="hidden" name="form_action" value="apply">
+            <input type="hidden" name="ui_lang" value="{{ ui_lang }}">
+            {% if selected_tenant %}
+            <input type="hidden" name="tenant_slug" value="{{ selected_tenant.slug }}">
+            {% endif %}
+            <input type="hidden" name="month_scope" value="{{ month_value }}">
+            <input type="hidden" name="candidate_id" value="{{ candidate_id }}">
+            <button type="submit" class="btn btn-secondary"{% if apply_disabled %} disabled{% endif %}>{{ page_copy.actions.apply_submit }}</button>
+          </form>
+          {% endif %}
+
           {% if refine_result.preview_diff_groups %}
           <div class="preview-diff">
             <h3>Proposed changes</h3>
@@ -1348,6 +1361,9 @@
                 <li>{{ row }}</li>
                 {% endfor %}
               </ul>
+              {% if group.remaining_text %}
+              <p class="muted-note">{{ group.remaining_text }}</p>
+              {% endif %}
             </div>
             {% endfor %}
           </div>

@@ -12,9 +12,11 @@ import pytest
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import RequestFactory
 
+from app.api import django_workspace
 from app.api.django_workspace import _build_explain_result_context
 from app.api.django_runtime import build_django_monthly_workspace_page_urlpatterns
 from app.api.monthly_workspace_copy import get_monthly_workspace_copy
+from app.api.schemas import MonthPlanningResultSchema
 from app.ai.interfaces import AudioTranscriptionRequest, AudioTranscriptionResult, ModelUnavailableError
 from app.engine.contracts import (
     AssignmentOutput,
@@ -1704,6 +1706,112 @@ def test_workspace_refine_post_supports_bounded_chinese_preview_without_mutating
     assert DjangoMonthlyAssignment.objects.filter(workspace=current_workspace).count() == 30
 
 
+def test_workspace_refine_result_limits_large_preview_diff_and_renders_nearby_apply(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    tenant = _seed_month_context()
+    candidate_result = MonthPlanningResultSchema.model_validate(
+        _build_preview_result(
+            AssignmentOutput(
+                date=dt.date(2026, 4, 1),
+                worker_code=PRIMARY_DEMO_WORKER.code,
+                shift_code=PRIMARY_DEMO_SHIFT.code,
+                station_code=PRIMARY_DEMO_STATION.code,
+                source="preview",
+                note=None,
+            )
+        ),
+        from_attributes=True,
+    )
+    preview_diff = {
+        "changed": _build_preview_diff_rows("changed", 17),
+        "added": _build_preview_diff_rows("added", 13),
+        "removed": _build_preview_diff_rows("removed", 10),
+    }
+
+    def fake_handle_refine(**kwargs):
+        del kwargs
+        return candidate_result, {
+            "message_tone": "message-success",
+            "message_text": "Preview ready.",
+            "summary_title": "Understood request",
+            "status_text": "Executable",
+            "reason_text": "",
+            "suggestion_text": "",
+            "meta": [],
+            "canonical_items": [],
+            "adjustment_items": [],
+            "preview_diff": preview_diff,
+            "preview_diff_groups": (
+                django_workspace._build_refine_preview_diff_groups(preview_diff)
+            ),
+            "candidate_note": "Candidate preview is ready.",
+        }
+
+    monkeypatch.setattr(django_workspace, "_handle_refine", fake_handle_refine)
+    view = {
+        pattern.name: pattern.callback
+        for pattern in build_django_monthly_workspace_page_urlpatterns()
+    }["monthly_schedule_workspace"]
+
+    response = view(
+        RequestFactory().post(
+            "/v2/monthly-workspace",
+            data={
+                "form_action": "refine",
+                "tenant_slug": tenant.slug,
+                "month_scope": "2026-04",
+                "ui_lang": "zh",
+                "request_text": "Change several assignments",
+            },
+        )
+    )
+    html_text = response.content.decode()
+    visible_html = html.unescape(html_text)
+    nearby_apply_match = re.search(
+        r'<form method="post" class="form-actions refine-apply-form">'
+        r"(.*?)</form>",
+        html_text,
+        re.S,
+    )
+
+    assert response.status_code == 200
+    assert "Proposed changes" in visible_html
+    for index in range(1, 6):
+        assert (
+            f"2026-04-{index:02d} Changed Worker {index}: "
+            "gateau / A \u2192 gateau / EVE"
+        ) in visible_html
+    assert (
+        "2026-04-06 Changed Worker 6: gateau / A \u2192 gateau / EVE"
+        not in visible_html
+    )
+    assert (
+        "2026-04-06 Added Worker 6: OFF \u2192 gateau / A"
+        not in visible_html
+    )
+    assert (
+        "2026-04-06 Removed Worker 6: gateau / A \u2192 OFF"
+        not in visible_html
+    )
+    assert "+ 12 more changed rows" in visible_html
+    assert "+ 8 more added rows" in visible_html
+    assert "+ 5 more removed rows" in visible_html
+    assert nearby_apply_match is not None
+
+    nearby_apply_form = nearby_apply_match.group(1)
+    candidate_id_match = re.search(
+        r'name="candidate_id" value="([^"]+)"',
+        nearby_apply_form,
+    )
+    assert 'name="form_action" value="apply"' in nearby_apply_form
+    assert candidate_id_match is not None
+    assert candidate_id_match.group(1)
+    assert get_monthly_workspace_copy("zh")["actions"]["apply_submit"] in (
+        nearby_apply_form
+    )
+
+
 def test_workspace_refine_post_supports_bounded_japanese_remove_preview() -> None:
     tenant = _seed_month_context()
     view = {
@@ -2143,6 +2251,39 @@ def _build_preview_result(
             notes=["ui-test"],
         ),
     )
+
+
+def _build_preview_diff_rows(group_key: str, count: int) -> list[dict[str, object]]:
+    rows: list[dict[str, object]] = []
+    for index in range(1, count + 1):
+        before = (
+            None
+            if group_key == "added"
+            else {
+                "station_code": "gateau",
+                "shift_code": "A",
+                "source": "apply",
+            }
+        )
+        after = (
+            None
+            if group_key == "removed"
+            else {
+                "station_code": "gateau",
+                "shift_code": "A" if group_key == "added" else "EVE",
+                "source": "adjustment_patch",
+            }
+        )
+        rows.append(
+            {
+                "date": f"2026-04-{index:02d}",
+                "worker_code": f"{group_key.upper()}_{index}",
+                "worker_name": f"{group_key.title()} Worker {index}",
+                "before": before,
+                "after": after,
+            }
+        )
+    return rows
 
 
 def _apply_current_workspace_via_page(view, *, tenant: DjangoTenant, ui_lang: str) -> None:
