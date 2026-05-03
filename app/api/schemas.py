@@ -178,6 +178,33 @@ class RefineOutcomeSchema(ApiSchema):
     message_text: str = Field(min_length=1)
 
 
+class RefinePreviewDiffAssignmentSchema(ApiSchema):
+    """Assignment details for one side of a refine preview diff row."""
+
+    station_code: str | None = None
+    shift_code: str = Field(min_length=1)
+    source: str = Field(min_length=1)
+    note: str | None = None
+
+
+class RefinePreviewDiffRowSchema(ApiSchema):
+    """One date/person current-vs-candidate refine preview comparison."""
+
+    date: dt.date
+    worker_code: str = Field(min_length=1)
+    worker_name: str = Field(min_length=1)
+    before: RefinePreviewDiffAssignmentSchema | None = None
+    after: RefinePreviewDiffAssignmentSchema | None = None
+
+
+class RefinePreviewDiffSchema(ApiSchema):
+    """Structured assignment diff for a refine candidate preview."""
+
+    added: list[RefinePreviewDiffRowSchema] = Field(default_factory=list)
+    removed: list[RefinePreviewDiffRowSchema] = Field(default_factory=list)
+    changed: list[RefinePreviewDiffRowSchema] = Field(default_factory=list)
+
+
 class ExplainOutcomeSchema(ApiSchema):
     """Structured same-language outcome for bounded day explain responses."""
 
@@ -215,6 +242,9 @@ class RefineMonthScheduleResponseSchema(TenantMonthScopeSchema):
     outcome: RefineOutcomeSchema
     parsed_intent_json: ApiJsonObject
     candidate_result: MonthPlanningResultSchema | None = None
+    preview_diff: RefinePreviewDiffSchema = Field(
+        default_factory=RefinePreviewDiffSchema
+    )
     candidate_id: str | None = Field(default=None, min_length=1)
 
 
@@ -292,6 +322,9 @@ __all__ = [
     "RefineOutcomeSchema",
     "RefineMonthScheduleRequestSchema",
     "RefineMonthScheduleResponseSchema",
+    "RefinePreviewDiffAssignmentSchema",
+    "RefinePreviewDiffRowSchema",
+    "RefinePreviewDiffSchema",
     "SaveMonthScheduleRequestSchema",
     "SaveMonthScheduleResponseSchema",
     "TenantMonthScopeSchema",

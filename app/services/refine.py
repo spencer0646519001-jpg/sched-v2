@@ -200,6 +200,10 @@ class RefinePreviewDiff(TypedDict):
     changed: list[RefinePreviewDiffRow]
 
 
+def _empty_refine_preview_diff() -> RefinePreviewDiff:
+    return {"added": [], "removed": [], "changed": []}
+
+
 @dataclass(slots=True)
 class RefineOutcome:
     """Structured bounded outcome that can later be rendered per language."""
@@ -265,6 +269,9 @@ class RefineMonthScheduleResponse:
     outcome: RefineOutcome
     parsed_intent_json: JsonObject
     candidate_result: MonthPlanningResult | None
+    preview_diff: RefinePreviewDiff = field(
+        default_factory=_empty_refine_preview_diff
+    )
 
 
 @dataclass(slots=True)
@@ -372,6 +379,18 @@ class RefineMonthScheduleService:
             if workflow_result.candidate_result is not None
             else None
         )
+        preview_diff = (
+            build_refine_preview_diff(
+                current_assignments,
+                workflow_result.candidate_result.assignments,
+                worker_display_names_by_code={
+                    worker.worker_code: worker.name
+                    for worker in base_planning_input.workers
+                },
+            )
+            if workflow_result.candidate_result is not None
+            else _empty_refine_preview_diff()
+        )
         completed_refine_request = self.refine_request_repository.update_parsed_preview(
             refine_request_id,
             status=REFINE_STATUS_COMPLETED,
@@ -395,7 +414,9 @@ class RefineMonthScheduleService:
             outcome=workflow_result.outcome,
             parsed_intent_json=parsed_intent_json,
             candidate_result=workflow_result.candidate_result,
+            preview_diff=preview_diff,
         )
+
 
 def refine_month_schedule(
     request: RefineMonthScheduleRequest,

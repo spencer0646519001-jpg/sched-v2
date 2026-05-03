@@ -1449,6 +1449,7 @@ def _build_refine_result_context(
             adjustment_patch=adjustment_patch,
             page_copy=page_copy,
         ),
+        "preview_diff": response.preview_diff,
         "candidate_note": (
             refine_copy["candidate_ready_note"]
             if candidate_result is not None

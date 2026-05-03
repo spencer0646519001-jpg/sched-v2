@@ -39,6 +39,7 @@ from app.api.schemas import (
     RefineOutcomeSchema,
     RefineMonthScheduleRequestSchema,
     RefineMonthScheduleResponseSchema,
+    RefinePreviewDiffSchema,
     SaveMonthScheduleRequestSchema,
     SaveMonthScheduleResponseSchema,
 )
@@ -599,6 +600,7 @@ def _map_refine_response_to_api(
             if response.candidate_result is not None
             else None
         ),
+        preview_diff=RefinePreviewDiffSchema.model_validate(response.preview_diff),
     )
 
 

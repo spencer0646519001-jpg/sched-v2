@@ -718,6 +718,29 @@ def test_django_runtime_refine_returns_candidate_preview_without_mutating_curren
     assert refine_payload["parsed_intent_json"]["intent_type"] == "set_assignment"
     assert refine_payload["parsed_intent_json"]["preview_executed"] is True
     assert refine_payload["candidate_result"]["metadata"]["refinement_applied"] is True
+    assert refine_payload["preview_diff"] == {
+        "added": [],
+        "removed": [],
+        "changed": [
+            {
+                "date": "2026-04-01",
+                "worker_code": PRIMARY_DEMO_WORKER.code,
+                "worker_name": PRIMARY_DEMO_WORKER.name,
+                "before": {
+                    "station_code": PRIMARY_DEMO_STATION.code,
+                    "shift_code": PRIMARY_DEMO_SHIFT.code,
+                    "source": "current_workspace",
+                    "note": None,
+                },
+                "after": {
+                    "station_code": PRIMARY_DEMO_STATION.code,
+                    "shift_code": "EVE",
+                    "source": "adjustment_patch",
+                    "note": "langgraph_refine_preview",
+                },
+            }
+        ],
+    }
     assert refined_first_day_assignment == {
         "date": "2026-04-01",
         "worker_code": PRIMARY_DEMO_WORKER.code,
@@ -728,8 +751,73 @@ def test_django_runtime_refine_returns_candidate_preview_without_mutating_curren
     }
     assert current_first_assignment.shift_definition.code == PRIMARY_DEMO_SHIFT.code
     assert current_first_assignment.assignment_source == "apply"
-    assert DjangoMonthlyAssignment.objects.filter(workspace=current_workspace).count() == 30
+    assert (
+        DjangoMonthlyAssignment.objects.filter(workspace=current_workspace).count()
+        == 30
+    )
     assert refine_request.result_preview_json is not None
+
+
+def test_django_runtime_refine_without_preview_returns_empty_preview_diff() -> None:
+    tenant = _seed_month_context()
+    views = {
+        pattern.name: pattern.callback
+        for pattern in build_django_monthly_schedule_urlpatterns()
+    }
+
+    preview_payload = _post_json(
+        views["preview_month_schedule"],
+        path="/v2/monthly-schedules/preview",
+        payload={
+            "tenant_slug": tenant.slug,
+            "year": 2026,
+            "month": 4,
+        },
+    )
+    _post_json(
+        views["apply_month_schedule"],
+        path="/v2/monthly-schedules/apply",
+        payload={
+            "tenant_slug": tenant.slug,
+            "year": 2026,
+            "month": 4,
+            "candidate_id": preview_payload["candidate_id"],
+        },
+    )
+
+    refine_payload = _post_json(
+        views["refine_month_schedule"],
+        path="/v2/monthly-schedules/refine",
+        payload={
+            "tenant_slug": tenant.slug,
+            "year": 2026,
+            "month": 4,
+            "request_text": "Write me a poem",
+        },
+    )
+
+    current_workspace = DjangoMonthlyWorkspace.objects.get(
+        tenant=tenant,
+        year=2026,
+        month=4,
+    )
+    refine_request = DjangoRefineRequest.objects.get(workspace=current_workspace)
+
+    assert refine_payload["status"] == "completed"
+    assert refine_payload["outcome"]["status"] == "non_scheduling"
+    assert refine_payload["parsed_intent_json"]["preview_executed"] is False
+    assert refine_payload["candidate_result"] is None
+    assert refine_payload["candidate_id"] is None
+    assert refine_payload["preview_diff"] == {
+        "added": [],
+        "removed": [],
+        "changed": [],
+    }
+    assert refine_request.result_preview_json is None
+    assert (
+        DjangoMonthlyAssignment.objects.filter(workspace=current_workspace).count()
+        == 30
+    )
 
 
 def test_django_runtime_refine_change_shift_keeps_station_without_mutating_current() -> None:
