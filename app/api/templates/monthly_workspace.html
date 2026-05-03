@@ -767,6 +767,31 @@
       font-size: 0.92rem;
     }
 
+    .preview-diff {
+      display: grid;
+      gap: 8px;
+    }
+
+    .preview-diff-group {
+      display: grid;
+      gap: 4px;
+    }
+
+    .preview-diff-label {
+      color: var(--text-main);
+      font-size: 0.9rem;
+      font-weight: 700;
+    }
+
+    .preview-diff-list {
+      display: grid;
+      gap: 4px;
+      margin: 0;
+      padding-left: 18px;
+      color: var(--text-muted);
+      font-size: 0.92rem;
+    }
+
     .empty-state {
       padding: 18px;
       border-radius: 16px;
@@ -1311,6 +1336,22 @@
           {% endif %}
 
           <p class="muted-note">{{ refine_result.candidate_note }}</p>
+
+          {% if refine_result.preview_diff_groups %}
+          <div class="preview-diff">
+            <h3>Proposed changes</h3>
+            {% for group in refine_result.preview_diff_groups %}
+            <div class="preview-diff-group">
+              <div class="preview-diff-label">{{ group.label }}</div>
+              <ul class="preview-diff-list">
+                {% for row in group.rows %}
+                <li>{{ row }}</li>
+                {% endfor %}
+              </ul>
+            </div>
+            {% endfor %}
+          </div>
+          {% endif %}
 
           <details class="technical-details">
             <summary>{{ page_copy.refine.technical_details_title }}</summary>

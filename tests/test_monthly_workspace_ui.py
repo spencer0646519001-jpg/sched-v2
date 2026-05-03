@@ -1400,6 +1400,14 @@ def test_workspace_voice_refine_upload_transcribes_and_routes_into_preview_only_
     assert transcriber.calls[0]["content_type"] == "audio/webm"
     assert "語音調整請求已透過 whisper-1 轉錄" in html_text
     assert "安排到 2026-04-01 的 EVE" in html_text
+    visible_html = html.unescape(html_text)
+    assert "Proposed changes" in visible_html
+    assert "Changed" in visible_html
+    assert (
+        f"2026-04-01 {PRIMARY_DEMO_WORKER.name}: "
+        f"{PRIMARY_DEMO_STATION.code} / {PRIMARY_DEMO_SHIFT.code} \u2192 "
+        f"{PRIMARY_DEMO_STATION.code} / EVE"
+    ) in visible_html
     assert refined_first_day_assignment == {
         "date": "2026-04-01",
         "worker_code": PRIMARY_DEMO_WORKER.code,
@@ -1767,6 +1775,7 @@ def test_workspace_refine_post_shows_safe_same_language_unsupported_state() -> N
         "このアシスタントはシフト調整のみ対応しています。"
         "シフト関連の依頼を入力してください。"
     ) in html_text
+    assert "Proposed changes" not in html.unescape(html_text)
     assert 'name="candidate_id" value=""' in html_text
     assert DjangoMonthlyAssignment.objects.filter(workspace=current_workspace).count() == 30
 

@@ -118,6 +118,11 @@ _VOICE_TRANSCRIPTION_PROMPT = (
     "Preserve worker codes, shift codes, station codes, and dates exactly. "
     "Do not translate."
 )
+_REFINE_PREVIEW_DIFF_GROUPS = (
+    ("changed", "Changed"),
+    ("added", "Added"),
+    ("removed", "Removed"),
+)
 
 
 @dataclass(slots=True)
@@ -1450,6 +1455,9 @@ def _build_refine_result_context(
             page_copy=page_copy,
         ),
         "preview_diff": response.preview_diff,
+        "preview_diff_groups": _build_refine_preview_diff_groups(
+            response.preview_diff
+        ),
         "candidate_note": (
             refine_copy["candidate_ready_note"]
             if candidate_result is not None
@@ -1659,6 +1667,61 @@ def _build_refine_adjustment_items(
             }
         )
     return items
+
+
+def _build_refine_preview_diff_groups(
+    preview_diff: object,
+) -> list[dict[str, object]]:
+    if not isinstance(preview_diff, dict):
+        return []
+
+    groups: list[dict[str, object]] = []
+    for group_key, group_label in _REFINE_PREVIEW_DIFF_GROUPS:
+        raw_rows = preview_diff.get(group_key)
+        if not isinstance(raw_rows, list):
+            continue
+
+        rows = [
+            summary
+            for row in raw_rows
+            if isinstance(row, dict)
+            for summary in [_format_refine_preview_diff_row(row)]
+            if summary
+        ]
+        if rows:
+            groups.append({"label": group_label, "rows": rows})
+    return groups
+
+
+def _format_refine_preview_diff_row(row: dict[str, object]) -> str:
+    date_value = _compact_text(row.get("date"))
+    worker_name = _compact_text(row.get("worker_name")) or _compact_text(
+        row.get("worker_code")
+    )
+    if not date_value or not worker_name:
+        return ""
+
+    before = _format_refine_preview_diff_assignment(row.get("before"))
+    after = _format_refine_preview_diff_assignment(row.get("after"))
+    return f"{date_value} {worker_name}: {before} \u2192 {after}"
+
+
+def _format_refine_preview_diff_assignment(assignment: object) -> str:
+    if not isinstance(assignment, dict):
+        return "OFF"
+
+    station_code = _compact_text(assignment.get("station_code"))
+    shift_code = _compact_text(assignment.get("shift_code"))
+    parts = [value for value in (station_code, shift_code) if value]
+    if not parts:
+        return "OFF"
+    return " / ".join(parts)
+
+
+def _compact_text(value: object) -> str:
+    if value is None:
+        return ""
+    return str(value).strip()
 
 
 def _localize_refine_value(
