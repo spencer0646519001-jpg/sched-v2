@@ -9,10 +9,11 @@ saved versions.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, field, replace
 from datetime import date
 from decimal import Decimal
-from typing import Protocol
+from typing import Protocol, TypedDict
 
 from app.engine.contracts import (
     AssignmentOutput,
@@ -170,6 +171,33 @@ class MonthlyScheduleRefineEngine(Protocol):
 
     def __call__(self, planning_input: MonthPlanningInput) -> MonthPlanningResult:
         ...
+
+
+class RefinePreviewDiffAssignment(TypedDict):
+    """Assignment details rendered in a refine preview diff row."""
+
+    station_code: str | None
+    shift_code: str
+    source: str
+    note: str | None
+
+
+class RefinePreviewDiffRow(TypedDict):
+    """One date/person comparison row for current vs candidate preview."""
+
+    date: str
+    worker_code: str
+    worker_name: str
+    before: RefinePreviewDiffAssignment | None
+    after: RefinePreviewDiffAssignment | None
+
+
+class RefinePreviewDiff(TypedDict):
+    """Structured assignment diff for a candidate refine preview."""
+
+    added: list[RefinePreviewDiffRow]
+    removed: list[RefinePreviewDiffRow]
+    changed: list[RefinePreviewDiffRow]
 
 
 @dataclass(slots=True)
@@ -397,12 +425,142 @@ def render_refine_outcome(outcome: RefineOutcome) -> str:
     return template.format(**safe_values)
 
 
+def build_refine_preview_diff(
+    current_assignments: list[AssignmentOutput],
+    candidate_assignments: list[AssignmentOutput],
+    *,
+    worker_display_names_by_code: Mapping[str, str] | None = None,
+) -> RefinePreviewDiff:
+    """Compare current workspace assignments with a candidate preview.
+
+    The diff identity matches the refine patch identity: one worker on one date.
+    The helper is pure and expects already-normalized engine assignment rows.
+    """
+
+    worker_display_names_by_code = worker_display_names_by_code or {}
+    current_by_key = _index_assignments_for_refine_diff(
+        current_assignments,
+        label="current_assignments",
+    )
+    candidate_by_key = _index_assignments_for_refine_diff(
+        candidate_assignments,
+        label="candidate_assignments",
+    )
+    diff: RefinePreviewDiff = {"added": [], "removed": [], "changed": []}
+
+    for assignment_key in sorted(set(current_by_key) | set(candidate_by_key)):
+        current_assignment = current_by_key.get(assignment_key)
+        candidate_assignment = candidate_by_key.get(assignment_key)
+        date_value, worker_code = assignment_key
+
+        if current_assignment is None and candidate_assignment is not None:
+            diff["added"].append(
+                _build_refine_preview_diff_row(
+                    date_value=date_value,
+                    worker_code=worker_code,
+                    worker_display_names_by_code=worker_display_names_by_code,
+                    before=None,
+                    after=candidate_assignment,
+                )
+            )
+            continue
+
+        if current_assignment is not None and candidate_assignment is None:
+            diff["removed"].append(
+                _build_refine_preview_diff_row(
+                    date_value=date_value,
+                    worker_code=worker_code,
+                    worker_display_names_by_code=worker_display_names_by_code,
+                    before=current_assignment,
+                    after=None,
+                )
+            )
+            continue
+
+        if current_assignment is None or candidate_assignment is None:
+            continue
+
+        if _assignment_schedule_signature(
+            current_assignment
+        ) != _assignment_schedule_signature(candidate_assignment):
+            diff["changed"].append(
+                _build_refine_preview_diff_row(
+                    date_value=date_value,
+                    worker_code=worker_code,
+                    worker_display_names_by_code=worker_display_names_by_code,
+                    before=current_assignment,
+                    after=candidate_assignment,
+                )
+            )
+
+    return diff
+
+
 def _render_value(value: object) -> str:
     if value is None:
         return ""
     if isinstance(value, (date, Decimal)):
         return str(value)
     return str(value)
+
+
+def _index_assignments_for_refine_diff(
+    assignments: list[AssignmentOutput],
+    *,
+    label: str,
+) -> dict[tuple[date, str], AssignmentOutput]:
+    indexed: dict[tuple[date, str], AssignmentOutput] = {}
+    for assignment in assignments:
+        assignment_key = (assignment.date, assignment.worker_code)
+        if assignment_key in indexed:
+            raise ValueError(
+                f"{label} contains multiple assignments for "
+                f"{assignment.worker_code!r} on {assignment.date.isoformat()}."
+            )
+        indexed[assignment_key] = assignment
+    return indexed
+
+
+def _build_refine_preview_diff_row(
+    *,
+    date_value: date,
+    worker_code: str,
+    worker_display_names_by_code: Mapping[str, str],
+    before: AssignmentOutput | None,
+    after: AssignmentOutput | None,
+) -> RefinePreviewDiffRow:
+    return {
+        "date": date_value.isoformat(),
+        "worker_code": worker_code,
+        "worker_name": worker_display_names_by_code.get(worker_code, worker_code),
+        "before": (
+            _serialize_refine_preview_diff_assignment(before)
+            if before is not None
+            else None
+        ),
+        "after": (
+            _serialize_refine_preview_diff_assignment(after)
+            if after is not None
+            else None
+        ),
+    }
+
+
+def _serialize_refine_preview_diff_assignment(
+    assignment: AssignmentOutput,
+) -> RefinePreviewDiffAssignment:
+    return {
+        "station_code": assignment.station_code,
+        "shift_code": assignment.shift_code,
+        "source": assignment.source,
+        "note": assignment.note,
+    }
+
+
+def _assignment_schedule_signature(
+    assignment: AssignmentOutput,
+) -> tuple[str, str | None]:
+    return (assignment.shift_code, assignment.station_code)
 
 
 def _build_refined_planning_input(
@@ -673,10 +831,14 @@ __all__ = [
     "RefineMonthScheduleResponse",
     "RefineMonthScheduleService",
     "RefineOutcome",
+    "RefinePreviewDiff",
+    "RefinePreviewDiffAssignment",
+    "RefinePreviewDiffRow",
     "RefineWorkflow",
     "RefineWorkflowRequest",
     "RefineWorkflowResult",
     "_build_refined_planning_input",
+    "build_refine_preview_diff",
     "refine_month_schedule",
     "render_refine_outcome",
 ]
